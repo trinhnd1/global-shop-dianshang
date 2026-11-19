@@ -11,6 +11,7 @@ curl -fsS "$BASE/api/desk300/status" | python3 -c "import sys,json; d=json.load(
 curl -fsS "$BASE/api/apify-store/stats" | python3 -c "import sys,json; d=json.load(sys.stdin); assert 'total_actors' in d and 'goals_catalog' in d, d; print('2e. Apify Store Local Catalog OK:', d['total_actors'], 'actors')"
 curl -fsS "$BASE/api/ecosystems" | python3 -c "import sys,json; d=json.load(sys.stdin); assert 'collections' in d, d; print('2f. Ecosystem Playbooks Hub OK:', d.get('total', len(d['collections'])), 'collections')"
 curl -fsS "$BASE/api/kalodata/status" | python3 -c "import sys,json; d=json.load(sys.stdin); assert 'account_email' in d and 'profile_name' in d, d; print('2g. Kalodata & Global Selling Bridge OK:', d['profile_name'], d['account_email'])"
+curl -fsS "$BASE/api/hunt/schedules" | python3 -c "import sys,json; d=json.load(sys.stdin); assert 'schedules' in d and 'recent_runs' in d, d; print('2h. Recurring Hunt Autopilot Schedules OK:', len(d['schedules']), 'schedules')"
 for route in "/" "/he-sinh-thai" "/luong-300-desk" "/apify-store" "/shop-cua-toi" "/tu-khoa" "/theo-doi" "/nguon-hang-tq" "/kho-shop" "/chien-dich" "/caidat"; do
   code=$(curl -s -o /dev/null -w "%{http_code}" "$BASE$route")
   [ "$code" = "200" ] || { echo "SPA route failed: $route ($code)"; exit 1; }

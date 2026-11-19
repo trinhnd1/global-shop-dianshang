@@ -603,6 +603,64 @@ MIGRATIONS: list[tuple[int, str, list[str]]] = [
             "CREATE INDEX IF NOT EXISTS idx_eco_updated ON ecosystem_collections(updated_at DESC)",
         ],
     ),
+    (
+        7,
+        "v7_recurring_hunt_painpoint_schedules_and_runs",
+        [
+            """
+            CREATE TABLE IF NOT EXISTS hunt_schedules (
+                schedule_id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'paused', 'archived')),
+                schedule_mode TEXT NOT NULL DEFAULT 'daily_time' CHECK (schedule_mode IN ('daily_time', 'interval_hours')),
+                daily_time TEXT NOT NULL DEFAULT '07:30',
+                interval_hours REAL NOT NULL DEFAULT 24.0,
+                keywords_json TEXT NOT NULL DEFAULT '[]',
+                pinned_products_json TEXT NOT NULL DEFAULT '[]',
+                channels_json TEXT NOT NULL DEFAULT '[]',
+                shopee_filters_json TEXT NOT NULL DEFAULT '{}',
+                items_per_channel INTEGER NOT NULL DEFAULT 8,
+                use_300desk INTEGER NOT NULL DEFAULT 1,
+                auto_score_jev INTEGER NOT NULL DEFAULT 1,
+                auto_classify_buckets INTEGER NOT NULL DEFAULT 1,
+                auto_promote_strong_pick INTEGER NOT NULL DEFAULT 1,
+                runs_count INTEGER NOT NULL DEFAULT 0,
+                last_run_at TEXT NOT NULL DEFAULT '',
+                next_run_at TEXT NOT NULL DEFAULT '',
+                baseline_snapshot_json TEXT NOT NULL DEFAULT '{}',
+                last_summary_json TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """,
+            "CREATE INDEX IF NOT EXISTS idx_hunt_sched_due ON hunt_schedules(status, next_run_at)",
+            """
+            CREATE TABLE IF NOT EXISTS hunt_schedule_runs (
+                run_id TEXT PRIMARY KEY,
+                schedule_id TEXT NOT NULL REFERENCES hunt_schedules(schedule_id) ON DELETE CASCADE,
+                trigger_kind TEXT NOT NULL DEFAULT 'scheduled',
+                status TEXT NOT NULL DEFAULT 'completed',
+                total_sampled INTEGER NOT NULL DEFAULT 0,
+                new_products_count INTEGER NOT NULL DEFAULT 0,
+                rising_products_count INTEGER NOT NULL DEFAULT 0,
+                painpoints_count INTEGER NOT NULL DEFAULT 0,
+                desk300_nnn TEXT NOT NULL DEFAULT '',
+                strong_pick_count INTEGER NOT NULL DEFAULT 0,
+                maybe_count INTEGER NOT NULL DEFAULT 0,
+                pass_count INTEGER NOT NULL DEFAULT 0,
+                desk_synthesis_text TEXT NOT NULL DEFAULT '',
+                bucket_breakdown_json TEXT NOT NULL DEFAULT '{}',
+                product_ids_json TEXT NOT NULL DEFAULT '[]',
+                new_items_json TEXT NOT NULL DEFAULT '[]',
+                rising_items_json TEXT NOT NULL DEFAULT '[]',
+                painpoint_ids_json TEXT NOT NULL DEFAULT '[]',
+                duration_ms INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL
+            )
+            """,
+            "CREATE INDEX IF NOT EXISTS idx_hunt_sched_runs ON hunt_schedule_runs(schedule_id, created_at DESC)",
+        ],
+    ),
 ]
 
 

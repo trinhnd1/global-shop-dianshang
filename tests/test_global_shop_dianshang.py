@@ -109,6 +109,8 @@ class GlobalShopDianshangE2ETest(unittest.TestCase):
         self.api.hunt.jev = fake_jev
         self.api.china_sourcing.jev = fake_jev
         self.api.ecosystems.jev = fake_jev
+        self.api.desk_pipeline.jev = fake_jev
+        self.api.hunt_schedules.jev = fake_jev
         class FakeDesk300:
             def check_gateway_status(self, probe_egress_ip=False):
                 return {"ok": False, "fail_closed": True, "gateway_url": "http://127.0.0.1:18765"}
@@ -121,6 +123,8 @@ class GlobalShopDianshangE2ETest(unittest.TestCase):
         self.api.china_sourcing.desk300 = fake_desk
         self.api.ecosystems.desk300 = fake_desk
         self.api.hunt.desk300 = fake_desk
+        self.api.desk_pipeline.desk300 = fake_desk
+        self.api.hunt_schedules.desk300 = fake_desk
 
         self.webapp = WebApp(self.api, DEFAULT_STATIC)
         self.httpd = make_server("127.0.0.1", 0, self.webapp, server_class=LocalHTTPServer, handler_class=LocalRequestHandler)
@@ -152,9 +156,9 @@ class GlobalShopDianshangE2ETest(unittest.TestCase):
     def test_01_security_version_masking_and_tailscale_guards(self):
         st, health = self.req("GET", "/api/health")
         self.assertEqual(st, 200)
-        self.assertEqual(health["version"], "1.0.12")
-        self.assertEqual(__version__, "1.0.12")
-        self.assertEqual(health["schema_version"], 6)
+        self.assertEqual(health["version"], "1.0.13")
+        self.assertEqual(__version__, "1.0.13")
+        self.assertEqual(health["schema_version"], 7)
 
         # Custom Favicon, Apple Touch Icon & WebManifest over Tailscale Host
         for icon_path, expected_ct in (
@@ -1274,6 +1278,161 @@ class GlobalShopDianshangE2ETest(unittest.TestCase):
         self.assertEqual(st_rs, 200)
         self.assertTrue(rs_res["delivered"])
         self.assertEqual(len(self.fake_tg.sent_messages), prev_tg_cnt + 1)
+
+    def test_10_recurring_hunt_painpoint_autopilot_300desk_jev_classify_and_telegram(self):
+        from backend.providers.desk300plus import Desk300PlusClient
+
+        settings.add_apify_key(self.api.connect, self.api.secrets, "Sched Test", "apify_api_test_sched_key_0001")
+        self.req("POST", "/api/settings", {
+            "providers": {"typesafe_key": "apikey_jev_sched_0001"},
+            "notify": {
+                "telegram_enabled": True,
+                "telegram_token": "1234567890:AAFakeSampleTokenForUnitTestOnly12345",
+                "telegram_chat_id": "5608975895",
+                "telegram_allowed_user_ids": "5608975895",
+            },
+        })
+
+        class SchedApify:
+            def __init__(self):
+                self.day = 1
+
+            def scrape_shopee_product(self, tokens, url, max_charge_usd=0.05, market="VN"):
+                return {
+                    "platform": "shopee",
+                    "market": "VN",
+                    "native_product_id": "1110001",
+                    "shop_name": "Gia Dụng Thông Minh VN",
+                    "title": "Phễu thoát sàn ngăn mùi hôi cống Inox 304",
+                    "price_vnd": 69000,
+                    "sold_count": 420,
+                    "stock": 40 if self.day == 1 else 31,  # Day 2 stock drops by 9 => +9 inferred sales!
+                    "url": "https://shopee.vn/product/99/1110001",
+                }
+
+            def search_social_painpoints(self, tokens, channel, query, limit=6):
+                return "apify~threads-scraper", [
+                    {
+                        "channel": channel,
+                        "text": "Nhà tắm cứ mưa là bốc mùi hôi cống với ẩm mốc khó chịu quá mọi người tìm mua phễu loại nào tốt?",
+                        "likes": 85,
+                        "comments": 32,
+                    }
+                ]
+
+            def search_shopee(self, tokens, kw, limit=8, max_charge_usd=0.08, filters=None, market="VN"):
+                items = [
+                    {
+                        "platform": "shopee",
+                        "market": "VN",
+                        "native_product_id": "2220001",
+                        "shop_name": "HomeClean Official",
+                        "title": "Xịt tẩy nấm mốc nhà tắm công nghệ sinh học 500ml",
+                        "price_vnd": 89000,
+                        "sold_count": 650,
+                        "stock": 120,
+                        "url": "https://shopee.vn/product/88/2220001",
+                    }
+                ]
+                if self.day >= 2:
+                    items.append({
+                        "platform": "shopee",
+                        "market": "VN",
+                        "native_product_id": "2220999",
+                        "shop_name": "HomeClean Official",
+                        "title": "[MỚI 2026] Máy hút ẩm khử mùi nhà vệ sinh Mini Ion Âm",
+                        "price_vnd": 345000,
+                        "sold_count": 58,
+                        "stock": 95,
+                        "url": "https://shopee.vn/product/88/2220999",
+                    })
+                return "lergassy~shopee-scraper", items
+
+            def search_tiktok_shop(self, tokens, kw, limit=8, max_charge_usd=0.06, market="VN"):
+                return "harshmaur~tiktok-shop-scraper", []
+
+        sched_apify = SchedApify()
+        self.api.hunt.apify = sched_apify
+        self.api.hunt_schedules.apify = sched_apify
+        self.api.products.apify = sched_apify
+
+        class SchedDeskRunner:
+            def check_gateway_status(self, probe_egress_ip=False):
+                return {
+                    "ok": True,
+                    "fail_closed": True,
+                    "gateway_url": "http://127.0.0.1:18765",
+                    "service": "desk300plus-gateway",
+                    "socks_proxy": "socks5h://100.113.217.101:1080",
+                    "dsh_script_exists": True,
+                }
+
+            def __call__(self, workdir, prompt_text, mode="gateway", use_pro=False):
+                meta = {"verified": {"path_ok": True, "via_socks": True, "direct_mac_call": False, "fallback_used": False, "forbidden_hosts_in_artifacts": []}}
+                if "daily_synthesis" in prompt_text:
+                    return json.dumps({
+                        "daily_synthesis": "Thị trường giải pháp khử mùi & chống ẩm nhà tắm tăng trưởng tốt: phát hiện mẫu Máy hút ẩm Mini Ion Âm mới lên sàn, Phễu thoát sàn giảm tồn kho 9 cái. Khuyến nghị nhập test 20 bộ combo Phễu + Xịt nấm mốc."
+                    }, ensure_ascii=False), meta
+                # Parse product IDs from prompt
+                ids_found = [int(m) for m in __import__("re").findall(r'"id":\s*(\d+)', prompt_text)]
+                return json.dumps({
+                    "items": [
+                        {
+                            "id": pid,
+                            "keep": True,
+                            "seo_title": f"[Chuẩn SEO] Giải pháp Khử Mùi Nhà Tắm #{pid}",
+                            "cn_1688_keyword": "防臭地漏芯 304不锈钢",
+                            "combo_strategy": "Combo 2 phễu + tặng lưới lọc tóc",
+                            "video_angles": ["Hook 3s: Mùi hôi cống bốc lên mỗi ngày", "Test xả nước tốc độ cao", "Chốt combo 2 cái miễn ship"],
+                        }
+                        for pid in ids_found
+                    ]
+                }, ensure_ascii=False), meta
+
+        live_desk = Desk300PlusClient(custom_runner=SchedDeskRunner())
+        self.api.desk_pipeline.desk300 = live_desk
+        self.api.hunt_schedules.desk300 = live_desk
+
+        # 1) Create recurring daily schedule at 07:30 & run Day 1 baseline immediately
+        st_cr, cr_res = self.req("POST", "/api/hunt/schedules", {
+            "name": "Săn 07:30: Khử mùi & Chống mốc nhà tắm",
+            "keywords": ["nhà tắm mùi hôi"],
+            "pinned_products": ["https://shopee.vn/product/99/1110001"],
+            "channels": ["threads", "shopee_vn"],
+            "schedule_mode": "daily_time",
+            "daily_time": "07:30",
+            "use_300desk": True,
+            "auto_score_jev": True,
+            "auto_classify_buckets": True,
+            "auto_promote_strong_pick": True,
+            "run_immediately": True,
+        })
+        self.assertEqual(st_cr, 200)
+        sid = cr_res["schedule"]["schedule_id"]
+        self.assertEqual(cr_res["schedule"]["cadence_label"], "Hàng ngày lúc 07:30")
+        self.assertGreaterEqual(cr_res["first_run"]["strong_pick_count"], 2)
+        self.assertIn("Máy hút ẩm", cr_res["first_run"]["desk_synthesis_text"])
+
+        # Verify Jev + auto_promote_strong_pick automatically classified products into `dang_nhap_ban`!
+        self.assertGreaterEqual(cr_res["first_run"]["bucket_breakdown"].get("dang_nhap_ban", 0), 2)
+
+        # 2) Simulate Day 2 Scheduled Cron Execution (`run_due_schedules`) -> detects +1 NEW product & +9 stock-drop sales!
+        sched_apify.day = 2
+        with self.api.connect() as conn:
+            conn.execute("UPDATE hunt_schedules SET next_run_at='2020-01-01T00:00:00Z' WHERE schedule_id=?", (sid,))
+        self.fake_tg.sent_messages.clear()
+        ran_cnt = self.api.hunt_schedules.run_due_schedules()
+        self.assertEqual(ran_cnt, 1)
+
+        # Flush outbox to Telegram and verify full Day 2 report arrived on Telegram!
+        self.req("POST", "/api/providers/telegram/sync-pending", {})
+        self.assertTrue(any("Lịch săn lặp lại" in m.get("text", "") and "SP mới" in m.get("text", "") for m in self.fake_tg.sent_messages))
+
+        _, det_s = self.req("GET", f"/api/hunt/schedules/{sid}")
+        latest_run = det_s["schedule"]["runs"][0]
+        self.assertEqual(latest_run["new_products_count"], 1)
+        self.assertEqual(latest_run["rising_products_count"], 1)
+        self.assertEqual(latest_run["rising_items"][0]["delta_sold"], 9)
 
 
 if __name__ == "__main__":

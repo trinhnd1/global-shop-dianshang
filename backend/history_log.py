@@ -156,6 +156,11 @@ def describe_http_title(method: str, path: str, req_body, default_label: str) ->
         return f"Tìm Nguồn hàng TQ ({pl}): {q[:80]}" if q else f"{default_label} ({path})"
     if path == "/api/desk300/run":
         return f"Chạy Luồng Xử lý SP 300+desk -> Jev ({b.get('mode') or 'vault_process'})"
+    if path == "/api/hunt/schedules" and method == "POST":
+        nm = str(b.get("name") or b.get("keywords") or "").strip()
+        return f"Tạo Lịch Săn SP & Painpoint Lặp lại: {nm[:80]}" if nm else "Tạo Lịch Săn SP & Painpoint Lặp lại"
+    if path.startswith("/api/hunt/schedules/") and path.endswith("/run"):
+        return f"Chạy Phiên Lịch Săn Lặp lại ({path.split('/')[4]})"
     return f"{default_label} ({path})"
 
 

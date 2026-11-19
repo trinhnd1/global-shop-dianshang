@@ -650,8 +650,136 @@
       : `<div style="color:var(--muted);font-size:12.5px">Chưa có Painpoint nào được lưu. Nhập chủ đề (VD: <em>"nhà tắm ẩm mốc mùi hôi"</em> hoặc <em>"đau mỏi cổ vai gáy"</em>) rồi bấm <strong>"🧠 Quét Painpoint &amp; Tìm Sản phẩm Phù hợp"</strong>!</div>`;
   }
 
+  function renderHuntScheduleRunDetail(run, bucketLabels = {}) {
+    const box = document.getElementById("huntScheduleRunDetailBox");
+    if (!box || !run) return;
+    const bb = run.bucket_breakdown || {};
+    const bbChips = Object.entries(bb)
+      .map(([k, cnt]) => `<span class="badge blue">${esc(bucketLabels[k] || KHO_BUCKETS_META[k]?.name || k)}: <strong>${cnt}</strong></span>`)
+      .join(" ");
+    const newList = (run.new_items || []).slice(0, 6);
+    const risingList = (run.rising_items || []).slice(0, 6);
+    const prods = (run.products || []).slice(0, 12);
+
+    box.innerHTML = `
+      <div style="padding:12px;background:#071222;border:1px solid rgba(251,191,36,0.55);border-radius:10px">
+        <div class="row" style="justify-content:space-between;margin-bottom:8px">
+          <div>
+            <strong style="color:#fcd34d;font-size:13.5px">📊 Báo cáo Phiên Săn Lặp lại (${esc(run.run_id)} · ${fmtTime(run.created_at)})</strong>
+            <div style="font-size:12px;color:var(--muted)">Thu thập <strong>${run.total_sampled}</strong> SP · <span style="color:#6ee7b7">+${run.new_products_count} SP mới</span> · <span style="color:#fcd34d">${run.rising_products_count} SP tăng bán</span> ${run.desk300_nnn ? `· Gói 300+desk <code>#${esc(run.desk300_nnn)}</code>` : ""} · Jev: <strong>${run.strong_pick_count} Strong Pick</strong> / ${run.maybe_count} Maybe</div>
+          </div>
+          <button class="btn btn-sm" data-action="hsched-close-detail">✕ Đóng</button>
+        </div>
+
+        <div style="padding:9px 11px;background:#0d1b30;border-left:3px solid #fbbf24;border-radius:6px;margin-bottom:8px;font-size:12.5px;line-height:1.5">
+          <strong style="color:#fde68a">🤖 Tổng hợp Điều hành 300+desk:</strong> ${esc(run.desk_synthesis_text || "—")}
+        </div>
+
+        ${bbChips ? `<div class="row" style="gap:6px;margin-bottom:8px"><strong style="font-size:12px;color:var(--muted)">Phân loại Kho tự động:</strong> ${bbChips}</div>` : ""}
+
+        ${
+          newList.length
+            ? `<div style="margin-bottom:8px;font-size:12px">
+                <strong style="color:#6ee7b7">🆕 Sản phẩm mới phát hiện trong phiên này (${run.new_products_count}):</strong>
+                <div style="margin-top:4px">${newList.map((n) => `<div>• <a href="${esc(n.url || "#")}" target="_blank" style="color:#93c5fd">${esc(n.title)}</a> — ${vnd(n.price_vnd)} (đã bán ${n.sold_count})</div>`).join("")}</div>
+              </div>`
+            : ""
+        }
+
+        ${
+          risingList.length
+            ? `<div style="margin-bottom:8px;font-size:12px">
+                <strong style="color:#fcd34d">📈 Sản phẩm tăng lượt bán / giảm tồn kho (${run.rising_products_count}):</strong>
+                <div style="margin-top:4px">${risingList.map((r) => `<div>• <strong>+${r.delta_sold} đơn</strong>: <a href="${esc(r.url || "#")}" target="_blank" style="color:#93c5fd">${esc(r.title)}</a> (tổng ${r.sold_count})</div>`).join("")}</div>
+              </div>`
+            : ""
+        }
+
+        ${
+          prods.length
+            ? `<div style="max-height:260px;overflow:auto">
+                <table class="tbl">
+                  <thead><tr><th>#ID</th><th>Sản phẩm đã xử lý &amp; phân loại</th><th>Sàn</th><th>Giá bán</th><th>Đã bán</th><th>Điểm Jev</th><th>Ngăn Kho tự phân loại</th><th>Mở</th></tr></thead>
+                  <tbody>
+                    ${prods.map((p) => `
+                      <tr>
+                        <td>#${p.id}</td>
+                        <td><a href="${esc(p.url || "#")}" target="_blank" style="color:#93c5fd">${esc(p.desk300?.seo_title || p.title)}</a>
+                          ${p.desk300?.cn_1688_keyword ? `<div style="font-size:11px;color:#fcd34d">1688: <code>${esc(p.desk300.cn_1688_keyword)}</code></div>` : ""}
+                        </td>
+                        <td><span class="badge">${esc(p.channel_label || p.platform)}</span></td>
+                        <td>${vnd(p.price_vnd)}</td>
+                        <td><strong>${Number(p.sold_count || 0).toLocaleString("vi-VN")}</strong></td>
+                        <td>${p.jev_score != null ? `<span class="badge gold">${p.jev_score}/10</span>` : "—"}</td>
+                        <td><span class="badge green">${esc(p.bucket_label || KHO_BUCKETS_META[p.bucket]?.name || p.bucket)}</span></td>
+                        <td><button class="btn btn-sm btn-pri" data-action="prod-dossier" data-id="${p.id}">📊 Hồ sơ</button></td>
+                      </tr>`).join("")}
+                  </tbody>
+                </table>
+              </div>`
+            : ""
+        }
+      </div>`;
+  }
+
+  async function loadHuntSchedules() {
+    const box = document.getElementById("huntSchedulesListBox");
+    if (!box) return;
+    try {
+      const data = await api("/api/hunt/schedules");
+      const items = data.schedules || [];
+      if (!items.length) {
+        box.innerHTML = `<div style="color:var(--muted);font-size:12.5px">Chưa có lịch săn lặp lại nào. Nhập từ khoá/chủ đề Painpoint, chọn giờ cố định (VD: <code>07:30</code>) rồi bấm <strong>"⏰ Tạo &amp; Kích hoạt Lịch Săn Lặp lại Tự động"</strong>!</div>`;
+        return;
+      }
+      box.innerHTML = `
+        <table class="tbl">
+          <thead><tr><th>Lịch Săn Lặp lại</th><th>Mốc thời gian</th><th>Từ khoá &amp; SP ghim</th><th>Trạng thái &amp; Lần kế tiếp</th><th>Tổng hợp 300+desk &amp; Kết quả Jev gần nhất</th><th>Thao tác</th></tr></thead>
+          <tbody>
+            ${items.map((s) => {
+              const ls = s.last_summary || {};
+              const active = s.status === "active";
+              return `
+                <tr>
+                  <td>
+                    <strong style="color:#fde68a">${esc(s.name)}</strong>
+                    <div style="font-size:11px;color:var(--muted)">Đã chạy ${s.runs_count} phiên · Kênh: ${(s.channels || []).length}</div>
+                  </td>
+                  <td><span class="badge gold">⏰ ${esc(s.cadence_label)}</span></td>
+                  <td style="font-size:12px">
+                    <div>${(s.keywords || []).map((k) => `<span class="badge blue" style="margin:1px">${esc(k)}</span>`).join(" ") || "—"}</div>
+                    ${(s.pinned_products || []).length ? `<div style="font-size:11px;color:#6ee7b7;margin-top:3px">📌 Ghim ${(s.pinned_products || []).length} SP mục tiêu</div>` : ""}
+                  </td>
+                  <td style="font-size:12px">
+                    <div>${active ? `<span class="badge green">🟢 Đang bật</span>` : `<span class="badge">⏸ Tạm dừng</span>`}</div>
+                    <div style="font-size:11px;color:var(--muted);margin-top:3px">Kế tiếp: ${s.next_run_at ? fmtTime(s.next_run_at) : "—"}</div>
+                  </td>
+                  <td style="font-size:12px;max-width:360px">
+                    ${
+                      ls.headline
+                        ? `<div><strong>${esc(ls.headline)}</strong></div>
+                           <div style="font-size:11.5px;color:#93c5fd;margin-top:2px">${esc((ls.desk_synthesis || "").slice(0, 145))}${(ls.desk_synthesis || "").length > 145 ? "..." : ""}</div>`
+                        : `<span style="color:var(--muted)">Chưa chạy phiên đầu tiên</span>`
+                    }
+                  </td>
+                  <td>
+                    <div class="row" style="gap:4px">
+                      <button class="btn btn-sm btn-pri" data-action="hsched-run-now" data-id="${esc(s.schedule_id)}">▶️ Quét ngay</button>
+                      ${ls.run_id ? `<button class="btn btn-sm btn-gold" data-action="hsched-open-run" data-id="${esc(ls.run_id)}">📊 Báo cáo</button>` : ""}
+                      <button class="btn btn-sm" data-action="hsched-open-history" data-id="${esc(s.schedule_id)}">📜 Lịch sử</button>
+                      <button class="btn btn-sm" data-action="hsched-toggle-status" data-id="${esc(s.schedule_id)}" data-st="${active ? "pause" : "resume"}">${active ? "⏸" : "▶️"}</button>
+                      <button class="btn btn-sm btn-danger" data-action="hsched-delete" data-id="${esc(s.schedule_id)}">🗑</button>
+                    </div>
+                  </td>
+                </tr>`;
+            }).join("")}
+          </tbody>
+        </table>`;
+    } catch (_) {}
+  }
+
   async function loadHuntRecentRuns() {
-    await Promise.all([loadGoogleTrendsHistory(), loadPainpoints()]);
+    await Promise.all([loadGoogleTrendsHistory(), loadPainpoints(), loadHuntSchedules()]);
     const box = document.getElementById("huntRecentRunsBox");
     if (!box) return;
     const data = await api("/api/history-logs?module=hunt");
@@ -2063,6 +2191,10 @@
       const rid = ev.target.value;
       const found = GT_HISTORY_RUNS.find((r) => r.run_id === rid);
       if (found) renderGoogleTrendsResult(found);
+    } else if (ev.target.id === "hsMode") {
+      const isDaily = ev.target.value === "daily_time";
+      document.getElementById("hsDailyTimeWrap").style.display = isDaily ? "block" : "none";
+      document.getElementById("hsIntervalWrap").style.display = isDaily ? "none" : "block";
     }
   });
 
@@ -3007,6 +3139,102 @@
         document.getElementById("vcUrl").value = actEl.dataset.url || "";
         document.getElementById("vcProdName").value = actEl.dataset.prod || "";
         showTab("videoclone", "/clone-video");
+      } else if (act === "hunt-prefill-schedule") {
+        const kw = document.getElementById("huntKeywords")?.value.trim() || "";
+        if (kw) document.getElementById("hsKeywords").value = kw;
+        if (!document.getElementById("hsName").value.trim() && kw) {
+          document.getElementById("hsName").value = `Săn Hàng ngày: ${kw.slice(0, 48)}`;
+        }
+        document.getElementById("huntScheduleCard")?.scrollIntoView({ behavior: "smooth", block: "center" });
+        toast("Đã nạp từ khoá & kênh chọn vào khung Lịch Săn Lặp lại — chọn giờ rồi bấm Tạo!");
+      } else if (act === "pp-prefill-schedule") {
+        const tp = document.getElementById("ppTopicInput")?.value.trim() || "";
+        if (tp) document.getElementById("hsKeywords").value = tp;
+        document.querySelectorAll(".pp-ch:checked").forEach((el) => {
+          const hChk = document.querySelector(`.hunt-ch[value="${el.value}"]`);
+          if (hChk) hChk.checked = true;
+        });
+        if (!document.getElementById("hsName").value.trim() && tp) {
+          document.getElementById("hsName").value = `Săn Painpoint Hàng ngày: ${tp.slice(0, 42)}`;
+        }
+        document.getElementById("huntScheduleCard")?.scrollIntoView({ behavior: "smooth", block: "center" });
+        toast("Đã đưa chủ đề & kênh MXH lên Lịch Săn Lặp lại!");
+      } else if (act === "hsched-refresh") {
+        await loadHuntSchedules();
+      } else if (act === "hsched-close-detail") {
+        document.getElementById("huntScheduleRunDetailBox").innerHTML = "";
+      } else if (act === "hsched-create") {
+        const kws = document.getElementById("hsKeywords").value.trim() || document.getElementById("huntKeywords").value.trim();
+        const pinned = document.getElementById("hsPinnedProducts").value.trim();
+        const chs = [...document.querySelectorAll(".hunt-ch:checked")].map((c) => c.value);
+        const runNow = document.getElementById("hsRunNow").checked;
+        if (runNow) {
+          document.getElementById("huntScheduleRunDetailBox").innerHTML = `<div class="card">⏳ Đang tạo lịch &amp; chạy phiên Mốc gốc lần 1 (Quét Từ khoá/Painpoint &rarr; 300+desk Tổng hợp &rarr; Jev Chấm điểm &amp; Phân loại Kho)...</div>`;
+        }
+        const res = await api("/api/hunt/schedules", "POST", {
+          name: document.getElementById("hsName").value.trim(),
+          keywords: kws,
+          pinned_products: pinned,
+          channels: chs,
+          shopee_filters: collectHuntShopeeFilters(),
+          items_per_channel: Number(document.getElementById("huntLimit")?.value || 8),
+          schedule_mode: document.getElementById("hsMode").value,
+          daily_time: document.getElementById("hsDailyTime").value || "07:30",
+          interval_hours: Number(document.getElementById("hsIntervalHours").value || 24),
+          use_300desk: document.getElementById("hsUse300Desk").checked,
+          auto_score_jev: document.getElementById("hsAutoJev").checked,
+          auto_classify_buckets: document.getElementById("hsAutoJev").checked,
+          auto_promote_strong_pick: document.getElementById("hsAutoPromote").checked,
+          run_immediately: runNow,
+        });
+        toast(res.summary);
+        if (res.first_run) renderHuntScheduleRunDetail(res.first_run);
+        await syncSidebarCountsAndRefs();
+        await loadHuntSchedules();
+      } else if (act === "hsched-run-now") {
+        document.getElementById("huntScheduleRunDetailBox").innerHTML = `<div class="card">⏳ Đang chạy phiên Săn Lặp lại (Quét &amp; So sánh SP mới &rarr; 300+desk Tổng hợp &rarr; Jev Chấm điểm &amp; Phân loại Kho)...</div>`;
+        const res = await api(`/api/hunt/schedules/${encodeURIComponent(actEl.dataset.id)}/run`, "POST", {});
+        toast(res.summary);
+        if (res.run) renderHuntScheduleRunDetail(res.run);
+        await syncSidebarCountsAndRefs();
+        await loadHuntSchedules();
+      } else if (act === "hsched-open-run") {
+        const res = await api(`/api/hunt/schedules/runs/${encodeURIComponent(actEl.dataset.id)}`);
+        if (res.run) renderHuntScheduleRunDetail(res.run, res.bucket_labels);
+      } else if (act === "hsched-open-history") {
+        const res = await api(`/api/hunt/schedules/${encodeURIComponent(actEl.dataset.id)}`);
+        const s = res.schedule;
+        const runs = s?.runs || [];
+        openModal(
+          `📜 Lịch sử các phiên quét — ${s?.name || ""}`,
+          runs.length
+            ? `<table class="tbl">
+                <thead><tr><th>Thời gian</th><th>Kích hoạt</th><th>Tổng SP</th><th>SP mới</th><th>Tăng bán</th><th>300+desk</th><th>Jev Strong Pick</th><th>Tổng hợp 300+desk</th><th>Xem</th></tr></thead>
+                <tbody>
+                  ${runs.map((r) => `
+                    <tr>
+                      <td>${fmtTime(r.created_at)}</td>
+                      <td><code>${esc(r.trigger_kind)}</code></td>
+                      <td>${r.total_sampled}</td>
+                      <td><span class="badge green">+${r.new_products_count}</span></td>
+                      <td><span class="badge gold">${r.rising_products_count}</span></td>
+                      <td>${r.desk300_nnn ? `#${esc(r.desk300_nnn)}` : "—"}</td>
+                      <td><strong>${r.strong_pick_count}</strong></td>
+                      <td style="font-size:11.5px;max-width:300px">${esc((r.desk_synthesis_text || "").slice(0, 140))}</td>
+                      <td><button class="btn btn-sm btn-pri" onclick="document.getElementById('mainModalBackdrop').classList.remove('open')" data-action="hsched-open-run" data-id="${esc(r.run_id)}">📊 Mở</button></td>
+                    </tr>`).join("")}
+                </tbody>
+              </table>`
+            : `<div style="color:var(--muted)">Chưa có phiên chạy nào cho lịch săn này.</div>`
+        );
+      } else if (act === "hsched-toggle-status") {
+        const res = await api(`/api/hunt/schedules/${encodeURIComponent(actEl.dataset.id)}/${actEl.dataset.st}`, "POST", {});
+        toast(res.summary);
+        await loadHuntSchedules();
+      } else if (act === "hsched-delete") {
+        await api(`/api/hunt/schedules/${encodeURIComponent(actEl.dataset.id)}`, "DELETE");
+        toast("Đã xoá lịch săn lặp lại!");
+        await loadHuntSchedules();
       }
     } catch (err) {
       toast(err.message || "Có lỗi xảy ra", true);

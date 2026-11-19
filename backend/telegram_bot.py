@@ -92,6 +92,7 @@ class TelegramBotService:
         self.watches_service = None
         self.products_service = None
         self.ecosystems_service = None
+        self.hunt_schedules_service = None
         self.web_port = web_port
         self._http_runner = http_runner or self._default_http_runner
         self._queue = deque(maxlen=500)
@@ -275,9 +276,14 @@ class TelegramBotService:
             f"• Thời lượng: {dur_str} | Chi phí API: ${cost_val:.4f}",
         ]
 
-        # Include rich highlights from payload / job step logs when available
+        # Include rich highlights from payload / HTTP response / job step logs when available
         payload = item.get("payload") if isinstance(item.get("payload"), dict) else {}
-        extra_lines = payload.get("highlights") if isinstance(payload.get("highlights"), list) else []
+        resp_obj = payload.get("response") if isinstance(payload.get("response"), dict) else {}
+        extra_lines = (
+            payload.get("highlights")
+            if isinstance(payload.get("highlights"), list)
+            else (resp_obj.get("highlights") if isinstance(resp_obj.get("highlights"), list) else [])
+        )
         for hl in extra_lines[:6]:
             if hl:
                 lines.append(f"  ◦ {str(hl)[:140]}")
@@ -402,6 +408,7 @@ class TelegramBotService:
                 f"Các lệnh hỗ trợ:\n"
                 f"• /status — Tổng quan Kho SP, Hệ sinh thái, Theo dõi & Nhật ký\n"
                 f"• /last (hoặc /logs) — 8 tác vụ GS-XXXX gần nhất\n"
+                f"• /schedules (hoặc /lichsan) — Lịch Săn SP & Painpoint lặp lại\n"
                 f"• /eco — Danh mục Hệ sinh thái & Phụ kiện SP đang theo dõi\n"
                 f"• /watches — Danh sách Từ khoá / SP / Shop đang theo dõi\n"
                 f"• /gs GS-0001 — Xem chi tiết 1 mã công việc\n\n"
@@ -423,6 +430,17 @@ class TelegramBotService:
                 f"• Tác vụ gần nhất: {logs[0]['gs_code'] + ' - ' + logs[0]['title'] if logs else 'Chưa có'}\n"
                 f"🌐 Tailscale: {rem}"
             )
+        if cmd in ("/schedules", "/lichsan") and self.hunt_schedules_service:
+            schs = self.hunt_schedules_service.list_schedules()[:8]
+            if not schs:
+                return f"Chưa có lịch săn lặp lại nào. Tạo tại: {self.remote_url('/san-sp')}"
+            lines = ["⏰ Lịch Săn SP & Painpoint Lặp lại Tự động:"]
+            for s in schs:
+                st_ic = "🟢" if s["status"] == "active" else "⏸"
+                hl = (s.get("last_summary") or {}).get("headline") or "Chưa chạy phiên đầu"
+                lines.append(f"• {st_ic} {s['name']} [{s['cadence_label']}] — {hl[:90]}")
+            lines.append(f"🌐 Quản lý tại: {self.remote_url('/san-sp')}")
+            return "\n".join(lines)
         if cmd in ("/eco", "/ecosystems") and self.ecosystems_service:
             cols = self.ecosystems_service.list_collections()[:8]
             if not cols:

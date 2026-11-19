@@ -20,6 +20,7 @@ from .desk_pipeline import DeskProductWorkflowService
 from .ecosystem_playbook import EcosystemDailySchedulerDaemon, EcosystemPlaybookService
 from .history_log import HistoryLogService
 from .hunt import HuntAndCreatorsService
+from .hunt_schedules import HuntScheduleService, HuntSchedulerDaemon
 from .jobs import JobManager
 from .kalodata_bridge import KalodataAndGlobalSellingService
 from .keywords import KeywordResearchService
@@ -174,6 +175,20 @@ class Application:
         self.hunt = HuntAndCreatorsService(self.connect, self.secrets, self.products, self.jobs, apify=self.apify, treg=self.treg, jev=self.jev)
         self.hunt.desk300 = self.desk300
         self.hunt.desk_pipeline = self.desk_pipeline
+        self.hunt_schedules = HuntScheduleService(
+            self.connect,
+            self.secrets,
+            self.products,
+            self.hunt,
+            desk_pipeline=self.desk_pipeline,
+            desk300=self.desk300,
+            apify=self.apify,
+            treg=self.treg,
+            jev=self.jev,
+            history_logs=self.history_logs,
+            telegram_bot=self.telegram_bot,
+        )
+        self.hunt_scheduler = HuntSchedulerDaemon(self.hunt_schedules)
         self.spy_video = SpyAndVideoService(
             self.connect,
             self.secrets,
@@ -224,6 +239,7 @@ class Application:
         self.telegram_bot.products_service = self.products
         self.telegram_bot.watches_service = self.watches
         self.telegram_bot.ecosystems_service = self.ecosystems
+        self.telegram_bot.hunt_schedules_service = self.hunt_schedules
         self.watches.history_logs = self.history_logs
         self.ecosystems.history_logs = self.history_logs
         self.campaigns.history_logs = self.history_logs
@@ -239,6 +255,7 @@ class Application:
             self.shops,
             self.watches,
             self.china_sourcing,
+            self.hunt_schedules,
             self.hunt,
             self.spy_video,
             self.campaigns,
@@ -416,6 +433,7 @@ class Application:
                 with self.connect() as conn:
                     apify_store_cnt = int(conn.execute("SELECT COUNT(*) FROM apify_store_actors").fetchone()[0])
                     ecosystems_cnt = int(conn.execute("SELECT COUNT(*) FROM ecosystem_collections").fetchone()[0])
+                    hunt_sched_cnt = int(conn.execute("SELECT COUNT(*) FROM hunt_schedules WHERE status != 'archived'").fetchone()[0])
                 return "200 OK", {
                     "vault_products": self.products.count_all(),
                     "watches_count": len(self.watches.list_watches()),
@@ -426,6 +444,7 @@ class Application:
                     "desk300_runs_count": len(self.desk_pipeline.list_runs(limit=100)),
                     "apify_store_count": apify_store_cnt,
                     "ecosystems_count": ecosystems_cnt,
+                    "hunt_schedules_count": hunt_sched_cnt,
                     "campaigns_count": len(self.campaigns.list_campaigns()),
                     "sales": self.campaigns.sales_summary()["seller_kpis"],
                     "recent_logs": self.history_logs.list_logs(limit=6),
