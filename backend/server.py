@@ -223,6 +223,10 @@ class Application:
 
         self.telegram_bot.products_service = self.products
         self.telegram_bot.watches_service = self.watches
+        self.telegram_bot.ecosystems_service = self.ecosystems
+        self.watches.history_logs = self.history_logs
+        self.ecosystems.history_logs = self.history_logs
+        self.campaigns.history_logs = self.history_logs
 
         self.handlers = [
             self.mcp_gateway,

@@ -1471,7 +1471,7 @@
     const k = hData.kpis || {};
     document.getElementById("histKpiStrip").innerHTML = `
       <div class="kpi"><div class="lbl">Tổng Công việc đã lưu</div><div class="val sky">${k.total || 0}</div></div>
-      <div class="kpi"><div class="lbl">Hoàn thành</div><div class="val green">${k.completed || 0}</div></div>
+      <div class="kpi"><div class="lbl">Đã gửi qua Telegram Bot</div><div class="val green">${k.telegram_notified || 0} / ${k.total || 0}</div></div>
       <div class="kpi"><div class="lbl">Đang chạy / Lỗi</div><div class="val gold">${k.running || 0} / ${k.failed || 0}</div></div>
       <div class="kpi"><div class="lbl">Tổng Chi phí API luỹ kế</div><div class="val">$${Number(k.total_cost_usd || 0).toFixed(4)}</div></div>
     `;
@@ -1479,7 +1479,7 @@
     const logs = hData.logs || [];
     document.getElementById("historyLogsBox").innerHTML = logs.length
       ? `<table class="tbl">
-          <thead><tr><th>Mã GS</th><th>Phân hệ</th><th>Công việc / Job đã chạy</th><th>Trạng thái</th><th>Thời lượng &amp; Chi phí</th><th>Tóm tắt kết quả</th><th>Telegram</th><th>Chi tiết</th></tr></thead>
+          <thead><tr><th>Mã GS</th><th>Phân hệ</th><th>Công việc / Job đã chạy</th><th>Trạng thái</th><th>Thời lượng &amp; Chi phí</th><th>Tóm tắt kết quả</th><th>Telegram Bot</th><th>Chi tiết</th></tr></thead>
           <tbody>${logs.map((l) => `
             <tr>
               <td><strong style="color:#7dd3fc">${esc(l.gs_code)}</strong></td>
@@ -1488,7 +1488,11 @@
               <td>${statusBadgeHtml(l.status)}</td>
               <td>${fmtDuration(l.duration_ms)} · $${Number(l.cost_usd || 0).toFixed(4)}</td>
               <td>${esc(l.summary)}</td>
-              <td>${l.telegram_notified_at ? "✅ Đã báo" : "—"}</td>
+              <td>
+                <div>${l.telegram_notified_at ? `<span class="badge green">✅ Đã báo${l.telegram_message_id ? " #" + esc(l.telegram_message_id) : ""}</span>` : `<span class="badge gold">⏳ Chờ đẩy</span>`}</div>
+                ${l.telegram_last_error ? `<div style="font-size:10px;color:#fca5a5;margin-top:2px">${esc(l.telegram_last_error)}</div>` : ""}
+                <button class="btn btn-sm" style="margin-top:4px;padding:2px 6px;font-size:11px" data-action="hist-resend-tg" data-id="${esc(l.log_id)}">📨 Gửi lại</button>
+              </td>
               <td>
                 <button class="btn btn-sm btn-pri" data-action="hist-open-detail" data-id="${esc(l.log_id)}">🔍 Xem Chi tiết</button>
               </td>
@@ -2018,7 +2022,7 @@
       </div>`).join("") || `<div style="color:var(--muted);font-size:12px">Chưa có Apify Key.</div>`;
 
     document.getElementById("tgStatusBox").innerHTML =
-      `Bot: <strong>@${esc(tg.bot_username)}</strong> · Token: ${tg.token_configured ? "✅ Đã lưu Keychain" : "❌ Chưa lưu"} · Allowed IDs: <code>${esc((tg.allowed_user_ids || []).join(", "))}</code> · Tailscale: <a href="${esc(tg.tailscale_url)}" target="_blank" style="color:#6ee7b7">${esc(tg.tailscale_url)}</a>`;
+      `Bot: <strong>@${esc(tg.bot_username)}</strong> · Token: ${tg.token_configured ? "✅ Đã lưu Keychain" : "❌ Chưa lưu"} · Đã gửi Telegram: <strong style="color:#6ee7b7">${tg.logs_notified ?? 0}/${tg.logs_total ?? 0} nhật ký</strong> · Allowed IDs: <code>${esc((tg.allowed_user_ids || []).join(", "))}</code> · Tailscale: <a href="${esc(tg.tailscale_url)}" target="_blank" style="color:#6ee7b7">${esc(tg.tailscale_url)}</a>`;
 
     const kLine = kaloSt
       ? `<br/>• Kalodata VN (<code>${esc(kaloSt.account_email)}</code>): ${kaloSt.kalodata_session?.logged_in ? "🟢 Đã đăng nhập" : "⚪ Chờ mở tab"} · Affiliate Global Selling: ${kaloSt.affiliate_global_selling_session?.ready ? "🟢 Sẵn sàng" : "⚪ Chờ mở tab"}`
@@ -2825,6 +2829,15 @@
         await api("/api/providers/telegram/test", "POST", {});
         toast("Đã gửi tin nhắn Test vào Telegram của bạn!");
         loadSettings();
+      } else if (act === "tg-sync-pending") {
+        const res = await api("/api/providers/telegram/sync-pending", "POST", {});
+        toast(res.summary || "Đã đồng bộ toàn bộ nhật ký chưa báo sang Telegram!");
+        if (CURRENT_TAB === "logs") await loadHistoryAndJobs();
+        else if (CURRENT_TAB === "settings") await loadSettings();
+      } else if (act === "hist-resend-tg") {
+        const res = await api(`/api/history-logs/${encodeURIComponent(actEl.dataset.id)}/resend-telegram`, "POST", {});
+        toast(`Đã gửi lại nhật ký sang Telegram (Msg #${res.message_id || "OK"})!`);
+        await loadHistoryAndJobs();
       } else if (act === "apify-add") {
         await api("/api/providers/apify/keys", "POST", {
           label: document.getElementById("newApifyLabel").value,

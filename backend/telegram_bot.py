@@ -12,6 +12,7 @@ import urllib.error
 import urllib.request
 
 from . import PRODUCT_NAME, __version__, settings
+from .history_log import MODULE_LABELS, MODULE_ROUTES
 from .responses import json_object, now
 
 _TG_TOKEN_SCRUB_RE = re.compile(r"\b\d{8,12}:[A-Za-z0-9_-]{30,55}\b")
@@ -90,10 +91,12 @@ class TelegramBotService:
         self.history_logs = history_logs
         self.watches_service = None
         self.products_service = None
+        self.ecosystems_service = None
         self.web_port = web_port
         self._http_runner = http_runner or self._default_http_runner
-        self._queue = deque(maxlen=250)
+        self._queue = deque(maxlen=500)
         self._lock = threading.Lock()
+        self._send_lock = threading.Lock()
         self._stop = threading.Event()
         self._started = False
         self._last_error = ""
@@ -106,15 +109,38 @@ class TelegramBotService:
         url = f"https://api.telegram.org/bot{token}/{method}"
         data = json.dumps(payload).encode("utf-8") if payload is not None else None
         headers = {"Content-Type": "application/json"} if data is not None else {}
-        req = urllib.request.Request(url, data=data, headers=headers, method="POST" if data is not None else "GET")
-        try:
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
-                return json.loads(resp.read().decode("utf-8"))
-        except urllib.error.HTTPError as exc:
-            raw = exc.read().decode("utf-8", errors="replace")
-            raise RuntimeError(f"Telegram HTTP {exc.code}: {scrub_tg_text(raw)[:200]}") from None
-        except Exception as exc:
-            raise RuntimeError(scrub_tg_text(str(exc))[:200]) from None
+        last_exc: Exception | None = None
+        for attempt in range(3):
+            req = urllib.request.Request(url, data=data, headers=headers, method="POST" if data is not None else "GET")
+            try:
+                with urllib.request.urlopen(req, timeout=timeout) as resp:
+                    return json.loads(resp.read().decode("utf-8"))
+            except urllib.error.HTTPError as exc:
+                raw = exc.read().decode("utf-8", errors="replace")
+                if exc.code in (429, 500, 502, 503, 504) and attempt < 2:
+                    time.sleep(0.8 * (attempt + 1))
+                    last_exc = RuntimeError(f"Telegram HTTP {exc.code}: {scrub_tg_text(raw)[:200]}")
+                    continue
+                raise RuntimeError(f"Telegram HTTP {exc.code}: {scrub_tg_text(raw)[:200]}") from None
+            except Exception as exc:
+                last_exc = exc
+                if attempt < 2:
+                    time.sleep(0.7 * (attempt + 1))
+                    continue
+        # Fallback via OPi SOCKS5 only if direct connection to api.telegram.org experienced TCP/TLS reset
+        curl_bin = shutil.which("curl")
+        if curl_bin:
+            try:
+                cmd = [curl_bin, "-fsS", "-m", str(max(10, timeout)), "--socks5-hostname", "100.113.217.101:1080"]
+                if data is not None:
+                    cmd.extend(["-X", "POST", "-H", "Content-Type: application/json", "-d", data.decode("utf-8")])
+                cmd.append(url)
+                p = subprocess.run(cmd, capture_output=True, text=True, timeout=max(12, timeout + 4))
+                if p.returncode == 0 and p.stdout.strip():
+                    return json.loads(p.stdout)
+            except Exception:
+                pass
+        raise RuntimeError(scrub_tg_text(str(last_exc or "Telegram network error"))[:220]) from None
 
     def start(self):
         if self._started:
@@ -171,54 +197,150 @@ class TelegramBotService:
             self._queue.append(dict(log_item))
 
     def _notifier_loop(self):
+        last_sweep = 0.0
         while not self._stop.is_set():
             item = None
             with self._lock:
                 if self._queue:
                     item = self._queue.popleft()
-            if item is None:
-                time.sleep(1.2)
+            if item is not None:
+                try:
+                    self._deliver_log_item(item)
+                except Exception as exc:
+                    self._last_error = scrub_tg_text(str(exc))[:240]
+                time.sleep(0.25)
                 continue
-            try:
-                self._deliver_log_item(item)
-            except Exception as exc:
-                self._last_error = scrub_tg_text(str(exc))[:240]
 
-    def _deliver_log_item(self, item: dict):
+            # Durable Outbox Sweep every 10s so 100% of GS-XXXX logs & notifications are guaranteed delivered!
+            now_mono = time.monotonic()
+            if now_mono - last_sweep >= 10.0:
+                last_sweep = now_mono
+                try:
+                    self.sync_pending_logs(limit=15)
+                except Exception as exc:
+                    self._last_error = scrub_tg_text(str(exc))[:240]
+            time.sleep(1.0)
+
+    def sync_pending_logs(self, limit: int = 25) -> dict:
         cfg = settings.read_settings(self.connect, self.secrets)
         ntf = cfg["notify"]
         if not ntf.get("telegram_enabled") or not ntf.get("telegram_token") or not ntf.get("telegram_chat_id"):
-            return
-        st = item.get("status") or ""
-        if st == "running" and not ntf.get("notify_on_job_start", True):
-            return
-        if st in ("completed", "failed", "cancelled") and not ntf.get("notify_on_activity_log", True):
-            return
-        sync_sig = hashlib.sha256(f"{item.get('log_id')}|{st}|{item.get('summary')}".encode("utf-8")).hexdigest()[:24]
+            return {"synced": 0, "skipped_disabled": True}
         with self.connect() as conn:
-            row = conn.execute("SELECT telegram_sync_hash FROM activity_history_logs WHERE log_id=?", (item.get("log_id"),)).fetchone()
-            if row and row["telegram_sync_hash"] == sync_sig:
-                return
+            rows = conn.execute(
+                """
+                SELECT log_id, status, summary, telegram_sync_hash
+                FROM activity_history_logs
+                ORDER BY seq_no ASC
+                """
+            ).fetchall()
+        pending_ids: list[str] = []
+        for r in rows:
+            sig = hashlib.sha256(f"{r['log_id']}|{r['status']}|{r['summary']}".encode("utf-8")).hexdigest()[:24]
+            if r["telegram_sync_hash"] != sig:
+                pending_ids.append(r["log_id"])
+                if len(pending_ids) >= limit:
+                    break
+        sent_n = 0
+        for lid in pending_ids:
+            full_item = self.history_logs.get_log(lid)
+            if full_item:
+                res = self.deliver_log_immediately(full_item, force=False)
+                if res.get("delivered"):
+                    sent_n += 1
+                time.sleep(0.2)
+        return {"synced": sent_n, "checked_pending": len(pending_ids)}
 
-        icon = {"running": "⏳", "completed": "✅", "failed": "❌", "cancelled": "🛑"}.get(st, "📌")
+    def _format_log_message(self, item: dict) -> str:
+        st = item.get("status") or "completed"
+        icon = {"running": "⏳", "completed": "✅", "failed": "❌", "cancelled": "🛑", "info": "🔔"}.get(st, "📌")
+        st_vi = {
+            "running": "Đang chạy",
+            "completed": "Hoàn thành",
+            "failed": "Thất bại",
+            "cancelled": "Đã dừng",
+            "info": "Thông báo",
+        }.get(st, st)
         gs_code = item.get("gs_code") or ""
-        remote_link = self.remote_url(f"/nhat-ky?gs={gs_code}")
-        local_link = f"http://127.0.0.1:{self.web_port}/nhat-ky?gs={gs_code}"
-        msg = (
-            f"{icon} [{gs_code}] {item.get('title')}\n"
-            f"• Phân hệ: {item.get('module')} | Trạng thái: {st}\n"
-            f"• Kết quả: {item.get('summary') or '—'}\n"
-            f"• Chi phí: ${float(item.get('cost_usd') or 0.0):.4f}\n"
-            f"🔗 Tailscale: {remote_link}\n"
-            f"🖥 Local: {local_link}"
-        )
-        sent = self.send_text(msg)
-        msg_id = str(sent.get("message_id") or "")
-        with self.connect() as conn:
-            conn.execute(
-                "UPDATE activity_history_logs SET telegram_message_id=?, telegram_notified_at=?, telegram_sync_hash=?, telegram_last_error='' WHERE log_id=?",
-                (msg_id, now(), sync_sig, item.get("log_id")),
-            )
+        mod = item.get("module") or "system"
+        mod_lbl = MODULE_LABELS.get(mod, item.get("module_label") or mod)
+        dur_ms = int(item.get("duration_ms") or 0)
+        dur_str = f"{dur_ms / 1000.0:.1f}s" if dur_ms >= 1000 else f"{dur_ms}ms"
+        cost_val = float(item.get("cost_usd") or 0.0)
+
+        lines = [
+            f"{icon} [{gs_code}] {item.get('title')}",
+            f"• Phân hệ: {mod_lbl} | Trạng thái: {st_vi}",
+            f"• Kết quả: {item.get('summary') or '—'}",
+            f"• Thời lượng: {dur_str} | Chi phí API: ${cost_val:.4f}",
+        ]
+
+        # Include rich highlights from payload / job step logs when available
+        payload = item.get("payload") if isinstance(item.get("payload"), dict) else {}
+        extra_lines = payload.get("highlights") if isinstance(payload.get("highlights"), list) else []
+        for hl in extra_lines[:6]:
+            if hl:
+                lines.append(f"  ◦ {str(hl)[:140]}")
+
+        step_logs = item.get("step_logs") if isinstance(item.get("step_logs"), list) else []
+        if step_logs and st in ("completed", "failed"):
+            lines.append("• Nhật ký bước chạy gần nhất:")
+            for sl in step_logs[-3:]:
+                lines.append(f"  » {str(sl)[:130]}")
+
+        mod_route = MODULE_ROUTES.get(mod, "/nhat-ky")
+        remote_log = self.remote_url(f"/nhat-ky?gs={gs_code}")
+        remote_tab = self.remote_url(mod_route)
+        lines.append(f"🔗 Chi tiết Nhật ký: {remote_log}")
+        if mod_route != "/nhat-ky":
+            lines.append(f"🌐 Mở phân hệ: {remote_tab}")
+        return "\n".join(lines)
+
+    def deliver_log_immediately(self, item: dict, force: bool = False) -> dict:
+        cfg = settings.read_settings(self.connect, self.secrets)
+        ntf = cfg["notify"]
+        if not ntf.get("telegram_enabled") or not ntf.get("telegram_token") or not ntf.get("telegram_chat_id"):
+            return {"delivered": False, "reason": "disabled_or_unconfigured"}
+        st = item.get("status") or "completed"
+        sync_sig = hashlib.sha256(f"{item.get('log_id')}|{st}|{item.get('summary')}".encode("utf-8")).hexdigest()[:24]
+        if not force:
+            with self.connect() as conn:
+                row = conn.execute(
+                    "SELECT telegram_sync_hash FROM activity_history_logs WHERE log_id=?",
+                    (item.get("log_id"),),
+                ).fetchone()
+                if row and row["telegram_sync_hash"] == sync_sig:
+                    return {"delivered": False, "reason": "already_synced"}
+
+        msg = self._format_log_message(item)
+        with self._send_lock:
+            try:
+                sent = self.send_text(msg)
+                msg_id = str(sent.get("message_id") or "")
+                self._last_error = ""
+                with self.connect() as conn:
+                    conn.execute(
+                        """
+                        UPDATE activity_history_logs
+                        SET telegram_message_id=?, telegram_notified_at=?, telegram_sync_hash=?, telegram_last_error=''
+                        WHERE log_id=?
+                        """,
+                        (msg_id, now(), sync_sig, item.get("log_id")),
+                    )
+                return {"delivered": True, "message_id": msg_id}
+            except Exception as exc:
+                err_txt = scrub_tg_text(str(exc))[:240]
+                self._last_error = err_txt
+                with self.connect() as conn:
+                    conn.execute(
+                        "UPDATE activity_history_logs SET telegram_last_error=? WHERE log_id=?",
+                        (err_txt, item.get("log_id")),
+                    )
+                raise
+
+    def _deliver_log_item(self, item: dict):
+        full_item = self.history_logs.get_log(item.get("log_id") or "") or item
+        self.deliver_log_immediately(full_item, force=False)
 
     def _poller_loop(self):
         offset = 0
@@ -276,10 +398,11 @@ class TelegramBotService:
         if cmd in ("/start", "/help"):
             return (
                 f"🏬 {PRODUCT_NAME} v{__version__}\n"
-                f"Hệ thống nghiên cứu sản phẩm bán chạy, từ khoá Shopee/TikTok, soi Shop & nguồn hàng 1688/Taobao/Pinduoduo.\n\n"
+                f"Toàn bộ thông báo & nhật ký công việc (GS-XXXX) đang được đồng bộ tự động qua Bot này.\n\n"
                 f"Các lệnh hỗ trợ:\n"
-                f"• /status — Tổng quan Kho SP, Theo dõi & Nhật ký\n"
-                f"• /last — 5 tác vụ GS-XXXX gần nhất\n"
+                f"• /status — Tổng quan Kho SP, Hệ sinh thái, Theo dõi & Nhật ký\n"
+                f"• /last (hoặc /logs) — 8 tác vụ GS-XXXX gần nhất\n"
+                f"• /eco — Danh mục Hệ sinh thái & Phụ kiện SP đang theo dõi\n"
                 f"• /watches — Danh sách Từ khoá / SP / Shop đang theo dõi\n"
                 f"• /gs GS-0001 — Xem chi tiết 1 mã công việc\n\n"
                 f"🌐 Tailscale: {rem}\n"
@@ -288,19 +411,34 @@ class TelegramBotService:
         if cmd == "/status":
             prod_cnt = self.products_service.count_all() if self.products_service else 0
             watch_cnt = len(self.watches_service.list_watches()) if self.watches_service else 0
-            logs = self.history_logs.list_logs(limit=5)
+            eco_cnt = len(self.ecosystems_service.list_collections()) if self.ecosystems_service else 0
+            kpis = self.history_logs.summary_kpis()
+            logs = self.history_logs.list_logs(limit=3)
             return (
                 f"📊 Trạng thái {PRODUCT_NAME} v{__version__}\n"
                 f"• Sản phẩm trong Kho: {prod_cnt}\n"
+                f"• Danh mục Hệ sinh thái SP: {eco_cnt}\n"
                 f"• Mục đang theo dõi (Từ khoá/SP/Shop): {watch_cnt}\n"
+                f"• Nhật ký GS-XXXX: {kpis['total']} (Đã báo Telegram: {kpis['telegram_notified']}/{kpis['total']})\n"
                 f"• Tác vụ gần nhất: {logs[0]['gs_code'] + ' - ' + logs[0]['title'] if logs else 'Chưa có'}\n"
                 f"🌐 Tailscale: {rem}"
             )
-        if cmd in ("/last", "/jobs"):
-            logs = self.history_logs.list_logs(limit=5)
+        if cmd in ("/eco", "/ecosystems") and self.ecosystems_service:
+            cols = self.ecosystems_service.list_collections()[:8]
+            if not cols:
+                return f"Chưa có danh mục Hệ sinh thái nào. Mở tại: {self.remote_url('/he-sinh-thai')}"
+            lines = ["🎯 Danh mục Hệ sinh thái & Phụ kiện SP:"]
+            for c in cols:
+                hl = (c.get("index_summary") or {}).get("headline") or c["name"]
+                sched = "⏰ Cào 24h" if c.get("daily_schedule_enabled") else "⏸ Thủ công"
+                lines.append(f"• {hl} [{sched}]")
+            lines.append(f"🌐 Mở Hệ sinh thái: {self.remote_url('/he-sinh-thai')}")
+            return "\n".join(lines)
+        if cmd in ("/last", "/jobs", "/logs"):
+            logs = self.history_logs.list_logs(limit=8)
             if not logs:
                 return "Chưa có nhật ký công việc nào."
-            lines = [f"🧾 5 nhật ký gần nhất ({PRODUCT_NAME}):"]
+            lines = [f"🧾 8 nhật ký gần nhất ({PRODUCT_NAME}):"]
             for it in logs:
                 lines.append(f"• [{it['gs_code']}] ({it['status']}) {it['title']} — {it['summary'][:90]}")
             lines.append(f"🌐 Xem đầy đủ: {self.remote_url('/nhat-ky')}")
@@ -332,6 +470,7 @@ class TelegramBotService:
     def status_view(self) -> dict:
         cfg = settings.read_settings(self.connect, self.secrets)
         ntf = cfg["notify"]
+        kpis = self.history_logs.summary_kpis() if self.history_logs else {}
         return {
             "enabled": bool(ntf.get("telegram_enabled")),
             "token_configured": bool(ntf.get("telegram_token")),
@@ -339,6 +478,9 @@ class TelegramBotService:
             "chat_id": ntf.get("telegram_chat_id") or "",
             "allowed_user_ids": sorted(parse_allowed_user_ids(ntf)),
             "sent_count": self._sent_count,
+            "logs_total": kpis.get("total", 0),
+            "logs_notified": kpis.get("telegram_notified", 0),
+            "logs_pending": kpis.get("telegram_pending", 0),
             "rejected_count": self._rejected_count,
             "last_error": self._last_error,
             "tailscale_url": self.remote_url(),
@@ -347,6 +489,13 @@ class TelegramBotService:
     def dispatch(self, path: str, method: str, env, read_json):
         if path == "/api/providers/telegram/status" and method == "GET":
             return "200 OK", self.status_view()
+        if path == "/api/providers/telegram/sync-pending" and method == "POST":
+            res = self.sync_pending_logs(limit=50)
+            return "200 OK", {
+                "ok": True,
+                **res,
+                "summary": f"Đã đồng bộ {res['synced']} nhật ký chưa gửi sang Telegram Bot!",
+            }
         if path == "/api/providers/telegram/check" and method == "POST":
             body = json_object(read_json, env)
             return "200 OK", self.check_bot(str(body.get("telegram_token") or ""))

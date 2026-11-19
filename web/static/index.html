@@ -20,7 +20,7 @@
     <aside class="side" id="sidebar">
       <div class="brand">
         <h1 style="display:flex;align-items:center;gap:8px"><img src="/favicon.svg?v=1.0.11" alt="GS" width="24" height="24" style="border-radius:6px;flex-shrink:0" /><span>Global Shop Dianshang</span></h1>
-        <div class="sub">Apify #1 · Treg #2 · 300+desk · Jev (<span id="sideVer">v1.0.11</span>)</div>
+        <div class="sub">Apify #1 · Treg #2 · 300+desk · Jev (<span id="sideVer">v1.0.12</span>)</div>
       </div>
 
       <div class="nav-sec">1 · Nghiên cứu, 300+desk &amp; Shop của tôi</div>
@@ -1213,15 +1213,20 @@
                 <label>Phân hệ công việc</label>
                 <select id="histFilterMod">
                   <option value="all">🗂 Tất cả phân hệ</option>
-                  <option value="hunt">🎯 Săn SP Bán chạy</option>
+                  <option value="ecosystems">🎯 Hệ sinh thái &amp; Phụ kiện SP</option>
+                  <option value="kalodata">📊 Kalodata &amp; Global Selling</option>
+                  <option value="desk300">🤖 Xử lý SP 300+desk &rarr; Jev</option>
+                  <option value="apify_store">🧩 Kho API Apify Store</option>
+                  <option value="hunt">🔎 Săn SP &amp; Painpoint</option>
                   <option value="keywords">🔑 Tra cứu Từ khoá</option>
                   <option value="watches">🔭 Theo dõi Từ khoá/SP/Shop</option>
-                  <option value="shops">🏪 Kho Shop &amp; Quét Shop</option>
+                  <option value="shops">🏪 Shop của tôi &amp; Kho Shop</option>
                   <option value="products">📦 Kho &amp; Phân loại SP</option>
                   <option value="china_sourcing">🇨🇳 Nguồn 1688/PDD/Taobao</option>
                   <option value="spy">🕵️ Soi SP &amp; Fanpage</option>
                   <option value="videos">🎬 Đánh giá &amp; Clone Video</option>
                   <option value="campaigns">🚀 Chiến dịch &amp; Doanh số</option>
+                  <option value="mcp">🔌 Cổng MCP Agent</option>
                   <option value="settings">⚙️ Cài đặt &amp; Kết nối</option>
                 </select>
               </div>
@@ -1238,6 +1243,7 @@
               <div class="row" style="align-items:flex-end">
                 <button class="btn btn-pri" data-action="hist-filter">🔍 Lọc nhật ký</button>
                 <button class="btn" data-action="hist-reset">Xoá lọc</button>
+                <button class="btn btn-gold" data-action="tg-sync-pending">📨 Đẩy toàn bộ Nhật ký chưa báo qua Telegram</button>
               </div>
             </div>
           </div>
@@ -1382,6 +1388,7 @@
               <div class="row">
                 <button class="btn btn-sm" data-action="tg-check">Kiểm tra Bot</button>
                 <button class="btn btn-sm btn-pri" data-action="tg-test">📨 Gửi tin nhắn Test qua Telegram</button>
+                <button class="btn btn-sm btn-gold" data-action="tg-sync-pending">🔄 Đồng bộ toàn bộ Nhật ký sang Telegram</button>
               </div>
               <div id="tgStatusBox" style="margin-top:8px;font-size:12.5px;color:var(--muted)"></div>
             </div>

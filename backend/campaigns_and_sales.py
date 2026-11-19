@@ -214,6 +214,16 @@ class CampaignsAndSalesService:
         if self.telegram_bot:
             msg += f"\n🌐 {self.telegram_bot.remote_url('/chien-dich')}"
             self.telegram_bot.send_text(msg)
+        if getattr(self, "history_logs", None) is not None and trigger_kind != "manual":
+            self.history_logs.record_event(
+                module="campaigns",
+                action_type="scheduled_morning_briefing",
+                title=f"Báo cáo Chiến dịch buổi sáng: {cmp['name']}",
+                status="completed",
+                summary=f"Đã gửi báo cáo chiến dịch {cmp['name']} ({len(cmp['products'])} SP · GMV {kpi['gmv_vnd']:,.0f}đ)",
+                payload={"campaign_id": campaign_id, "local_date": local_date},
+                notify_telegram=True,
+            )
         with self.connect() as conn:
             conn.execute(
                 "INSERT OR IGNORE INTO campaign_daily_reports (campaign_id, local_date, trigger_kind, summary_text, created_at) VALUES (?, ?, ?, ?, ?)",

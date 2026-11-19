@@ -192,8 +192,8 @@ class ProductsService:
                         (bucket, ind, json.dumps(rec, ensure_ascii=False), ts, r["id"]),
                     )
 
-            kw_rows = conn.execute("SELECT platform, keyword, items_json FROM keyword_researches").fetchall()
-            scan_rows = conn.execute("SELECT platform, shop_name, items_json FROM shop_product_scans").fetchall()
+            kw_rows = conn.execute("SELECT platform, keyword, items_json FROM keyword_researches").fetchall() if not rows else []
+            scan_rows = conn.execute("SELECT platform, shop_name, items_json FROM shop_product_scans").fetchall() if not rows else []
 
         for kr in kw_rows:
             for it in json.loads(kr["items_json"] or "[]"):

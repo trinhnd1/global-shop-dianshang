@@ -108,7 +108,7 @@ def compute_catalog_diff(prev_snapshot: dict, cur_items: list[dict], cur_total_c
 
 
 class WatchesService:
-    def __init__(self, connect, secrets, products, keywords, shops, apify=None, treg=None, telegram_bot=None):
+    def __init__(self, connect, secrets, products, keywords, shops, apify=None, treg=None, telegram_bot=None, history_logs=None):
         self.connect = connect
         self.secrets = secrets
         self.products = products
@@ -117,6 +117,7 @@ class WatchesService:
         self.apify = apify
         self.treg = treg
         self.telegram_bot = telegram_bot
+        self.history_logs = history_logs
 
     def create_watch(self, body: dict) -> dict:
         wtype = str(body.get("watch_type") or "keyword").lower().strip()
@@ -397,18 +398,46 @@ class WatchesService:
                 (ts, nxt, json.dumps(summary, ensure_ascii=False), json.dumps(next_snap, ensure_ascii=False), ts, watch_id),
             )
 
-        if self.telegram_bot and int(diff.get("new_items_count") or 0) > 0:
+        stock_inferred = int(diff.get("stock_drop_inferred_sold") or 0)
+        delta_sold_prod = int(diff.get("delta_sold") or 0) if wtype == "product" else 0
+        has_new = int(diff.get("new_items_count") or 0) > 0
+        has_stock_or_sales_surge = (wtype == "product" and (stock_inferred > 0 or delta_sold_prod > 0))
+
+        # Record scheduled background checks directly in GS-XXXX History Log -> auto-pushed to Telegram Bot!
+        if self.history_logs is not None and trigger_kind == "scheduled":
+            hl_lines = [f"+ {x['title'][:70]}" for x in (diff.get("new_items") or [])[:4]]
+            if stock_inferred > 0:
+                hl_lines.append(f"Tồn kho giảm {diff.get('prev_stock')} -> {diff.get('stock')} (suy ra +{stock_inferred} đơn bán)")
+            self.history_logs.record_event(
+                module="watches",
+                action_type="scheduled_watch_check",
+                title=f"Theo dõi định kỳ: {w['title'][:110]}",
+                status="completed",
+                summary=summary["headline"],
+                payload={"watch_id": watch_id, "watch_type": wtype, "diff": diff, "highlights": hl_lines},
+                notify_telegram=True,
+            )
+
+        if self.telegram_bot and (has_new or has_stock_or_sales_surge) and trigger_kind != "scheduled":
             try:
                 cfg = settings.read_settings(self.connect, self.secrets)
-                if cfg["notify"].get("notify_on_watch_new_items", True) and cfg["notify"].get("telegram_token"):
-                    top_titles = "\n".join(f"  + {x['title'][:65]}" for x in (diff.get("new_items") or [])[:4])
-                    self.telegram_bot.send_text(
-                        f"🔔 Phát hiện +{diff['new_items_count']} sản phẩm mới!\n"
-                        f"• Theo dõi [{wtype.upper()} · {plat}]: {w['title']}\n"
-                        f"• {summary['headline']}\n"
-                        f"{top_titles}\n"
-                        f"🌐 {self.telegram_bot.remote_url('/theo-doi')}"
-                    )
+                if cfg["notify"].get("telegram_enabled", True) and cfg["notify"].get("telegram_token"):
+                    if has_new:
+                        top_titles = "\n".join(f"  + {x['title'][:65]}" for x in (diff.get("new_items") or [])[:4])
+                        self.telegram_bot.send_text(
+                            f"🔔 Phát hiện +{diff['new_items_count']} sản phẩm mới!\n"
+                            f"• Theo dõi [{wtype.upper()} · {plat}]: {w['title']}\n"
+                            f"• {summary['headline']}\n"
+                            f"{top_titles}\n"
+                            f"🌐 {self.telegram_bot.remote_url('/theo-doi')}"
+                        )
+                    elif has_stock_or_sales_surge:
+                        self.telegram_bot.send_text(
+                            f"📦 Biến động Lượt bán / Tồn kho Sản phẩm Theo dõi Đặc biệt!\n"
+                            f"• SP: {w['title']}\n"
+                            f"• {summary['headline']}\n"
+                            f"🌐 {self.telegram_bot.remote_url('/theo-doi')}"
+                        )
             except Exception:
                 pass
 

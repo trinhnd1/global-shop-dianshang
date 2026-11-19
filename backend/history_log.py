@@ -4,6 +4,7 @@ import io
 import json
 import re
 from urllib.parse import parse_qs
+import uuid
 
 from .responses import ApiError, Raw, json_object, now, safe_csv_cell, text
 
@@ -17,11 +18,14 @@ INLINE_SECRET_RE = re.compile(
 LOCAL_PATH_RE = re.compile(r"/Users/[^\s\"',]+")
 
 MODULE_LABELS = {
-    "hunt": "🎯 Săn SP Bán chạy",
+    "hunt": "🔎 Săn SP & Painpoint",
+    "ecosystems": "🎯 Hệ sinh thái & Phụ kiện SP",
+    "kalodata": "📊 Kalodata & Global Selling",
     "desk300": "🤖 Xử lý SP 300+desk -> Jev",
+    "apify_store": "🧩 Kho API Apify Store",
     "keywords": "🔑 Tra cứu Từ khoá",
     "watches": "🔭 Theo dõi Từ khoá/SP/Shop",
-    "shops": "🏪 Kho Shop & Quét Shop",
+    "shops": "🏪 Shop của tôi & Kho Shop",
     "products": "📦 Kho & Phân loại SP",
     "china_sourcing": "🇨🇳 Nguồn 1688/PDD/Taobao",
     "spy": "🕵️ Soi SP & Fanpage",
@@ -29,7 +33,30 @@ MODULE_LABELS = {
     "campaigns": "🚀 Chiến dịch & Doanh số",
     "settings": "⚙️ Cài đặt & Kết nối",
     "mcp": "🔌 Cổng MCP Agent",
+    "notify": "🔔 Thông báo Hệ thống",
     "job": "⏱ Tiến trình nền",
+    "system": "⚙️ Thao tác Hệ thống",
+}
+
+MODULE_ROUTES = {
+    "hunt": "/san-sp",
+    "ecosystems": "/he-sinh-thai",
+    "kalodata": "/he-sinh-thai",
+    "desk300": "/luong-300-desk",
+    "apify_store": "/apify-store",
+    "keywords": "/tu-khoa",
+    "watches": "/theo-doi",
+    "shops": "/kho-shop",
+    "products": "/kho/tat-ca",
+    "china_sourcing": "/nguon-hang-tq",
+    "spy": "/soi-sp-fanpage",
+    "videos": "/clone-video",
+    "campaigns": "/chien-dich",
+    "settings": "/caidat",
+    "mcp": "/caidat",
+    "notify": "/nhat-ky",
+    "job": "/nhat-ky",
+    "system": "/nhat-ky",
 }
 
 
@@ -63,6 +90,12 @@ def scrub_for_history(obj, depth: int = 0):
 
 
 def classify_http_module(path: str) -> tuple[str, str] | None:
+    if path.startswith("/api/ecosystems"):
+        return ("ecosystems", "Hệ sinh thái & Phụ kiện SP")
+    if path.startswith("/api/kalodata") or path.startswith("/api/browser"):
+        return ("kalodata", "Kalodata & Affiliate Global Selling")
+    if path.startswith("/api/apify-store"):
+        return ("apify_store", "Kho API Apify Store")
     if path.startswith("/api/settings") or path.startswith("/api/providers/") or path.startswith("/api/connections/"):
         return ("settings", "Cập nhật cấu hình / kết nối")
     if path.startswith("/api/hunt/") or path.startswith("/api/creators/"):
@@ -77,7 +110,7 @@ def classify_http_module(path: str) -> tuple[str, str] | None:
         return ("shops", "Shop của tôi & Kho Shop")
     if path.startswith("/api/sourcing"):
         return ("china_sourcing", "Nguồn hàng 1688 / Taobao / Pinduoduo")
-    if path.startswith("/api/products") or path.startswith("/api/results"):
+    if path.startswith("/api/products") or path.startswith("/api/results") or path.startswith("/api/pins"):
         return ("products", "Kho & Phân loại Sản phẩm")
     if path.startswith("/api/spy"):
         return ("spy", "Soi Sản phẩm / Fanpage")
@@ -85,9 +118,45 @@ def classify_http_module(path: str) -> tuple[str, str] | None:
         return ("videos", "Đánh giá & Clone Video")
     if path.startswith("/api/campaigns") or path.startswith("/api/sales"):
         return ("campaigns", "Chiến dịch Ngành hàng & Doanh số")
-    if path.startswith("/api/mcp/"):
+    if path.startswith("/api/mcp/") or path in ("/mcp", "/mcp/"):
         return ("mcp", "Cổng MCP Agent")
+    if path.startswith("/api/jobs"):
+        return ("job", "Quản lý Tiến trình nền")
+    if path.startswith("/api/"):
+        return ("system", "Thao tác Hệ thống")
     return None
+
+
+def describe_http_title(method: str, path: str, req_body, default_label: str) -> str:
+    b = req_body if isinstance(req_body, dict) else {}
+    if path == "/api/ecosystems/run":
+        nm = str(b.get("name") or b.get("seed_keyword") or "").strip()
+        return f"Chạy Luồng Hệ sinh thái: {nm}" if nm else "Chạy Luồng Hệ sinh thái & Phụ kiện SP"
+    if path.endswith("/check-daily") and path.startswith("/api/ecosystems/"):
+        return f"Cào mới & Đối chiếu Index Hàng ngày ({path.split('/')[3]})"
+    if path == "/api/apify-store/sync":
+        return "Quét & Đồng bộ Danh mục API Apify Store"
+    if path == "/api/apify-store/call":
+        act_s = str(b.get("actor_slug") or b.get("goal") or "").strip()
+        return f"Gọi Actor Apify Store: {act_s}" if act_s else "Gọi Actor Apify Store"
+    if path == "/api/kalodata/sync-from-affiliate":
+        return "Đồng bộ Tài khoản Kalodata & Profile peng_dedicated"
+    if path == "/api/keywords/research":
+        kw = str(b.get("keyword") or "").strip()
+        pl = str(b.get("platform") or "").strip()
+        return f"Tra cứu Từ khoá: {kw} ({pl})" if kw else f"{default_label} ({path})"
+    if path == "/api/watches" and method == "POST":
+        ttl = str(b.get("title") or b.get("target_key") or "").strip()
+        return f"Thêm Theo dõi: {ttl[:90]}" if ttl else f"{default_label} ({path})"
+    if path.endswith("/check") and path.startswith("/api/watches/"):
+        return f"Kiểm tra Theo dõi ngay ({path.split('/')[3]})"
+    if path == "/api/sourcing/search":
+        q = str(b.get("query") or "").strip()
+        pl = str(b.get("platform") or "").strip()
+        return f"Tìm Nguồn hàng TQ ({pl}): {q[:80]}" if q else f"{default_label} ({path})"
+    if path == "/api/desk300/run":
+        return f"Chạy Luồng Xử lý SP 300+desk -> Jev ({b.get('mode') or 'vault_process'})"
+    return f"{default_label} ({path})"
 
 
 class HistoryLogService:
@@ -115,14 +184,14 @@ class HistoryLogService:
         notify_telegram: bool = True,
     ) -> dict:
         ts = now()
-        lid = log_id or f"act_{ts.replace(':', '').replace('-', '')}_{module}"
+        lid = log_id or f"act_{ts.replace(':', '').replace('-', '')}_{module}_{uuid.uuid4().hex[:6]}"
         clean_payload = scrub_for_history(payload or {})
         clean_summary = scrub_for_history(summary or title)
         clean_title = scrub_for_history(title)
 
         with self.connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
-            existing = conn.execute("SELECT seq_no FROM activity_history_logs WHERE log_id = ?", (lid,)).fetchone()
+            existing = conn.execute("SELECT seq_no FROM activity_history_logs WHERE log_id = ?", (lid,)).fetchone() if log_id else None
             if existing:
                 seq = int(existing["seq_no"])
                 conn.execute(
@@ -224,13 +293,13 @@ class HistoryLogService:
             return
         if path in (
             "/api/providers/telegram/test",
-            "/api/providers/telegram/check",
+            "/api/providers/telegram/sync-pending",
             "/api/hunt/estimate",
             "/api/keywords/suggest",
             "/api/sourcing/calc",
             "/api/products/economics-calc",
             "/api/chat/send",
-        ):
+        ) or path.endswith("/resend-telegram"):
             return
         cls = classify_http_module(path)
         if cls is None:
@@ -248,7 +317,7 @@ class HistoryLogService:
         self.record_event(
             module=module,
             action_type=f"{method} {path}",
-            title=f"{label} ({path})",
+            title=describe_http_title(method, path, req_body, label),
             status=status,
             duration_ms=duration_ms,
             summary=summary,
@@ -300,6 +369,8 @@ class HistoryLogService:
                        SUM(CASE WHEN status='completed' THEN 1 ELSE 0 END) AS completed,
                        SUM(CASE WHEN status='running' THEN 1 ELSE 0 END) AS running,
                        SUM(CASE WHEN status='failed' THEN 1 ELSE 0 END) AS failed,
+                       SUM(CASE WHEN telegram_notified_at != '' THEN 1 ELSE 0 END) AS telegram_notified,
+                       SUM(CASE WHEN telegram_notified_at = '' THEN 1 ELSE 0 END) AS telegram_pending,
                        COALESCE(SUM(cost_usd), 0.0) AS total_cost_usd
                 FROM activity_history_logs
                 """
@@ -309,6 +380,8 @@ class HistoryLogService:
             "completed": int(r["completed"] or 0),
             "running": int(r["running"] or 0),
             "failed": int(r["failed"] or 0),
+            "telegram_notified": int(r["telegram_notified"] or 0),
+            "telegram_pending": int(r["telegram_pending"] or 0),
             "total_cost_usd": round(float(r["total_cost_usd"] or 0.0), 5),
         }
 
@@ -476,7 +549,9 @@ class HistoryLogService:
             "cost_usd": r["cost_usd"],
             "summary": r["summary"],
             "note": r["note"],
+            "telegram_message_id": r["telegram_message_id"],
             "telegram_notified_at": r["telegram_notified_at"],
+            "telegram_last_error": r["telegram_last_error"],
             "created_at": r["created_at"],
             "updated_at": r["updated_at"],
         }
@@ -519,4 +594,12 @@ class HistoryLogService:
             if len(parts) == 4 and parts[3] == "note" and method == "POST":
                 body = json_object(read_json, env)
                 return "200 OK", self.update_note(parts[2], text(body.get("note"), "note", 1000))
+            if len(parts) == 4 and parts[3] == "resend-telegram" and method == "POST":
+                item = self.get_log(parts[2])
+                if not item:
+                    raise ApiError("404 Not Found", "Không tìm thấy nhật ký này")
+                if not self.telegram_sink:
+                    raise ApiError("503 Service Unavailable", "Chưa kết nối Telegram Bot")
+                sent_res = self.telegram_sink.deliver_log_immediately(item, force=True)
+                return "200 OK", {"ok": True, "log": self.get_log(parts[2]), **sent_res}
         return None

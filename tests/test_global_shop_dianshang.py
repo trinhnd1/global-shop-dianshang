@@ -152,8 +152,8 @@ class GlobalShopDianshangE2ETest(unittest.TestCase):
     def test_01_security_version_masking_and_tailscale_guards(self):
         st, health = self.req("GET", "/api/health")
         self.assertEqual(st, 200)
-        self.assertEqual(health["version"], "1.0.11")
-        self.assertEqual(__version__, "1.0.11")
+        self.assertEqual(health["version"], "1.0.12")
+        self.assertEqual(__version__, "1.0.12")
         self.assertEqual(health["schema_version"], 6)
 
         # Custom Favicon, Apple Touch Icon & WebManifest over Tailscale Host
@@ -1208,6 +1208,72 @@ class GlobalShopDianshangE2ETest(unittest.TestCase):
         self.assertEqual(len(res_day2["new_products"]), 1)
         self.assertEqual(res_day2["new_products"][0]["native_product_id"], "555000999")
         self.assertEqual(res_day2["collection"]["index_summary"]["last_new_products_detected"], 1)
+
+    def test_09_universal_telegram_notifications_and_work_logs_sync(self):
+        from backend.history_log import classify_http_module
+
+        # 1) Every new & core endpoint maps to a classified module (never None!)
+        for p_check, expected_mod in (
+            ("/api/ecosystems/run", "ecosystems"),
+            ("/api/apify-store/sync", "apify_store"),
+            ("/api/kalodata/sync-from-affiliate", "kalodata"),
+            ("/api/desk300/run", "desk300"),
+            ("/api/watches/wt_123/check", "watches"),
+            ("/api/future-unknown-endpoint", "system"),
+        ):
+            cls = classify_http_module(p_check)
+            self.assertIsNotNone(cls)
+            self.assertEqual(cls[0], expected_mod)
+
+        # 2) Enable Telegram Bot with fake runner and trigger HTTP + Scheduled Daemon + Manual Resend
+        self.req("POST", "/api/settings", {
+            "notify": {
+                "telegram_enabled": True,
+                "telegram_token": "1234567890:AAFakeSampleTokenForUnitTestOnly12345",
+                "telegram_chat_id": "5608975895",
+                "telegram_allowed_user_ids": "5608975895",
+            }
+        })
+        self.fake_tg.sent_messages.clear()
+
+        # Mutating API action creates GS-XXXX log
+        self.req("POST", "/api/products", {
+            "platform": "shopee_vn",
+            "native_product_id": "8899001122",
+            "title": "Ốp từ tính Xteink X4 Test Telegram",
+            "price_vnd": 125000,
+            "sold_count": 45,
+            "stock": 30,
+        })
+
+        # Scheduled Watch check (background daemon trigger) also creates GS-XXXX log!
+        _, w_res = self.req("POST", "/api/watches", {
+            "watch_type": "product",
+            "platform": "shopee_vn",
+            "target_key": "https://shopee.vn/product/1/8899001122",
+            "title": "⭐ Theo dõi Ốp Xteink X4",
+        })
+        wid = w_res["watch"]["watch_id"]
+        self.api.watches.run_watch_check(wid, trigger_kind="scheduled")
+
+        # Sync all pending logs to Telegram via Outbox Sweep (`POST /api/providers/telegram/sync-pending`)
+        st_sync, sync_res = self.req("POST", "/api/providers/telegram/sync-pending", {})
+        self.assertEqual(st_sync, 200)
+        self.assertGreaterEqual(sync_res["synced"], 3)  # settings + product + watch create + scheduled watch
+
+        _, hist_res = self.req("GET", "/api/history-logs")
+        self.assertEqual(hist_res["kpis"]["telegram_pending"], 0)
+        self.assertEqual(hist_res["kpis"]["telegram_notified"], hist_res["kpis"]["total"])
+        self.assertGreaterEqual(len(self.fake_tg.sent_messages), hist_res["kpis"]["total"])
+        self.assertTrue(any("[GS-" in m.get("text", "") and "Theo dõi định kỳ" in m.get("text", "") for m in self.fake_tg.sent_messages))
+
+        # Manual 1-click resend of a specific GS-XXXX log
+        first_lid = hist_res["logs"][0]["log_id"]
+        prev_tg_cnt = len(self.fake_tg.sent_messages)
+        st_rs, rs_res = self.req("POST", f"/api/history-logs/{first_lid}/resend-telegram", {})
+        self.assertEqual(st_rs, 200)
+        self.assertTrue(rs_res["delivered"])
+        self.assertEqual(len(self.fake_tg.sent_messages), prev_tg_cnt + 1)
 
 
 if __name__ == "__main__":

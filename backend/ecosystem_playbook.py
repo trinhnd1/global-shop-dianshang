@@ -781,6 +781,18 @@ class EcosystemPlaybookService:
             f"Cào Index hàng ngày '{col['name']}': phát hiện +{len(new_products_found)} SP mới · "
             f"{len(rising_products_found) + len(stock_drop_events)} SP tăng lượt bán / giảm tồn kho!"
         )
+        if getattr(self, "history_logs", None) is not None and trigger == "scheduled_daily":
+            hl_list = [f"SP mới: {np.get('title', '')[:70]}" for np in new_products_found[:4]]
+            hl_list.extend([f"Tăng bán/Giảm kho: {ev['title'][:60]} (+{ev['delta_sold']})" for ev in stock_drop_events[:4]])
+            self.history_logs.record_event(
+                module="ecosystems",
+                action_type="scheduled_daily_index",
+                title=f"Lịch cào Index 24h: {col['name']}",
+                status="completed",
+                summary=msg,
+                payload={"collection_id": collection_id, "new_count": len(new_products_found), "highlights": hl_list},
+                notify_telegram=True,
+            )
         return {
             "collection": self.get_collection(collection_id),
             "new_products": new_products_found,

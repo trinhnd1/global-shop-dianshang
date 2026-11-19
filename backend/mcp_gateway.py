@@ -312,12 +312,25 @@ class McpGatewayService:
                     raise PermissionError(f"Chế độ Read-Only không cho phép gọi {tname}")
                 out = self._exec_tool(tname, params.get("arguments") or {})
                 res_obj = {"content": [{"type": "text", "text": json.dumps(out, ensure_ascii=False)}], "isError": False}
+                dur_call_ms = int((time.monotonic() - t0) * 1000)
                 if mcp_cfg.get("audit_log_enabled", True):
                     with self.app.connect() as conn:
                         conn.execute(
                             "INSERT INTO mcp_call_logs (session_id, remote_addr, rpc_method, tool_name, scope, is_write, status, duration_ms, error_text, created_at) VALUES (?, ?, ?, ?, ?, ?, 'ok', ?, '', ?)",
-                            (sess_id, env.get("REMOTE_ADDR", ""), rpc_method, tname, tmeta["scope"], int(tmeta["is_write"]), int((time.monotonic() - t0) * 1000), now()),
+                            (sess_id, env.get("REMOTE_ADDR", ""), rpc_method, tname, tmeta["scope"], int(tmeta["is_write"]), dur_call_ms, now()),
                         )
+                if getattr(self.app, "history_logs", None) is not None:
+                    sum_txt = str(out.get("summary") if isinstance(out, dict) and out.get("summary") else f"Thực thi MCP tool {tname} thành công")[:260]
+                    self.app.history_logs.record_event(
+                        module="mcp",
+                        action_type=f"mcp:{tname}",
+                        title=f"MCP Agent gọi tool: {tname}",
+                        status="completed",
+                        duration_ms=dur_call_ms,
+                        summary=sum_txt,
+                        payload={"tool": tname, "scope": tmeta["scope"], "is_write": bool(tmeta["is_write"])},
+                        notify_telegram=True,
+                    )
             elif rpc_method == "ping":
                 res_obj = {}
             else:
