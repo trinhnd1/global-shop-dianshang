@@ -429,15 +429,30 @@ class ApifyClient:
         sold_all = parse_int_metric(
             r.get("historical_sold")
             or r.get("historicalSold")
+            or r.get("soldTotal")
             or r.get("sold_count")
             or r.get("soldCount")
             or r.get("global_sold_count")
             or r.get("sold")
             or 0
         )
-        sold_30d = parse_int_metric(r.get("sold") or r.get("monthly_sold") or r.get("monthlySold") or 0)
-        rating_count = parse_int_metric(r.get("ratingCount") or r.get("cmt_count") or r.get("review_count") or 0)
+        sold_30d = parse_int_metric(
+            r.get("soldRecent")
+            or r.get("sold")
+            or r.get("monthly_sold")
+            or r.get("monthlySold")
+            or 0
+        )
+        rating_count = parse_int_metric(r.get("ratingCount") or r.get("reviewCount") or r.get("cmt_count") or r.get("review_count") or 0)
         eff_sold = max(sold_all, sold_30d) if max(sold_all, sold_30d) > 0 else (rating_count * 3 if rating_count > 0 else 0)
+
+        top_stock = parse_int_metric(r.get("stock") or r.get("inventory") or r.get("totalStock") or 0)
+        if top_stock <= 0 and isinstance(r.get("variants"), list):
+            top_stock = sum(
+                parse_int_metric(v.get("stock") or v.get("inventory") or v.get("normal_stock") or 0)
+                for v in r["variants"]
+                if isinstance(v, dict)
+            )
 
         url = raw_url
         if not url and shop_id and item_id:
@@ -456,15 +471,25 @@ class ApifyClient:
             or any(k in loc_low for k in ("nước ngoài", "overseas", "mainland china", "quốc tế", "china", "trung quốc", "hàn quốc", "ต่างประเทศ"))
         )
         labels_raw = [str(x).lower() for x in (r.get("labels") or [])] if isinstance(r.get("labels"), list) else []
-        is_mall = bool(r.get("is_official_shop") or r.get("isMall") or r.get("officialShop") or any("mall" in lb for lb in labels_raw))
+        is_mall = bool(r.get("is_official_shop") or r.get("isOfficialShop") or r.get("isMall") or r.get("officialShop") or any("mall" in lb for lb in labels_raw))
         is_preferred = bool(r.get("shopee_verified") or r.get("isPreferred") or any("preferred" in lb or "yêu thích" in lb for lb in labels_raw))
+        seller_obj = r.get("seller") if isinstance(r.get("seller"), dict) else {}
+        shop_nm = str(
+            r.get("shopName")
+            or r.get("shop_name")
+            or r.get("shopUsername")
+            or r.get("seller_name")
+            or seller_obj.get("name")
+            or seller_obj.get("username")
+            or ""
+        )
 
         return {
             "platform": "shopee",
             "market": mkt,
             "native_product_id": item_id,
             "native_shop_id": shop_id,
-            "shop_name": str(r.get("shopName") or r.get("shop_name") or r.get("shopUsername") or r.get("seller_name") or ""),
+            "shop_name": shop_nm,
             "shop_location": shop_location,
             "is_overseas": is_overseas,
             "is_mall": is_mall,
@@ -479,7 +504,7 @@ class ApifyClient:
             "gmv_vnd": round(price_vnd * eff_sold, 0),
             "rating": round(rating, 2) if 0 < rating <= 5 else 0.0,
             "discount_pct": parse_int_metric(r.get("discountPercent") or 0),
-            "stock": parse_int_metric(r.get("stock") or 0),
+            "stock": top_stock,
             "total_available_hint": parse_int_metric(r.get("total_count") or r.get("totalCount") or 0),
             "url": url,
             "image_url": img,
@@ -604,45 +629,71 @@ class ApifyClient:
             if is_url:
                 candidates = [
                     ("blueskyscraper~1688-product-details-scraper", {"urls": [query_or_url]}),
-                    ("zen-studio~1688-wholesale-scraper", {"startUrls": [{"url": query_or_url}], "maxItems": 3}),
+                    ("zen-studio~1688-wholesale-scraper", {"offerIds": [query_or_url], "maxResults": 3}),
                 ]
             else:
                 candidates = [
-                    ("zen-studio~1688-wholesale-scraper", {"keyword": query_or_url, "maxItems": lim}),
-                    ("parsebird~1688-wholesale-scraper", {"searchKeyword": query_or_url, "maxItems": lim}),
-                    ("scrapewise~alibaba-1688-scraper", {"keyword": query_or_url, "maxItems": lim}),
+                    ("parsebird~1688-wholesale-scraper", {"keywords": [query_or_url], "maxResults": lim}),
+                    ("zen-studio~1688-wholesale-scraper", {"keywords": [query_or_url], "maxResults": lim}),
+                    ("memo23~taobao-scraper", {"searchQueries": [query_or_url], "maxProductsPerKeyword": max(5, lim)}),
                 ]
         elif plat == "taobao":
             if is_url:
                 candidates = [
                     ("zen-studio~taobao-detail-scraper", {"urls": [query_or_url]}),
+                    ("memo23~taobao-scraper", {"startUrls": [query_or_url]}),
                     ("scrapesage~taobao-scraper", {"mode": "detail", "itemUrls": [query_or_url]}),
                 ]
             else:
                 candidates = [
-                    ("zen-studio~taobao-search-scraper", {"keyword": query_or_url, "maxItems": lim, "enrichWithDetails": False}),
-                    ("scrapesage~taobao-scraper", {"mode": "search", "keywords": [query_or_url], "maxItems": lim, "scrapeDetails": False}),
-                    ("tortuga~taobao-scraper", {"keywords": [query_or_url], "maxItems": lim}),
+                    ("memo23~taobao-scraper", {"searchQueries": [query_or_url], "maxProductsPerKeyword": max(5, lim)}),
+                    ("zen-studio~taobao-search-scraper", {"keyword": query_or_url, "maxItems": max(10, lim), "enrichWithDetails": False}),
+                    ("scrapesage~taobao-scraper", {"mode": "search", "keywords": [query_or_url], "maxItems": max(10, lim), "scrapeDetails": False}),
                 ]
         elif plat == "pinduoduo":
             pdd_search_url = f"https://mobile.yangkeduo.com/search_result.html?search_key={urllib.parse.quote(query_or_url)}"
             candidates = [
                 ("trusted_tech_spot~pinduoduo-temu-wholesale-bestsellers-scraper", {"url": pdd_search_url, "includeKeywords": query_or_url, "enableRagEnrichment": False}),
-                ("zen-studio~1688-wholesale-scraper", {"keyword": query_or_url, "maxItems": lim}),
+                ("parsebird~1688-wholesale-scraper", {"keywords": [query_or_url], "maxResults": lim}),
+                ("memo23~taobao-scraper", {"searchQueries": [query_or_url], "maxProductsPerKeyword": max(5, lim)}),
             ]
         else:
             candidates = [
                 ("zen-studio~alibaba-scraper", {"keyword": query_or_url, "maxItems": lim}),
             ]
 
-        slug, rows = self._run_actor_ring(tokens, candidates, max_charge_usd=max_charge_usd)
-        return slug, [self.normalize_china_item(r, plat) for r in rows[:lim]]
+        last_err: Exception | None = None
+        for slug, payload in candidates:
+            try:
+                rows = self.run_sync_items(tokens, slug, payload, max_charge_usd=max_charge_usd)
+                valid_norm = []
+                for r in rows:
+                    if not isinstance(r, dict) or r.get("retry_later") or r.get("error"):
+                        continue
+                    norm_c = self.normalize_china_item(r, plat)
+                    if not norm_c["title"] or norm_c["title"] in ("拼多多商城", "淘宝网", "阿里巴巴", "1688.com"):
+                        continue
+                    valid_norm.append(norm_c)
+                if valid_norm:
+                    return slug, valid_norm[:lim]
+            except Exception as exc:
+                last_err = exc
+                continue
+        if last_err:
+            raise last_err
+        return candidates[0][0], []
 
     @staticmethod
     def normalize_china_item(r: dict, platform: str) -> dict:
         iid = safe_id_str(r.get("offerId") or r.get("item_id") or r.get("itemId") or r.get("num_iid") or r.get("goods_id") or r.get("id"))
         title = str(r.get("subject") or r.get("title") or r.get("goods_name") or r.get("name") or "").strip()
         raw_price = r.get("price") or r.get("wholesalePrice") or r.get("minPrice") or r.get("group_price") or 0
+        if isinstance(raw_price, dict):
+            raw_price = raw_price.get("min") or raw_price.get("price") or raw_price.get("max") or 0
+        if not raw_price and isinstance(r.get("quantityPrices"), list) and r["quantityPrices"]:
+            qp0 = r["quantityPrices"][0]
+            if isinstance(qp0, dict):
+                raw_price = qp0.get("price") or 0
         price_cny = parse_vnd_price(raw_price, "CNY")
         moq = max(1, parse_int_metric(r.get("moq") or r.get("minOrderQuantity") or r.get("beginAmount") or 1))
         url = str(r.get("detailUrl") or r.get("url") or r.get("item_url") or "").strip()
@@ -653,17 +704,31 @@ class ApifyClient:
                 url = f"https://item.taobao.com/item.htm?id={iid}"
             elif platform == "pinduoduo":
                 url = f"https://mobile.yangkeduo.com/goods.html?goods_id={iid}"
-        img = str(r.get("imageUrl") or r.get("pic_url") or r.get("image") or r.get("thumb_url") or "").strip()
+        imgs = r.get("images") if isinstance(r.get("images"), list) else []
+        img = str(r.get("imageUrl") or r.get("mainImageUrl") or r.get("pic_url") or r.get("image") or r.get("thumb_url") or (imgs[0] if imgs else "") or "").strip()
         if img.startswith("//"):
             img = "https:" + img
+        seller_obj = r.get("seller") if isinstance(r.get("seller"), dict) else (r.get("supplier") if isinstance(r.get("supplier"), dict) else {})
+        sup_name = str(
+            r.get("companyName")
+            or r.get("shopName")
+            or r.get("shopTitle")
+            or r.get("seller_nick")
+            or r.get("sellerNick")
+            or r.get("mall_name")
+            or seller_obj.get("companyName")
+            or seller_obj.get("shopName")
+            or seller_obj.get("nick")
+            or ""
+        )
         return {
             "platform": platform,
             "native_item_id": iid,
             "title": title,
             "price_cny": price_cny,
             "moq": moq,
-            "supplier_name": str(r.get("companyName") or r.get("shopName") or r.get("seller_nick") or r.get("mall_name") or ""),
-            "sales_volume": str(r.get("saleInfo") or r.get("bookedCount") or r.get("sales") or r.get("deal_cnt") or ""),
+            "supplier_name": sup_name,
+            "sales_volume": str(r.get("saleInfo") or r.get("bookedCount") or r.get("sold") or r.get("sales") or r.get("deal_cnt") or ""),
             "item_url": url,
             "image_url": img,
         }

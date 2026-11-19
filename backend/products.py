@@ -480,7 +480,7 @@ class ProductsService:
                 except Exception:
                     pass
 
-        if fetched and (fetched.get("price_vnd") or fetched.get("sold_count") or fetched.get("image_url")):
+        if fetched and (fetched.get("price_vnd") or fetched.get("sold_count") or fetched.get("sold_30d") or fetched.get("stock") or fetched.get("image_url")):
             return self.upsert_product({**prod, **{k: v for k, v in fetched.items() if v}}, source="enrich_detail")
         return prod
 

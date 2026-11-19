@@ -67,6 +67,41 @@ def classify_cn_accessory_relation(title: str, query_hint: str = "") -> dict:
     return {"role": "alternative_product", "badge": "🔄 Sản phẩm thay thế / Đối chiếu", "color": "sky"}
 
 
+BRAND_ALIAS_MAP: dict[str, tuple[str, ...]] = {
+    "xteink": ("xteink", "xt eink", "xt-eink", "阅星瞳"),
+    "goojodoq": ("goojodoq",),
+}
+GENERIC_STOP_TOKENS = {
+    "phu", "phụ", "kien", "kiện", "cho", "cua", "của", "va", "và", "chinh", "chính", "hang", "hãng",
+    "gia", "giá", "re", "rẻ", "moi", "mới", "pro", "mini", "max", "plus", "shop", "vn",
+}
+
+
+def is_item_relevant_to_ecosystem(title: str, shop_name: str, seed_kw: str, extra_kws: list[str] | None = None) -> bool:
+    hay = f"{title or ''} {shop_name or ''}".lower()
+    if not hay.strip():
+        return False
+    seed_l = (seed_kw or "").strip().lower()
+    if not seed_l:
+        return True
+    if seed_l in hay or seed_l.replace(" ", "") in hay.replace(" ", ""):
+        return True
+    for k_root, aliases in BRAND_ALIAS_MAP.items():
+        if k_root in seed_l:
+            if any(a in hay for a in aliases):
+                return True
+            # Specific 4.3" mini e-reader case / film match for Xteink X4
+            if k_root == "xteink" and ("máy đọc sách" in hay or "đọc sách điện tử" in hay or "e-ink" in hay or "ereader" in hay) and ("4.3" in hay or "x4" in hay or "x3" in hay):
+                return True
+    tokens = [
+        t for t in re.split(r"[^0-9a-zA-ZÀ-ỹ\u4e00-\u9fff]+", " ".join([seed_l] + [str(x).lower() for x in (extra_kws or [])]))
+        if len(t) >= 3 and t not in GENERIC_STOP_TOKENS
+    ]
+    if tokens:
+        return any(tok in hay for tok in tokens)
+    return True
+
+
 def compute_product_priority_rank(p: dict, kalo_map: dict[str, dict] | None = None) -> dict:
     npid = safe_id_str(p.get("native_product_id") or "")
     kalo_hit = (kalo_map or {}).get(npid) or {}
@@ -100,13 +135,15 @@ def compute_product_priority_rank(p: dict, kalo_map: dict[str, dict] | None = No
     if jev > 0:
         reason_parts.append(f"Jev {jev}/10")
 
+    reason_txt = " · ".join(reason_parts) if reason_parts else "Mốc theo dõi mới (chờ biến động tồn kho / lượt bán)"
     return {
         "priority_points": round(priority_pts, 2),
         "recent_sold_signal": recent_signal,
         "kalodata_7d_sold": recent_7d,
         "kalodata_7d_gmv_vnd": float(kalo_hit.get("gmv_recent_vnd") or 0.0),
         "qualifies_special_watch": qualifies_special_watch,
-        "priority_reason": " · ".join(reason_parts) if reason_parts else "Mốc theo dõi mới (chờ biến động tồn kho / lượt bán)",
+        "priority_reason": reason_txt,
+        "reason": reason_txt,
     }
 
 
@@ -221,7 +258,12 @@ class EcosystemPlaybookService:
         treg_tok = (cfg["providers"].get("treg_key") or "").strip()
 
         search_terms = [seed_kw] + [k for k in extra_kws if k.lower() != seed_kw.lower()]
-        discovered_pids: list[int] = json.loads(existing_col["product_ids_json"] or "[]") if existing_col else []
+        prev_pids = json.loads(existing_col["product_ids_json"] or "[]") if existing_col else []
+        discovered_pids: list[int] = [
+            p["id"]
+            for p in self.products.get_products_by_ids(prev_pids)
+            if is_item_relevant_to_ecosystem(p.get("title") or "", p.get("shop_name") or "", seed_kw, extra_kws)
+        ]
         raw_items_collected: list[dict] = []
 
         # --- STEP 1: COLLECT ALL RELATED PRODUCTS & SHOPS ON SHOPEE VN + TIKTOKSHOP VN ---
@@ -238,14 +280,20 @@ class EcosystemPlaybookService:
                         market=b_mkt,
                         limit=per_channel_limit,
                         score_jev=False,
-                        save_top_to_vault=True,
+                        save_top_to_vault=False,
                         shopee_filters={"sort_by": "sales"} if b_plat == "shopee" else None,
                     )
-                    for pid in kw_res.get("saved_product_ids") or []:
-                        if pid not in discovered_pids:
-                            discovered_pids.append(pid)
-                    raw_items_collected.extend(kw_res.get("items") or [])
-                    _log(f"  ✓ {format_platform_market_label(b_plat, b_mkt)} ('{term}'): {len(kw_res.get('items') or [])} SP")
+                    rel_items = [
+                        it for it in (kw_res.get("items") or [])
+                        if is_item_relevant_to_ecosystem(it.get("title") or "", it.get("shop_name") or "", seed_kw, extra_kws)
+                    ]
+                    for it in rel_items:
+                        if it.get("title"):
+                            saved_it = self.products.upsert_product(it, source=f"ecosystem:{ch_code}:{term}")
+                            if saved_it["id"] not in discovered_pids:
+                                discovered_pids.append(saved_it["id"])
+                    raw_items_collected.extend(rel_items)
+                    _log(f"  ✓ {format_platform_market_label(b_plat, b_mkt)} ('{term}'): {len(rel_items)}/{len(kw_res.get('items') or [])} SP liên quan chuẩn")
                 except Exception as exc:
                     _log(f"  ⚠️ Lỗi quét {ch_code} ('{term}'): {exc}")
 
@@ -258,9 +306,20 @@ class EcosystemPlaybookService:
             _log(f"📊 [Bước 2A] Quét Kalodata VN (qua Profile `peng_dedicated`) tìm SP bán chạy 7 ngày & Video GPM cao cho '{seed_kw}'...")
             try:
                 k_res = self.kalodata_bridge.search_kalodata_keyword(seed_kw, window_spec="7d", limit=15)
-                kalo_products = k_res.get("products") or []
-                effective_videos.extend(k_res.get("videos") or [])
-                effective_creators.extend(k_res.get("creators") or [])
+                kalo_products = [
+                    kp for kp in (k_res.get("products") or [])
+                    if is_item_relevant_to_ecosystem(kp.get("title") or "", "", seed_kw, extra_kws)
+                ]
+                rel_k_vids = [
+                    kv for kv in (k_res.get("videos") or [])
+                    if is_item_relevant_to_ecosystem(kv.get("caption") or "", kv.get("author_handle") or "", seed_kw, extra_kws)
+                ]
+                effective_videos.extend(rel_k_vids)
+                rel_k_handles = {(kv.get("author_handle") or "").lower() for kv in rel_k_vids if kv.get("author_handle")}
+                effective_creators.extend([
+                    kc for kc in (k_res.get("creators") or [])
+                    if (kc.get("handle") or "").lower() in rel_k_handles or is_item_relevant_to_ecosystem(kc.get("handle") or "", "", seed_kw, extra_kws)
+                ])
                 # Upsert Kalodata products into Vault too so recent 7d TikTok products are indexed!
                 for kp in kalo_products:
                     if kp.get("title"):
@@ -281,7 +340,7 @@ class EcosystemPlaybookService:
                         )
                         if saved_kp["id"] not in discovered_pids:
                             discovered_pids.append(saved_kp["id"])
-                _log(f"  ✓ Kalodata VN: {len(kalo_products)} SP bán chạy 7d · {len(effective_videos)} Video hiệu quả · {len(effective_creators)} Creator")
+                _log(f"  ✓ Kalodata VN: {len(kalo_products)} SP bán chạy 7d · {len(rel_k_vids)} Video liên quan · {len(effective_creators)} Creator")
             except Exception as exc:
                 _log(f"  ⚠️ Kalodata VN bỏ qua nhẹ: {exc}")
 
@@ -321,6 +380,9 @@ class EcosystemPlaybookService:
                 for rv in tt_vids:
                     am = rv.get("authorMeta") if isinstance(rv.get("authorMeta"), dict) else {}
                     hdl = str(am.get("name") or rv.get("author") or "").strip().lstrip("@")
+                    cap_txt = str(rv.get("text") or rv.get("desc") or "")[:240]
+                    if not is_item_relevant_to_ecosystem(cap_txt, hdl, seed_kw, extra_kws):
+                        continue
                     vid_id = safe_id_str(rv.get("id") or rv.get("video_id"))
                     v_url = str(rv.get("webVideoUrl") or (f"https://www.tiktok.com/@{hdl}/video/{vid_id}" if (hdl and vid_id) else ""))
                     plays = int(rv.get("playCount") or rv.get("views") or 0)
@@ -331,7 +393,7 @@ class EcosystemPlaybookService:
                             "source": "apify_tiktok",
                             "video_id": vid_id,
                             "video_url": v_url,
-                            "caption": str(rv.get("text") or rv.get("desc") or "")[:240],
+                            "caption": cap_txt,
                             "author_handle": hdl,
                             "followers": flw,
                             "views_count": plays,
@@ -401,10 +463,10 @@ class EcosystemPlaybookService:
         existing_shop_watch_keys = {(w["platform"], w["target_key"].lower()) for w in existing_watches if w["watch_type"] == "shop"}
         existing_kw_watch_keys = {(w["platform"], w["market"], w["target_key"].lower()) for w in existing_watches if w["watch_type"] == "keyword"}
 
-        special_watch_ids: list[str] = json.loads(existing_col["special_watch_ids_json"] or "[]") if existing_col else []
-        shop_watch_ids: list[str] = json.loads(existing_col["shop_watch_ids_json"] or "[]") if existing_col else []
+        special_watch_ids: list[str] = []
+        shop_watch_ids: list[str] = []
         kw_watch_ids: list[str] = json.loads(existing_col["keyword_watch_ids_json"] or "[]") if existing_col else []
-        saved_shop_ids: list[str] = json.loads(existing_col["shop_ids_json"] or "[]") if existing_col else []
+        saved_shop_ids: list[str] = []
 
         # 4A) Special Product Watches (top 12 qualifying products with sales/stock/Jev)
         for vp in vault_prods[:12]:

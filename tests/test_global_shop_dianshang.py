@@ -152,8 +152,8 @@ class GlobalShopDianshangE2ETest(unittest.TestCase):
     def test_01_security_version_masking_and_tailscale_guards(self):
         st, health = self.req("GET", "/api/health")
         self.assertEqual(st, 200)
-        self.assertEqual(health["version"], "1.0.8")
-        self.assertEqual(__version__, "1.0.8")
+        self.assertEqual(health["version"], "1.0.9")
+        self.assertEqual(__version__, "1.0.9")
         self.assertEqual(health["schema_version"], 6)
 
         # Tailscale MagicDNS & CGNAT allowed
@@ -871,6 +871,35 @@ class GlobalShopDianshangE2ETest(unittest.TestCase):
         self.assertEqual(call_res["items_count"], 1)
 
     def test_08_ecosystem_playbooks_xteink_goojodoq_inventory_watch_and_kalodata_bridge(self):
+        from backend.ecosystem_playbook import is_item_relevant_to_ecosystem
+        from backend.providers.apify import ApifyClient
+
+        # Verify strict brand/seed relevance filter drops fuzzy noise & keeps real e-reader items
+        self.assertFalse(is_item_relevant_to_ecosystem("VÍ đựng đồ cá nhân SHINE TORE ST-274", "Shop Ví", "xteink", ["xteink x4"]))
+        self.assertTrue(is_item_relevant_to_ecosystem("Máy đọc sách Xt eink X4 Classic Mini", "TechReader.vn", "xteink", ["xteink x4"]))
+        self.assertTrue(is_item_relevant_to_ecosystem("Cao cấp TPU mềm Hộp đựng máy đọc sách điện tử 4.3\" Vỏ bảo vệ", "", "xteink", ["xteink x4"]))
+
+        # Verify Shopee `soldRecent` + `variants` stock & 1688 dict-price normalization
+        norm_sp = ApifyClient.normalize_shopee_item({
+            "itemId": "52804400175",
+            "shopId": "5524067",
+            "title": "Máy đọc sách Xteink X4 Classic",
+            "price": 1450000,
+            "soldTotal": 1341,
+            "soldRecent": 185,
+            "variants": [{"name": "Đen", "stock": 12}, {"name": "Trắng", "stock": 9}],
+        })
+        self.assertEqual(norm_sp["sold_count"], 1341)
+        self.assertEqual(norm_sp["sold_30d"], 185)
+        self.assertEqual(norm_sp["stock"], 21)
+
+        norm_cn = ApifyClient.normalize_china_item({
+            "offerId": "627414195890",
+            "title": "适用阅星瞳x4 Classic保护套Xteink X4 V2保护壳",
+            "price": {"min": 8.8, "max": 12.0, "currency": "CNY"},
+        }, "1688")
+        self.assertEqual(norm_cn["price_cny"], 8.8)
+
         settings.add_apify_key(self.api.connect, self.api.secrets, "Eco Test", "apify_api_test_eco_key_0001")
         self.req("POST", "/api/settings", {
             "providers": {
