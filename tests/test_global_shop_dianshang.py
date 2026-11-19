@@ -107,6 +107,20 @@ class GlobalShopDianshangE2ETest(unittest.TestCase):
         self.api.keywords.jev = fake_jev
         self.api.spy_video.jev = fake_jev
         self.api.hunt.jev = fake_jev
+        self.api.china_sourcing.jev = fake_jev
+        self.api.ecosystems.jev = fake_jev
+        class FakeDesk300:
+            def check_gateway_status(self, probe_egress_ip=False):
+                return {"ok": False, "fail_closed": True, "gateway_url": "http://127.0.0.1:18765"}
+
+            def generate_json(self, *args, **kwargs):
+                return {"queries": [{"cn_query": "阅星瞳 X4 磁吸保护套", "vn_label": "Bao da từ tính Xteink X4"}]}, {}
+
+        fake_desk = FakeDesk300()
+        self.api.desk300 = fake_desk
+        self.api.china_sourcing.desk300 = fake_desk
+        self.api.ecosystems.desk300 = fake_desk
+        self.api.hunt.desk300 = fake_desk
 
         self.webapp = WebApp(self.api, DEFAULT_STATIC)
         self.httpd = make_server("127.0.0.1", 0, self.webapp, server_class=LocalHTTPServer, handler_class=LocalRequestHandler)
@@ -138,9 +152,9 @@ class GlobalShopDianshangE2ETest(unittest.TestCase):
     def test_01_security_version_masking_and_tailscale_guards(self):
         st, health = self.req("GET", "/api/health")
         self.assertEqual(st, 200)
-        self.assertEqual(health["version"], "1.0.7")
-        self.assertEqual(__version__, "1.0.7")
-        self.assertEqual(health["schema_version"], 5)
+        self.assertEqual(health["version"], "1.0.8")
+        self.assertEqual(__version__, "1.0.8")
+        self.assertEqual(health["schema_version"], 6)
 
         # Tailscale MagicDNS & CGNAT allowed
         st_ts, _ = self.req("GET", "/api/health", headers={"Host": "nguyens-mac-mini.tail213fd3.ts.net:8999"})
@@ -819,6 +833,8 @@ class GlobalShopDianshangE2ETest(unittest.TestCase):
 
             return _StoreResp()
 
+        old_catalog = self.api.apify_catalog
+        cat_idx = self.api.handlers.index(old_catalog)
         self.api.apify_catalog = ApifyStoreCatalogService(
             self.api.connect,
             self.api.secrets,
@@ -828,7 +844,7 @@ class GlobalShopDianshangE2ETest(unittest.TestCase):
             jobs=self.api.jobs,
             http_opener=fake_store_opener,
         )
-        self.api.handlers[1] = self.api.apify_catalog
+        self.api.handlers[cat_idx] = self.api.apify_catalog
 
         st_sync, sync_res = self.req("POST", "/api/apify-store/sync", {"max_pages": 2, "page_size": 100})
         self.assertEqual(st_sync, 200)
@@ -853,6 +869,299 @@ class GlobalShopDianshangE2ETest(unittest.TestCase):
         self.assertEqual(st_call, 200)
         self.assertEqual(call_res["actor_slug"], "lergassy~shopee-scraper")
         self.assertEqual(call_res["items_count"], 1)
+
+    def test_08_ecosystem_playbooks_xteink_goojodoq_inventory_watch_and_kalodata_bridge(self):
+        settings.add_apify_key(self.api.connect, self.api.secrets, "Eco Test", "apify_api_test_eco_key_0001")
+        self.req("POST", "/api/settings", {
+            "providers": {
+                "typesafe_key": "apikey_jev_eco_0001",
+            },
+            "kalodata": {
+                "account_email": "jreed767@cnebw.eu.cc",
+                "market": "VN",
+                "currency": "VND",
+                "default_window_days": 7,
+            },
+        })
+
+        # 1) Test Inventory-Delta Sales Inference on Special Product Watch (`prev_stock=50 -> cur_stock=42 => inferred_sold=8`)
+        _, created_sp = self.req("POST", "/api/products", {
+            "platform": "shopee",
+            "market": "VN",
+            "native_product_id": "29998888777",
+            "title": "Bao da từ tính máy đọc sách mini Xteink X4",
+            "price_vnd": 135000,
+            "sold_count": 20,
+            "stock": 50,
+            "shop_name": "Xteink Official Store VN",
+            "native_shop_id": "99887766",
+            "url": "https://shopee.vn/product/99887766/29998888777",
+        })
+        sp_id = created_sp["product"]["id"]
+
+        class StockDropApify:
+            def __init__(self):
+                self.prod_calls = 0
+
+            def scrape_shopee_product(self, tokens, url_or_id, max_charge_usd=0.05, market="VN"):
+                self.prod_calls += 1
+                return {
+                    "platform": "shopee",
+                    "native_product_id": "29998888777",
+                    "title": "Bao da từ tính máy đọc sách mini Xteink X4",
+                    "price_vnd": 135000,
+                    "sold_count": 20,  # Shopee hides exact sold increment here, so stock drop reveals 8 real sales!
+                    "stock": 50 if self.prod_calls == 1 else 42,
+                    "url": "https://shopee.vn/product/99887766/29998888777",
+                }
+
+            def search_shopee(self, tokens, kw, limit=30, max_charge_usd=0.08, filters=None, market="VN"):
+                if "goojodoq" in kw.lower():
+                    items = [
+                        {
+                            "platform": "shopee",
+                            "market": "VN",
+                            "native_product_id": "555000111",
+                            "native_shop_id": "770011",
+                            "shop_name": "Goojodoq Flagship VN",
+                            "title": "Ngòi bút cảm ứng thay thế Goojodoq GD13 Pro",
+                            "price_vnd": 69000,
+                            "sold_count": 1450,
+                            "stock": 320,
+                            "rating": 4.9,
+                            "url": "https://shopee.vn/product/770011/555000111",
+                        }
+                    ]
+                    if getattr(self, "day_two", False):
+                        items.append({
+                            "platform": "shopee",
+                            "market": "VN",
+                            "native_product_id": "555000999",
+                            "native_shop_id": "770011",
+                            "shop_name": "Goojodoq Flagship VN",
+                            "title": "[MỚI] Bàn phím Magic Keyboard Goojodoq 2026 Siêu Nhẹ",
+                            "price_vnd": 890000,
+                            "sold_count": 35,
+                            "stock": 88,
+                            "rating": 5.0,
+                            "url": "https://shopee.vn/product/770011/555000999",
+                        })
+                    return "lergassy~shopee-scraper", items
+                return "lergassy~shopee-scraper", [
+                    {
+                        "platform": "shopee",
+                        "market": "VN",
+                        "native_product_id": "29998888777",
+                        "native_shop_id": "99887766",
+                        "shop_name": "Xteink Official Store VN",
+                        "title": "Bao da từ tính máy đọc sách mini Xteink X4",
+                        "price_vnd": 135000,
+                        "sold_count": 28,
+                        "stock": 42,
+                        "rating": 4.9,
+                        "url": "https://shopee.vn/product/99887766/29998888777",
+                    }
+                ]
+
+            def search_tiktok_shop(self, tokens, kw, limit=30, max_charge_usd=0.06, market="VN"):
+                if "goojodoq" in kw.lower():
+                    return "harshmaur~tiktok-shop-scraper", [
+                        {
+                            "platform": "tiktok_shop",
+                            "market": "VN",
+                            "native_product_id": "172999000111222333",
+                            "shop_name": "GOOJODOQ Việt Nam",
+                            "shop_handle": "goojodoq_vn",
+                            "title": "Quạt cầm tay sò lạnh Goojodoq GFS001 100 cấp độ",
+                            "price_vnd": 359000,
+                            "sold_count": 8200,
+                            "sold_30d": 1250,
+                            "stock": 180,
+                            "rating": 4.8,
+                            "url": "https://shop.tiktok.com/view/product/172999000111222333",
+                        }
+                    ]
+                return "harshmaur~tiktok-shop-scraper", [
+                    {
+                        "platform": "tiktok_shop",
+                        "market": "VN",
+                        "native_product_id": "172888111222333444",
+                        "shop_name": "Phụ Kiện E-Reader Mini",
+                        "shop_handle": "ereader_mini_vn",
+                        "title": "Miếng dán màn hình nhám Paperlike Xteink X4 chống chói",
+                        "price_vnd": 49000,
+                        "sold_count": 95,
+                        "sold_30d": 40,
+                        "stock": 65,
+                        "rating": 4.9,
+                        "url": "https://shop.tiktok.com/view/product/172888111222333444",
+                    }
+                ]
+
+            def search_tiktok_videos(self, tokens, kw, limit=10):
+                return "clockworks~tiktok-scraper", []
+
+            def search_china_sourcing(self, tokens, platform, query, limit=20, max_charge_usd=0.06):
+                return f"scrapesage~{platform}-scraper", [
+                    {
+                        "native_item_id": f"{platform}_xteink_case_01",
+                        "title": f"阅星瞳 X4 磁吸保护套 超薄防摔皮套 ({query})",
+                        "price_cny": 12.8,
+                        "moq": 2,
+                        "sold_count": 600,
+                        "supplier_name": "深圳墨水屏配件源头厂",
+                        "item_url": f"https://mobile.yangkeduo.com/goods.html?goods_id={platform}_01",
+                    },
+                    {
+                        "native_item_id": f"{platform}_xteink_alt_02",
+                        "title": "4.3寸迷你墨水屏电子书阅读器 便携口袋书",
+                        "price_cny": 198.0,
+                        "moq": 1,
+                        "sold_count": 320,
+                        "supplier_name": "广州数码专营店",
+                        "item_url": f"https://item.taobao.com/item.htm?id={platform}_02",
+                    },
+                ]
+
+        fake_eco_apify = StockDropApify()
+        self.api.watches.apify = fake_eco_apify
+        self.api.keywords.apify = fake_eco_apify
+        self.api.china_sourcing.apify = fake_eco_apify
+        self.api.products.apify = fake_eco_apify
+        self.api.ecosystems.apify = fake_eco_apify
+
+        st_w, w_created = self.req("POST", "/api/watches", {
+            "watch_type": "product",
+            "platform": "shopee_vn",
+            "target_key": "https://shopee.vn/product/99887766/29998888777",
+            "title": "⭐ [Phụ kiện Xteink X4] Bao da Xteink X4",
+            "linked_product_id": sp_id,
+            "is_special": True,
+            "collection_id": "phu-kien-xteink-x4",
+            "run_immediately": True,
+        })
+        self.assertEqual(st_w, 200)
+        wid_sp = w_created["watch"]["watch_id"]
+        self.assertTrue(w_created["watch"]["is_special"])
+
+        # Second check sees stock drop 50 -> 42 => inferred 8 recent sales!
+        st_w2, w_check2 = self.req("POST", f"/api/watches/{wid_sp}/check", {})
+        self.assertEqual(st_w2, 200)
+        self.assertEqual(w_check2["diff"]["prev_stock"], 50)
+        self.assertEqual(w_check2["diff"]["stock"], 42)
+        self.assertEqual(w_check2["diff"]["stock_drop_inferred_sold"], 8)
+        self.assertEqual(w_check2["diff"]["delta_sold"], 8)
+
+        # 2) Run Playbook #1: `Phụ kiện Xteink X4`
+        st_x4, res_x4 = self.req("POST", "/api/ecosystems/run", {
+            "name": "Phụ kiện Xteink X4",
+            "seed_keyword": "xteink",
+            "extra_keywords": ["xteink x4"],
+            "channels": ["shopee_vn", "tiktok_shop_vn"],
+            "cn_platforms": ["pinduoduo", "taobao"],
+            "enable_cn_expansion": True,
+            "enable_kalodata": False,
+            "enable_global_selling_creators": False,
+            "daily_schedule_enabled": True,
+        })
+        self.assertEqual(st_x4, 200)
+        col_x4 = res_x4["collection"]
+        self.assertEqual(col_x4["name"], "Phụ kiện Xteink X4")
+        self.assertGreaterEqual(len(col_x4["products"]), 2)
+        self.assertGreaterEqual(len(col_x4["tracked_shops"]), 2)
+        self.assertGreaterEqual(len(col_x4["special_watches"]), 2)
+        self.assertGreaterEqual(len(col_x4["cn_items"]), 2)
+        cn_roles = {it["relation_role"] for it in col_x4["cn_items"]}
+        self.assertIn("variant_addon", cn_roles)
+        self.assertIn("alternative_product", cn_roles)
+
+        # 3) Run Playbook #2: `Phụ kiện Goojodoq` with Kalodata + Affiliate Global Selling Creators + Daily Crawl Diff
+        class FakeKalodataBridge:
+            def search_kalodata_keyword(self, keyword, window_spec="7d", limit=15):
+                return {
+                    "ok": True,
+                    "products": [
+                        {
+                            "native_product_id": "172999000111222333",
+                            "title": "Quạt cầm tay sò lạnh Goojodoq GFS001",
+                            "price_vnd": 359000,
+                            "units_sold_recent": 1480,
+                            "gmv_recent_vnd": 520_000_000,
+                            "gmv_recent_display": "520.0 tr ₫",
+                        }
+                    ],
+                    "videos": [
+                        {
+                            "source": "kalodata",
+                            "video_id": "7491122334455667788",
+                            "caption": "Test quạt sò lạnh Goojodoq đi nắng 40 độ mát lạnh tức thì",
+                            "author_handle": "reviewcongnghe_vn",
+                            "views_count": 450000,
+                            "orders_count": 620,
+                            "video_gmv_vnd": 218_000_000,
+                            "video_gmv_display": "218.0 tr ₫",
+                            "gpm_vnd": 484000,
+                            "gpm_display": "484,000₫",
+                            "video_url": "https://www.tiktok.com/@reviewcongnghe_vn/video/7491122334455667788",
+                        }
+                    ],
+                    "creators": [
+                        {
+                            "handle": "reviewcongnghe_vn",
+                            "source": "kalodata",
+                            "winning_video_count": 2,
+                            "total_gmv_vnd": 218_000_000,
+                            "total_gmv_display": "218.0 tr ₫",
+                            "total_orders": 620,
+                            "profile_url": "https://www.tiktok.com/@reviewcongnghe_vn",
+                        }
+                    ],
+                }
+
+            def search_affiliate_global_selling_creators(self, keyword, max_results=20):
+                return [
+                    {
+                        "handle": "unbox_phu_kien_xin",
+                        "display_name": "Unbox Phụ Kiện Xịn",
+                        "category": "Điện thoại & Điện tử",
+                        "followers": 185000,
+                        "total_gmv_vnd": 890_000_000,
+                        "total_gmv_display": "890.0 tr ₫",
+                        "items_sold": 2650,
+                        "avg_views": 54000,
+                        "engagement_rate": 6.4,
+                        "source": "affiliate_global_selling",
+                        "profile_url": "https://www.tiktok.com/@unbox_phu_kien_xin",
+                        "top_videos": [],
+                    }
+                ]
+
+        self.api.ecosystems.kalodata_bridge = FakeKalodataBridge()
+
+        st_gj, res_gj = self.req("POST", "/api/ecosystems/run", {
+            "name": "Phụ kiện Goojodoq",
+            "seed_keyword": "goojodoq",
+            "extra_keywords": ["phụ kiện goojodoq"],
+            "channels": ["tiktok_shop_vn", "shopee_vn"],
+            "enable_cn_expansion": False,
+            "enable_kalodata": True,
+            "enable_global_selling_creators": True,
+            "daily_schedule_enabled": True,
+        })
+        self.assertEqual(st_gj, 200)
+        col_gj = res_gj["collection"]
+        self.assertEqual(len(col_gj["keyword_watches"]), 2)
+        self.assertGreaterEqual(len(col_gj["creators"]), 2)
+        self.assertEqual(len(col_gj["videos"]), 1)
+        self.assertTrue(col_gj["daily_schedule_enabled"])
+
+        # Simulate Day 2 Crawl -> detects 1 brand-new Goojodoq Magic Keyboard product!
+        fake_eco_apify.day_two = True
+        st_day2, res_day2 = self.req("POST", f"/api/ecosystems/{col_gj['collection_id']}/check-daily", {})
+        self.assertEqual(st_day2, 200)
+        self.assertEqual(len(res_day2["new_products"]), 1)
+        self.assertEqual(res_day2["new_products"][0]["native_product_id"], "555000999")
+        self.assertEqual(res_day2["collection"]["index_summary"]["last_new_products_detected"], 1)
 
 
 if __name__ == "__main__":

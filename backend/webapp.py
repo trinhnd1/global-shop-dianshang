@@ -115,6 +115,7 @@ def main():
 
     api = Application(args.data_dir, allow_tailscale=not args.loopback_only, web_port=args.port)
     api.watch_scheduler.start()
+    api.ecosystem_scheduler.start()
     api.telegram_bot.start()
     api.daily_brief_daemon.start()
     app = WebApp(api, args.static_dir)

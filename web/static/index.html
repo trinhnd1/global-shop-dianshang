@@ -11,11 +11,12 @@
     <aside class="side" id="sidebar">
       <div class="brand">
         <h1>🏬 Global Shop Dianshang</h1>
-        <div class="sub">Apify #1 · Treg #2 · 300+desk · Jev (<span id="sideVer">v1.0.7</span>)</div>
+        <div class="sub">Apify #1 · Treg #2 · 300+desk · Jev (<span id="sideVer">v1.0.8</span>)</div>
       </div>
 
       <div class="nav-sec">1 · Nghiên cứu, 300+desk &amp; Shop của tôi</div>
       <button class="nav-btn active" data-tab="hunt" data-route="/san-sp"><span>🔎 Săn SP &amp; Painpoint</span></button>
+      <button class="nav-btn" data-tab="ecosystems" data-route="/he-sinh-thai"><span>🎯 Hệ sinh thái &amp; Phụ kiện SP</span><em class="ncount" id="cntEcosystems">0</em></button>
       <button class="nav-btn" data-tab="deskflow" data-route="/luong-300-desk"><span>🤖 Xử lý SP 300+desk &rarr; Jev</span><em class="ncount" id="cntDeskRuns">0</em></button>
       <button class="nav-btn" data-tab="keywords" data-route="/tu-khoa"><span>🔑 Tra cứu Từ khoá Shopee/TT</span></button>
       <button class="nav-btn" data-tab="watches" data-route="/theo-doi"><span>🔭 Theo dõi Từ khoá · SP · Shop</span><em class="ncount" id="cntWatches">0</em></button>
@@ -49,9 +50,10 @@
         <div class="row">
           <button class="btn btn-sm menu-btn" data-action="toggle-menu">☰ Menu</button>
           <span class="badge green" id="topStatusBadge">🟢 Sẵn sàng</span>
-          <span class="badge blue" id="topVerBadge">📦 v1.0.7</span>
+          <span class="badge blue" id="topVerBadge">📦 v1.0.8</span>
         </div>
         <div class="row">
+          <button class="btn btn-sm btn-gold" data-action="jump-ecosystems">🎯 Hệ sinh thái SP (<span id="topEcoCnt">0</span>)</button>
           <button class="btn btn-sm btn-pri" data-action="jump-deskflow">🤖 300+desk &rarr; Jev</button>
           <button class="btn btn-sm" data-action="jump-apifystore">🧩 Apify Store (<span id="topApifyCnt">0</span>)</button>
           <button class="btn btn-sm btn-blue" data-action="jump-myshops">🏠 Shop của tôi (<span id="topMyShopsCnt">0</span>)</button>
@@ -271,6 +273,96 @@
             <div id="huntPastDetailBox" style="margin-bottom:10px"></div>
             <div id="huntRecentRunsBox"></div>
           </div>
+        </section>
+
+        <!-- VIEW 1.1A: HỆ SINH THÁI PHỤ KIỆN, MỞ RỘNG NGUỒN TQ, INDEX HÀNG NGÀY & CREATOR KALODATA / GLOBAL SELLING -->
+        <section class="view" id="view-ecosystems">
+          <div class="page-head">
+            <div>
+              <h2>🎯 Luồng Nghiên cứu Hệ sinh thái Phụ kiện · Nguồn Pinduoduo/Taobao · Index Hàng ngày · Creator Kalodata &amp; Global Selling</h2>
+              <p>Thiết kế chuyên biệt cho 2 bài toán bán hàng chủ lực: <strong>(1) Bán Phụ kiện &amp; Mở rộng Mẫu mã từ Pinduoduo/Taobao</strong> (ưu tiên SP có lượt bán gần đây + theo dõi biến động tồn kho + đưa SP &amp; Shop vào danh sách theo dõi đặc biệt) và <strong>(2) Lập Index Ngách Phụ kiện + Lên lịch Cào Mới Hàng Ngày + Soi Creator/Video Hiệu quả qua Kalodata VN &amp; TikTok Affiliate Global Selling</strong> (dùng chung Profile <code>peng_dedicated</code>).</p>
+            </div>
+            <div class="row">
+              <button class="btn btn-sm" data-action="eco-check-portals">🔌 Kiểm tra Kalodata &amp; Global Selling</button>
+              <button class="btn btn-sm" data-action="eco-refresh">↻ Làm mới</button>
+            </div>
+          </div>
+
+          <div class="card" style="border-color:rgba(251,191,36,0.45)">
+            <div class="row" style="justify-content:space-between;margin-bottom:10px">
+              <h3 style="margin:0;color:#fcd34d">🚀 Khởi chạy / Cập nhật Danh mục Nghiên cứu Hệ sinh thái &amp; Phụ kiện</h3>
+              <div class="chips" style="margin:0">
+                <button type="button" class="chip" data-action="eco-preset-xteink">📚 Mẫu 1: Phụ kiện Xteink X4 (+PDD/Taobao + Theo dõi đặc biệt)</button>
+                <button type="button" class="chip" data-action="eco-preset-goojodoq">⚡ Mẫu 2: Phụ kiện Goojodoq (+Index Hàng ngày + Creator Kalodata/Global Selling)</button>
+              </div>
+            </div>
+
+            <div class="grid3">
+              <div class="field">
+                <label>📂 Tên Danh mục Theo dõi (nhóm lưu trữ trọn bộ)</label>
+                <input type="text" id="ecoName" placeholder="VD: Phụ kiện Xteink X4 HOẶC Phụ kiện Goojodoq" />
+              </div>
+              <div class="field">
+                <label>🔑 Từ khoá Gốc (Thương hiệu / Thiết bị chính)</label>
+                <input type="text" id="ecoSeedKw" placeholder="VD: xteink HOẶC goojodoq" />
+              </div>
+              <div class="field">
+                <label>➕ Từ khoá Mở rộng kèm theo (cách dấu phẩy)</label>
+                <input type="text" id="ecoExtraKws" placeholder="VD: xteink x4, bao da xteink HOẶC phụ kiện goojodoq" />
+              </div>
+            </div>
+
+            <div class="field">
+              <label>🎯 Mục tiêu bán hàng &amp; Ngách phụ kiện muốn mở rộng</label>
+              <input type="text" id="ecoTargetFocus" placeholder="VD: Bán phụ kiện cho Xteink X4 (bao da nam châm, dán màn hình nhám, nút lật trang, túi đựng) — tìm thêm mẫu thay thế/bổ sung trên Pinduoduo & Taobao" />
+            </div>
+
+            <div class="grid2" style="background:#081120;padding:10px;border-radius:8px;border:1px solid var(--border);margin-bottom:10px">
+              <div>
+                <div style="font-size:12px;color:#6ee7b7;font-weight:600;margin-bottom:5px">1️⃣ Sàn Quét SP &amp; Shop Liên quan + Lịch Cào Mới Hàng Ngày:</div>
+                <div class="row" style="gap:10px;font-size:12px;margin-bottom:6px">
+                  <label><input type="checkbox" class="eco-ch" value="shopee_vn" checked /> 🇻🇳 Shopee VN</label>
+                  <label><input type="checkbox" class="eco-ch" value="tiktok_shop_vn" checked /> 🇻🇳 TikTokShop VN</label>
+                  <label><input type="checkbox" class="eco-ch" value="shopee_ph" /> 🇵🇭 Shopee PH</label>
+                  <label><input type="checkbox" class="eco-ch" value="tiktok_shop_ph" /> 🇵🇭 TikTokShop PH</label>
+                </div>
+                <label style="font-size:12px;color:#fcd34d">
+                  <input type="checkbox" id="ecoDailySched" checked /> ⏰ Tự động lên lịch cào mới hàng ngày (24h/lần) so sánh với Index gốc để báo SP mới
+                </label>
+              </div>
+              <div>
+                <div style="font-size:12px;color:#7dd3fc;font-weight:600;margin-bottom:5px">2️⃣ Mở rộng Phụ kiện TQ + Creator Affiliate Global Selling &amp; Kalodata:</div>
+                <div class="row" style="gap:10px;font-size:12px;margin-bottom:6px">
+                  <label><input type="checkbox" class="eco-cn" value="pinduoduo" checked /> 🇨🇳 Pinduoduo 拼多多</label>
+                  <label><input type="checkbox" class="eco-cn" value="taobao" checked /> 🇨🇳 Taobao / Tmall 淘宝</label>
+                  <label><input type="checkbox" class="eco-cn" value="1688" checked /> 🇨🇳 1688 Xưởng sỉ</label>
+                </div>
+                <div class="row" style="gap:12px;font-size:12px">
+                  <label style="color:#a7f3d0"><input type="checkbox" id="ecoEnableKalodata" checked /> 📊 Quét Kalodata VN (SP 7d &amp; Video GPM)</label>
+                  <label style="color:#93c5fd"><input type="checkbox" id="ecoEnableGlobalSelling" checked /> 🎥 Quét Creator Affiliate Global Selling</label>
+                </div>
+              </div>
+            </div>
+
+            <div class="row" style="justify-content:space-between">
+              <span style="font-size:12px;color:var(--muted)">Tự động: Chấm điểm <strong>Jev AI</strong> · Ưu tiên <strong>Lượt bán gần đây &amp; Biến động Tồn kho</strong> · Đưa SP vào <strong>⭐ Theo dõi Đặc biệt</strong> &amp; Shop vào <strong>🏪 Theo dõi Shop</strong></span>
+              <button class="btn btn-pri" data-action="eco-run">🚀 Chạy Trọn Luồng Hệ sinh thái &amp; Lưu Danh mục Theo dõi</button>
+            </div>
+          </div>
+
+          <!-- Saved Ecosystem Collections Switcher -->
+          <div class="card" style="padding:10px 14px">
+            <div class="row" style="justify-content:space-between">
+              <div class="row" style="gap:8px">
+                <strong style="font-size:13px;color:#7dd3fc">📂 Các Danh mục Hệ sinh thái đang theo dõi:</strong>
+                <div class="chips" id="ecoCollectionsBar" style="margin:0"></div>
+              </div>
+              <div id="ecoPortalMiniBadge" style="font-size:11.8px;color:var(--muted)"></div>
+            </div>
+          </div>
+
+          <!-- Active Collection Full Workspace -->
+          <div id="ecoActiveDetailBox"></div>
         </section>
 
         <!-- VIEW 1.1B: LUỒNG XỬ LÝ SẢN PHẨM 300+DESK (OPi SOCKS5) -> JEV RA QUYẾT ĐỊNH -->
@@ -1252,16 +1344,24 @@
 
           <div class="grid2">
             <div class="card">
-              <h3>🌐 Trình duyệt Độc lập (Dedicated Chrome CDP 127.0.0.1:9349)</h3>
-              <p style="color:var(--muted);font-size:12.5px">Tách biệt hoàn toàn với Chrome cá nhân &amp; dự án cũ để đăng nhập Shopee, TikTok Seller, Kalodata, 1688/Taobao.</p>
-              <div class="row">
-                <button class="btn btn-sm btn-pri" data-action="open-browser" data-portal="shopee">🛍 Mở Shopee Seller</button>
-                <button class="btn btn-sm btn-blue" data-action="open-browser" data-portal="tiktok_seller">🛒 Mở TikTok Seller</button>
-                <button class="btn btn-sm btn-blue" data-action="open-browser" data-portal="facebook_fanpage">📘 Mở Facebook Fanpage</button>
-                <button class="btn btn-sm" data-action="open-browser" data-portal="kalodata">📊 Mở Kalodata</button>
-                <button class="btn btn-sm btn-gold" data-action="open-browser" data-portal="china_1688_taobao">🇨🇳 Mở 1688 / Taobao</button>
+              <h3>🌐 Profile Chuyên dụng <code>peng_dedicated</code> (Dùng chung <code>affiliate-peng</code> · CDP 127.0.0.1:9339) &amp; Tài khoản Kalodata VN</h3>
+              <p style="color:var(--muted);font-size:12.3px;margin-top:0">Dùng chung trực tiếp Profile Chrome chuyên dụng và Tài khoản Kalodata của <strong>affiliate-peng</strong> để quét Kalodata VN (<code>$0.00</code> API cost) và tìm Creator/Video trên <strong>TikTok Affiliate Global Selling</strong>.</p>
+              <div class="row" style="margin-bottom:10px">
+                <button class="btn btn-sm btn-gold" data-action="open-browser" data-portal="kalodata">📊 Mở Kalodata VN</button>
+                <button class="btn btn-sm btn-pri" data-action="open-browser" data-portal="affiliate_global_selling">🎥 Mở Affiliate Global Selling (Creators)</button>
+                <button class="btn btn-sm" data-action="open-browser" data-portal="shopee">🛍 Mở Shopee Seller</button>
+                <button class="btn btn-sm btn-blue" data-action="open-browser" data-portal="facebook_fanpage">📘 Mở Fanpage</button>
+                <button class="btn btn-sm" data-action="open-browser" data-portal="china_1688_taobao">🇨🇳 Mở 1688/Taobao</button>
               </div>
-              <div id="browserHubBox" style="margin-top:10px;font-size:12.5px;color:var(--muted)"></div>
+              <div class="grid2">
+                <div class="field"><label>Email Tài khoản Kalodata VN</label><input type="text" id="setKaloEmail" placeholder="jreed767@cnebw.eu.cc" /></div>
+                <div class="field"><label>Mật khẩu Kalodata (lưu Keychain)</label><input type="password" id="setKaloPassword" placeholder="••••••••" /></div>
+              </div>
+              <div class="row">
+                <button class="btn btn-sm btn-pri" data-action="kalo-sync-affiliate">📥 Đồng bộ nguyên Tài khoản Kalodata từ affiliate-peng</button>
+                <button class="btn btn-sm" data-action="eco-check-portals">🔌 Kiểm tra Phiên Kalodata &amp; Global Selling</button>
+              </div>
+              <div id="browserHubBox" style="margin-top:8px;font-size:12px;color:var(--muted)"></div>
             </div>
 
             <div class="card">

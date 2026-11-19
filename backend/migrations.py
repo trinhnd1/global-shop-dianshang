@@ -563,6 +563,46 @@ MIGRATIONS: list[tuple[int, str, list[str]]] = [
             """,
         ],
     ),
+    (
+        6,
+        "v6_ecosystem_playbooks_special_watches_and_kalodata_bridge",
+        [
+            "ALTER TABLE watches ADD COLUMN is_special INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE watches ADD COLUMN collection_id TEXT NOT NULL DEFAULT ''",
+            "CREATE INDEX IF NOT EXISTS idx_watches_special ON watches(is_special, updated_at DESC)",
+            "CREATE INDEX IF NOT EXISTS idx_watches_collection ON watches(collection_id)",
+            """
+            CREATE TABLE IF NOT EXISTS ecosystem_collections (
+                collection_id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                seed_keyword TEXT NOT NULL,
+                extra_keywords_json TEXT NOT NULL DEFAULT '[]',
+                playbook_mode TEXT NOT NULL DEFAULT 'full_hybrid',
+                target_focus TEXT NOT NULL DEFAULT '',
+                channels_json TEXT NOT NULL DEFAULT '[]',
+                cn_platforms_json TEXT NOT NULL DEFAULT '[]',
+                daily_schedule_enabled INTEGER NOT NULL DEFAULT 0,
+                schedule_interval_hours REAL NOT NULL DEFAULT 24.0,
+                last_run_at TEXT NOT NULL DEFAULT '',
+                next_run_at TEXT NOT NULL DEFAULT '',
+                product_ids_json TEXT NOT NULL DEFAULT '[]',
+                special_watch_ids_json TEXT NOT NULL DEFAULT '[]',
+                shop_watch_ids_json TEXT NOT NULL DEFAULT '[]',
+                keyword_watch_ids_json TEXT NOT NULL DEFAULT '[]',
+                shop_ids_json TEXT NOT NULL DEFAULT '[]',
+                cn_sourcing_ids_json TEXT NOT NULL DEFAULT '[]',
+                cn_items_json TEXT NOT NULL DEFAULT '[]',
+                creators_json TEXT NOT NULL DEFAULT '[]',
+                videos_json TEXT NOT NULL DEFAULT '[]',
+                kalodata_products_json TEXT NOT NULL DEFAULT '[]',
+                index_summary_json TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """,
+            "CREATE INDEX IF NOT EXISTS idx_eco_updated ON ecosystem_collections(updated_at DESC)",
+        ],
+    ),
 ]
 
 

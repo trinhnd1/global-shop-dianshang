@@ -1,8 +1,9 @@
-/* Global Shop Dianshang v1.0.7 — Multi-Market Shopee & TikTokShop (VN, PH, SG, MY, TH) + Full Apify Store Catalog & Smart Goal Caller */
+/* Global Shop Dianshang v1.0.8 — Ecosystem & Accessory Playbooks (Xteink X4, Goojodoq) + Kalodata & Affiliate Global Selling (`peng_dedicated`) */
 (() => {
   const ROUTE_TO_TAB = {
     "/": "hunt",
     "/san-sp": "hunt",
+    "/he-sinh-thai": "ecosystems",
     "/luong-300-desk": "deskflow",
     "/tu-khoa": "keywords",
     "/theo-doi": "watches",
@@ -92,6 +93,7 @@
   };
 
   let APIFY_STORE_GOAL = "";
+  let ACTIVE_ECO_ID = "";
 
   let CURRENT_TAB = "hunt";
   let CURRENT_BUCKET = "all";
@@ -255,6 +257,10 @@
       if (elApifyCnt) elApifyCnt.textContent = Number(ov.apify_store_count || 0).toLocaleString("en-US");
       const elTopApifyCnt = document.getElementById("topApifyCnt");
       if (elTopApifyCnt) elTopApifyCnt.textContent = Number(ov.apify_store_count || 0).toLocaleString("en-US");
+      const elEcoCnt = document.getElementById("cntEcosystems");
+      if (elEcoCnt) elEcoCnt.textContent = ov.ecosystems_count || 0;
+      const elTopEcoCnt = document.getElementById("topEcoCnt");
+      if (elTopEcoCnt) elTopEcoCnt.textContent = ov.ecosystems_count || 0;
       if (ov.recent_logs?.length) {
         document.getElementById("cntHistoryLogs").textContent = ov.recent_logs[0].seq_no || ov.recent_logs.length;
       }
@@ -367,6 +373,7 @@
   async function refreshTab(tab) {
     await syncSidebarCountsAndRefs();
     if (tab === "hunt") await loadHuntRecentRuns();
+    else if (tab === "ecosystems") await loadEcosystemsTab();
     else if (tab === "deskflow") await loadDesk300Tab();
     else if (tab === "myshops") await loadMyShops();
     else if (tab === "results") await loadProducts();
@@ -932,7 +939,9 @@
             const sm = w.last_summary || {};
             const wsf = sm.shopee_filters || {};
             return `<tr>
-              <td><span class="badge gold">${esc(w.watch_type.toUpperCase())}</span></td>
+              <td>
+                <span class="badge ${w.is_special ? "gold" : "blue"}">${w.is_special ? "⭐ ĐẶC BIỆT · " : ""}${esc(w.watch_type.toUpperCase())}</span>
+              </td>
               <td><span class="badge blue">${esc(w.channel_label || w.platform)}</span></td>
               <td>
                 <strong>${esc(w.title)}</strong>
@@ -1583,6 +1592,277 @@
     card.scrollIntoView({ behavior: "smooth", block: "nearest" });
   }
 
+  // --- PART 1.1A: ECOSYSTEM & ACCESSORY PLAYBOOKS (XTEINK X4 & GOOJODOQ) -----
+  function renderEcosystemDetail(col) {
+    const box = document.getElementById("ecoActiveDetailBox");
+    if (!box) return;
+    if (!col) {
+      box.innerHTML = `<div class="card" style="color:var(--muted)">Chưa có Danh mục Hệ sinh thái nào — hãy bấm chọn <strong>Mẫu 1 (Phụ kiện Xteink X4)</strong> hoặc <strong>Mẫu 2 (Phụ kiện Goojodoq)</strong> ở trên rồi chạy ngay!</div>`;
+      return;
+    }
+    ACTIVE_ECO_ID = col.collection_id;
+    const st = col.index_summary || {};
+    const prods = col.products || [];
+    const shops = col.tracked_shops || [];
+    const cnItems = col.cn_items || [];
+    const creators = col.creators || [];
+    const videos = col.videos || [];
+    const spWatchIds = new Set((col.special_watches || []).map((w) => w.linked_product_id).filter(Boolean));
+
+    box.innerHTML = `
+      <div class="card" style="border-color:rgba(16,185,129,0.5)">
+        <div class="row" style="justify-content:space-between;margin-bottom:10px">
+          <div>
+            <h3 style="margin:0;color:#6ee7b7">📂 Danh mục Theo dõi: ${esc(col.name)} <span class="badge blue">Từ khoá gốc: ${esc(col.seed_keyword)}</span></h3>
+            <div style="font-size:12px;color:var(--muted);margin-top:3px">
+              🎯 Mục tiêu: ${esc(col.target_focus || "—")} · Lần cào gần nhất: <strong>${fmtTime(col.last_run_at)}</strong>
+              ${col.daily_schedule_enabled ? ` · <span class="badge green">⏰ Tự động cào mới mỗi ${col.schedule_interval_hours}h (Kế tiếp: ${fmtTime(col.next_run_at)})</span>` : `<span class="badge">⏸ Đang tắt lịch tự động</span>`}
+            </div>
+          </div>
+          <div class="row">
+            <button class="btn btn-sm btn-pri" data-action="eco-check-daily" data-id="${esc(col.collection_id)}">🔄 Cào Check SP Mới &amp; Tồn Kho Ngay</button>
+            <button class="btn btn-sm" data-action="eco-toggle-sched" data-id="${esc(col.collection_id)}" data-on="${col.daily_schedule_enabled ? "0" : "1"}">${col.daily_schedule_enabled ? "⏸ Tạm dừng lịch ngày" : "▶️ Bật lịch cào hàng ngày"}</button>
+            <button class="btn btn-sm btn-danger" data-action="eco-delete" data-id="${esc(col.collection_id)}">🗑 Xoá</button>
+          </div>
+        </div>
+
+        <div class="kpi-grid">
+          <div class="kpi"><div class="lbl">📦 Tổng SP Sàn trong Index</div><div class="val sky">${prods.length}</div></div>
+          <div class="kpi"><div class="lbl">⭐ SP Theo dõi Đặc biệt (Có bán / Tồn kho)</div><div class="val gold">${(col.special_watch_ids || []).length}</div></div>
+          <div class="kpi"><div class="lbl">🏪 Shop Liên quan đang Theo dõi</div><div class="val green">${shops.length}</div></div>
+          <div class="kpi"><div class="lbl">🇨🇳 Mẫu Phụ kiện Bổ sung / Thay thế (PDD·Taobao)</div><div class="val gold">${cnItems.length}</div></div>
+          <div class="kpi"><div class="lbl">🎥 Creator &amp; Video Bán Hiệu Quả</div><div class="val green">${creators.length} Creator / ${videos.length} Video</div></div>
+          <div class="kpi"><div class="lbl">🆕 SP Mới phát hiện lần check gần nhất</div><div class="val">${st.last_new_products_detected || 0} SP mới</div></div>
+        </div>
+      </div>
+
+      <!-- 1. RELATED PRODUCTS + JEV SCORE + INVENTORY / RECENT SALES + SPECIAL WATCH -->
+      <div class="card">
+        <div class="row" style="justify-content:space-between;margin-bottom:8px">
+          <h3 style="margin:0">1️⃣ ⭐ Sản phẩm Liên quan trên Shopee VN &amp; TikTokShop VN — Xếp hạng theo Lượt bán gần đây, Tồn kho &amp; Điểm Jev (${prods.length} SP)</h3>
+          <button class="btn btn-sm" data-action="jump-tab" data-tab="watches">🔭 Mở Bảng Theo dõi Định kỳ</button>
+        </div>
+        ${
+          prods.length
+            ? `<div style="max-height:420px;overflow:auto;border:1px solid var(--border);border-radius:8px">
+                <table class="tbl">
+                  <thead><tr><th>#</th><th>Sản phẩm &amp; Tín hiệu Ưu tiên</th><th>Sàn &amp; Shop</th><th>Giá bán</th><th>Đã bán &amp; Gần đây</th><th>Tồn kho (Suy lượt bán)</th><th>Điểm Jev</th><th>Theo dõi Đặc biệt</th></tr></thead>
+                  <tbody>
+                    ${prods.map((p) => {
+                      const rk = p.ecosystem_rank || {};
+                      const isSp = spWatchIds.has(p.id);
+                      return `
+                        <tr>
+                          <td>#${p.id}</td>
+                          <td>
+                            <div class="row" style="flex-wrap:nowrap">
+                              ${p.image_url ? `<img src="${esc(p.image_url)}" style="width:38px;height:38px;border-radius:6px;object-fit:cover" alt="" />` : ""}
+                              <div>
+                                <a href="${esc(p.url || "#")}" target="_blank" style="color:#93c5fd;font-weight:700">${esc(p.title)}</a>
+                                <div style="font-size:11.3px;color:#6ee7b7;margin-top:2px">📈 ${esc(rk.priority_reason || "")}</div>
+                              </div>
+                            </div>
+                          </td>
+                          <td>
+                            <div><span class="badge blue">${esc(p.platform_market_label || p.platform)}</span></div>
+                            <div style="font-size:11.5px;margin-top:2px">${esc(p.shop_name || "—")}</div>
+                          </td>
+                          <td><strong>${fmtPriceDual(p)}</strong></td>
+                          <td>
+                            <div>Tổng: <strong>${Number(p.sold_count || 0).toLocaleString("vi-VN")}</strong></div>
+                            ${rk.recent_sold_signal > 0 ? `<span class="badge green">🔥 Gần đây: +${rk.recent_sold_signal}</span>` : ""}
+                          </td>
+                          <td>
+                            ${p.stock > 0 ? `<div>Tồn: <strong>${Number(p.stock).toLocaleString("vi-VN")}</strong></div>` : '<span style="color:var(--muted)">Chưa báo tồn</span>'}
+                            ${p.inferred_sold_from_stock > 0 ? `<span class="badge gold">📉 Giảm tồn: +${p.inferred_sold_from_stock} đơn</span>` : ""}
+                          </td>
+                          <td>${p.jev_score != null ? `<span class="badge ${p.jev_score >= 7 ? "gold" : "green"}">🎯 ${p.jev_score}/10</span>` : `<button class="btn btn-sm" data-action="prod-score-jev" data-id="${p.id}">Chấm Jev</button>`}</td>
+                          <td>
+                            ${isSp ? '<span class="badge gold">⭐ Đang Theo dõi Đặc biệt</span>' : `<button class="btn btn-sm btn-gold" data-action="prod-watch" data-id="${p.id}" data-plat="${esc(p.platform)}" data-url="${esc(p.url)}" data-title="${esc(p.title)}">+ Theo dõi</button>`}
+                            <button class="btn btn-sm" data-action="prod-dossier" data-id="${p.id}">📊</button>
+                          </td>
+                        </tr>`;
+                    }).join("")}
+                  </tbody>
+                </table>
+               </div>`
+            : `<div style="color:var(--muted)">Chưa có sản phẩm sàn nào trong danh mục này.</div>`
+        }
+      </div>
+
+      <!-- 2. TRACKED RELATED SHOPS -->
+      <div class="card">
+        <h3 style="margin:0 0 8px">2️⃣ 🏪 Danh sách Shop Liên quan đang Bán (Đã đưa vào Kho &amp; Theo dõi SP mới của Shop: ${shops.length} Shop)</h3>
+        ${
+          shops.length
+            ? `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:8px">
+                ${shops.map((s) => `
+                  <div style="padding:10px;border:1px solid var(--border);border-radius:8px;background:#081222">
+                    <div class="row" style="justify-content:space-between">
+                      <span class="badge blue">${esc(s.platform_label || s.platform)}</span>
+                      <span class="badge gold">🔭 Đang theo dõi Shop</span>
+                    </div>
+                    <div style="font-weight:700;margin-top:5px">${esc(s.shop_name)}</div>
+                    ${s.shop_url ? `<div><a href="${esc(s.shop_url)}" target="_blank" style="font-size:11.5px;color:#93c5fd">${esc(s.shop_url)}</a></div>` : ""}
+                    <div class="row" style="margin-top:8px">
+                      <button class="btn btn-sm btn-pri" data-action="comp-shop-scan" data-plat="${esc(s.channel_code || s.platform)}" data-url="${esc(s.shop_url || s.handle)}">🔎 Quét toàn bộ SP của Shop</button>
+                    </div>
+                  </div>`).join("")}
+               </div>`
+            : `<div style="color:var(--muted)">Chưa tách được danh sách Shop riêng biệt từ kết quả hiện tại.</div>`
+        }
+      </div>
+
+      <!-- 3. CHINA ACCESSORY EXPANSION: PINDUODUO / TAOBAO / 1688 -->
+      <div class="card" style="border-color:rgba(251,191,36,0.4)">
+        <div class="row" style="justify-content:space-between;margin-bottom:8px">
+          <div>
+            <h3 style="margin:0;color:#fcd34d">3️⃣ 🇨🇳 Sản phẩm Thay thế · Phụ kiện Bổ sung · Đa dạng Lựa chọn trên Pinduoduo · Taobao · 1688 (${cnItems.length} mẫu)</h3>
+            <div style="font-size:12px;color:var(--muted)">Giúp bạn tìm mẫu bao da, dán màn hình, nút bấm, ngòi bút, giá đỡ, túi đựng... mới lạ chưa ai bán ở VN kèm Giá vốn về tay dự kiến!</div>
+          </div>
+        </div>
+        ${
+          cnItems.length
+            ? `<div style="max-height:420px;overflow:auto;border:1px solid var(--border);border-radius:8px">
+                <table class="tbl">
+                  <thead><tr><th>Sàn TQ</th><th>Phân loại Phụ kiện</th><th>Tên mẫu trên Pinduoduo / Taobao / 1688</th><th>Giá gốc (¥ CNY)</th><th>Giá vốn về kho VN (0.25kg)</th><th>Thao tác</th></tr></thead>
+                  <tbody>
+                    ${cnItems.map((c) => `
+                      <tr>
+                        <td><span class="badge gold">${esc((c.platform || "").toUpperCase())}</span></td>
+                        <td>
+                          <span class="badge ${c.relation_color || "green"}">${esc(c.relation_badge || "🧩 Phụ kiện bổ sung")}</span>
+                          ${c.vi_accessory_group ? `<div style="font-size:11px;color:var(--muted);margin-top:2px">${esc(c.vi_accessory_group)}</div>` : ""}
+                        </td>
+                        <td>
+                          <div class="row" style="flex-wrap:nowrap">
+                            ${c.image_url ? `<img src="${esc(c.image_url)}" style="width:38px;height:38px;border-radius:6px;object-fit:cover" alt="" />` : ""}
+                            <div>
+                              <a href="${esc(c.item_url || "#")}" target="_blank" style="color:#93c5fd;font-weight:600">${esc(c.title)}</a>
+                              <div style="font-size:11px;color:var(--muted)">Từ khoá TQ: <code>${esc(c.cn_query || "")}</code> ${c.sales_volume ? `· Lượt mua: ${esc(c.sales_volume)}` : ""}</div>
+                            </div>
+                          </div>
+                        </td>
+                        <td><strong>${c.price_cny > 0 ? "¥" + Number(c.price_cny).toFixed(2) : "Xem link"}</strong></td>
+                        <td><strong style="color:#6ee7b7">${c.landed_cost_vnd > 0 ? vnd(c.landed_cost_vnd) : "—"}</strong></td>
+                        <td><button class="btn btn-sm btn-pri" data-action="sourcing-to-vault" data-id="${esc(c.sourcing_id)}">+ Đưa vào Kho SP</button></td>
+                      </tr>`).join("")}
+                  </tbody>
+                </table>
+               </div>`
+            : `<div style="color:var(--muted)">Chưa quét mẫu phụ kiện Pinduoduo / Taobao cho danh mục này (tích chọn Pinduoduo/Taobao ở trên rồi bấm Chạy để bổ sung!).</div>`
+        }
+      </div>
+
+      <!-- 4. CREATORS & EFFECTIVE VIDEOS FROM AFFILIATE GLOBAL SELLING + KALODATA VN -->
+      <div class="card" style="border-color:rgba(56,189,248,0.4)">
+        <h3 style="margin:0 0 8px;color:#7dd3fc">4️⃣ 🎥 Creator &amp; Video Bán Hiệu Quả từ <code>TikTok Affiliate Global Selling</code> + <code>Kalodata VN</code> (Profile <code>peng_dedicated</code>)</h3>
+        <div class="grid2">
+          <div>
+            <div style="font-weight:700;margin-bottom:6px;font-size:13px">👤 Top Creator đang bán hiệu quả (${creators.length} kênh):</div>
+            ${
+              creators.length
+                ? `<div style="max-height:330px;overflow:auto;border:1px solid var(--border);border-radius:8px">
+                    <table class="tbl">
+                      <thead><tr><th>Creator (@handle)</th><th>Nguồn</th><th>Followers</th><th>Doanh số GMV</th><th>Đơn bán / View TB</th></tr></thead>
+                      <tbody>
+                        ${creators.map((cr) => `
+                          <tr>
+                            <td>
+                              <a href="https://www.tiktok.com/@${esc(cr.handle)}" target="_blank" style="color:#93c5fd;font-weight:700">@${esc(cr.handle)}</a>
+                              ${cr.creator_level ? `<span class="badge gold">${esc(cr.creator_level)}</span>` : ""}
+                              <div style="font-size:11px;color:var(--muted)">${esc(cr.display_name || "")}</div>
+                            </td>
+                            <td><span class="badge blue">${esc(cr.source || "")}</span></td>
+                            <td>${Number(cr.followers || 0).toLocaleString("en-US")}</td>
+                            <td><strong style="color:#6ee7b7">${esc(cr.total_gmv_display || (cr.total_gmv_vnd ? vnd(cr.total_gmv_vnd) : "—"))}</strong></td>
+                            <td>${cr.units_sold != null ? `${cr.units_sold} đơn` : ""} ${cr.avg_views ? `· ${Number(cr.avg_views).toLocaleString("en-US")} views` : ""}</td>
+                          </tr>`).join("")}
+                      </tbody>
+                    </table>
+                   </div>`
+                : `<div style="color:var(--muted);font-size:12.5px">Chưa có danh sách Creator cho danh mục này.</div>`
+            }
+          </div>
+          <div>
+            <div style="font-weight:700;margin-bottom:6px;font-size:13px">🎬 Danh sách Video Bán Hàng Hiệu Quả (${videos.length} video — bấm Clone kịch bản 15s):</div>
+            ${
+              videos.length
+                ? `<div style="max-height:330px;overflow:auto;border:1px solid var(--border);border-radius:8px">
+                    <table class="tbl">
+                      <thead><tr><th>Video &amp; Creator</th><th>GPM / Doanh thu</th><th>Đơn / Lượt xem</th><th>Hành động</th></tr></thead>
+                      <tbody>
+                        ${videos.map((v) => `
+                          <tr>
+                            <td>
+                              <a href="${esc(v.video_url || "#")}" target="_blank" style="color:#93c5fd;font-weight:600">${esc((v.caption || v.video_id || "Xem Video TikTok").slice(0, 75))}</a>
+                              <div style="font-size:11px;color:var(--muted)">@${esc(v.author_handle || "creator")} · <code>${esc(v.source || "")}</code></div>
+                            </td>
+                            <td>
+                              <div style="color:#fcd34d;font-weight:700">GPM: ${esc(v.gpm_display || "—")}</div>
+                              <div style="font-size:11px;color:#6ee7b7">GMV: ${esc(v.video_gmv_display || "—")}</div>
+                            </td>
+                            <td>
+                              <div>${v.orders_count != null ? `<strong>${v.orders_count} đơn</strong>` : "—"}</div>
+                              <div style="font-size:11px;color:var(--muted)">${Number(v.views_count || 0).toLocaleString("en-US")} views</div>
+                            </td>
+                            <td>
+                              <button class="btn btn-sm btn-gold" data-action="eco-send-to-clone" data-url="${esc(v.video_url || "")}" data-prod="${esc(col.name)}">⚡ Clone</button>
+                            </td>
+                          </tr>`).join("")}
+                      </tbody>
+                    </table>
+                   </div>`
+                : `<div style="color:var(--muted);font-size:12.5px">Chưa có danh sách Video hiệu quả cho danh mục này.</div>`
+            }
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  async function loadEcosystemsTab(selectCollectionId = null) {
+    const [ecoData, kaloSt] = await Promise.all([
+      api("/api/ecosystems"),
+      api("/api/kalodata/status").catch(() => null),
+    ]);
+    const cols = ecoData.collections || [];
+    const targetId = selectCollectionId || (cols.some((c) => c.collection_id === ACTIVE_ECO_ID) ? ACTIVE_ECO_ID : (cols[0]?.collection_id || ""));
+
+    if (kaloSt) {
+      const mini = document.getElementById("ecoPortalMiniBadge");
+      if (mini) {
+        mini.innerHTML =
+          `Kalodata (<code>${esc(kaloSt.account_email || "chưa cấu hình")}</code>): ` +
+          `${kaloSt.kalodata_session?.logged_in ? '<span class="badge green">🟢 Đã đăng nhập</span>' : '<span class="badge">⚪ Chờ mở tab</span>'} · ` +
+          `Global Selling: ${kaloSt.affiliate_global_selling_session?.ready ? '<span class="badge green">🟢 Sẵn sàng</span>' : '<span class="badge">⚪ Chờ mở tab</span>'}`;
+      }
+    }
+
+    const bar = document.getElementById("ecoCollectionsBar");
+    if (bar) {
+      bar.innerHTML = cols.length
+        ? cols
+            .map(
+              (c) =>
+                `<button type="button" class="chip ${c.collection_id === targetId ? "active" : ""}" data-action="eco-open-col" data-id="${esc(c.collection_id)}">📂 ${esc(c.name)} (${(c.product_ids || []).length} SP)</button>`
+            )
+            .join("")
+        : `<span style="font-size:12px;color:var(--muted)">Chưa có danh mục nào</span>`;
+    }
+
+    if (targetId) {
+      if (ecoData.active_detail && ecoData.active_detail.collection_id === targetId) {
+        renderEcosystemDetail(ecoData.active_detail);
+      } else {
+        const d = await api(`/api/ecosystems/${encodeURIComponent(targetId)}`);
+        renderEcosystemDetail(d.collection);
+      }
+    } else {
+      renderEcosystemDetail(null);
+    }
+  }
+
   // --- PART 4.3B: APIFY STORE CATALOG & SMART GOAL CALLER --------------------
   async function loadApifyStoreTab() {
     const q = document.getElementById("apifyStoreSearchQ")?.value || "";
@@ -1705,12 +1985,13 @@
   }
 
   async function loadSettings() {
-    const [mv, tg, bh, mcp, d3st] = await Promise.all([
+    const [mv, tg, bh, mcp, d3st, kaloSt] = await Promise.all([
       api("/api/settings"),
       api("/api/providers/telegram/status"),
       api("/api/connections/browser"),
       api("/api/mcp/status"),
       api("/api/desk300/status").catch(() => ({ ok: false })),
+      api("/api/kalodata/status").catch(() => null),
     ]);
     renderDeskGatewayBanner(d3st);
     const st = mv.settings || {};
@@ -1718,6 +1999,8 @@
     document.getElementById("setTgChatId").value = st.notify?.telegram_chat_id || "";
     document.getElementById("setTregKey").value = st.providers?.treg_key || "";
     document.getElementById("setJevKey").value = st.providers?.typesafe_key || "";
+    if (document.getElementById("setKaloEmail")) document.getElementById("setKaloEmail").value = st.kalodata?.account_email || "";
+    if (document.getElementById("setKaloPassword")) document.getElementById("setKaloPassword").value = st.kalodata?.password || "";
     document.getElementById("setCnyRate").value = st.sourcing?.cny_to_vnd_rate ?? 3650;
     document.getElementById("setShipKg").value = st.sourcing?.cn_shipping_per_kg_vnd ?? 28000;
     document.getElementById("setPackVnd").value = st.sourcing?.packaging_cost_vnd ?? 3500;
@@ -1737,8 +2020,11 @@
     document.getElementById("tgStatusBox").innerHTML =
       `Bot: <strong>@${esc(tg.bot_username)}</strong> · Token: ${tg.token_configured ? "✅ Đã lưu Keychain" : "❌ Chưa lưu"} · Allowed IDs: <code>${esc((tg.allowed_user_ids || []).join(", "))}</code> · Tailscale: <a href="${esc(tg.tailscale_url)}" target="_blank" style="color:#6ee7b7">${esc(tg.tailscale_url)}</a>`;
 
+    const kLine = kaloSt
+      ? `<br/>• Kalodata VN (<code>${esc(kaloSt.account_email)}</code>): ${kaloSt.kalodata_session?.logged_in ? "🟢 Đã đăng nhập" : "⚪ Chờ mở tab"} · Affiliate Global Selling: ${kaloSt.affiliate_global_selling_session?.ready ? "🟢 Sẵn sàng" : "⚪ Chờ mở tab"}`
+      : "";
     document.getElementById("browserHubBox").innerHTML =
-      `Trạng thái Chrome Độc lập (CDP 127.0.0.1:${bh.cdp_port}): <strong>${bh.running ? "🟢 Đang mở (" + bh.open_tabs_count + " tab)" : "⚪ Đang đóng"}</strong> · SecretStore: <code>${esc(mv.secret_backend)}</code>`;
+      `Profile: <strong>${esc(bh.profile_name)}</strong> (CDP <code>127.0.0.1:${bh.cdp_port}</code>): <strong>${bh.running ? "🟢 Đang mở (" + bh.open_tabs_count + " tab)" : "⚪ Đang đóng"}</strong> · SecretStore: <code>${esc(mv.secret_backend)}</code>${kLine}`;
 
     document.getElementById("mcpStatusBox").innerHTML =
       `🔌 MCP Gateway: <code>${esc(mcp.http_endpoint)}</code> (${mcp.tools_count} tools · chế độ <code>${esc(mcp.access_mode)}</code>)`;
@@ -1827,6 +2113,8 @@
         document.getElementById("sidebar")?.classList.toggle("open");
       } else if (act === "close-modal") {
         closeModal();
+      } else if (act === "jump-ecosystems") {
+        showTab("ecosystems", "/he-sinh-thai");
       } else if (act === "jump-deskflow") {
         showTab("deskflow", "/luong-300-desk");
       } else if (act === "jump-apifystore") {
@@ -2567,6 +2855,10 @@
             treg_key: document.getElementById("setTregKey").value,
             typesafe_key: document.getElementById("setJevKey").value,
           },
+          kalodata: {
+            account_email: document.getElementById("setKaloEmail")?.value || "",
+            password: document.getElementById("setKaloPassword")?.value || "",
+          },
           notify: {
             telegram_token: document.getElementById("setTgToken").value,
             telegram_chat_id: document.getElementById("setTgChatId").value,
@@ -2626,6 +2918,82 @@
           </div>`;
         toast(res.summary);
         syncSidebarCountsAndRefs();
+      } else if (act === "kalo-sync-affiliate") {
+        const res = await api("/api/kalodata/sync-from-affiliate", "POST", {});
+        toast(res.summary || "Đã đồng bộ tài khoản Kalodata từ affiliate-peng!");
+        await loadSettings();
+      } else if (act === "eco-check-portals") {
+        const st = await api("/api/kalodata/status");
+        toast(
+          `Profile ${st.profile_name} (CDP ${st.cdp_port || "đóng"}): Kalodata=${st.kalodata_session?.logged_in ? "ĐÃ ĐĂNG NHẬP" : "Chưa mở"} · Global Selling=${st.affiliate_global_selling_session?.ready ? "SẴN SÀNG" : "Chưa mở"}`
+        );
+        if (CURRENT_TAB === "ecosystems") await loadEcosystemsTab();
+        else if (CURRENT_TAB === "settings") await loadSettings();
+      } else if (act === "eco-refresh") {
+        await loadEcosystemsTab();
+      } else if (act === "eco-preset-xteink") {
+        document.getElementById("ecoName").value = "Phụ kiện Xteink X4";
+        document.getElementById("ecoSeedKw").value = "xteink";
+        document.getElementById("ecoExtraKws").value = "xteink x4";
+        document.getElementById("ecoTargetFocus").value = "Bán phụ kiện cho máy đọc sách mini Xteink X4: tìm SP & Shop trên Shopee VN + TikTok, ưu tiên lượt bán gần đây & tồn kho, mở rộng phụ kiện thay thế/bổ sung trên Pinduoduo & Taobao";
+        document.querySelectorAll(".eco-cn").forEach((el) => { el.checked = true; });
+        document.getElementById("ecoDailySched").checked = true;
+        toast("Đã nạp cấu hình Mẫu 1: Hệ sinh thái Phụ kiện Xteink X4!");
+      } else if (act === "eco-preset-goojodoq") {
+        document.getElementById("ecoName").value = "Phụ kiện Goojodoq";
+        document.getElementById("ecoSeedKw").value = "goojodoq";
+        document.getElementById("ecoExtraKws").value = "phụ kiện goojodoq";
+        document.getElementById("ecoTargetFocus").value = "Lập Index lần 1 phụ kiện Goojodoq trên TikTokShop VN & Shopee VN, lên lịch cào mới hàng ngày phát hiện SP mới, kết hợp tìm Creator & Video bán hiệu quả qua Affiliate Global Selling + Kalodata VN";
+        document.getElementById("ecoDailySched").checked = true;
+        document.getElementById("ecoEnableKalodata").checked = true;
+        document.getElementById("ecoEnableGlobalSelling").checked = true;
+        toast("Đã nạp cấu hình Mẫu 2: Phụ kiện Goojodoq + Index Hàng ngày + Creator Kalodata/Global Selling!");
+      } else if (act === "eco-run") {
+        const name = document.getElementById("ecoName").value.trim();
+        const seed = document.getElementById("ecoSeedKw").value.trim();
+        const extra = document.getElementById("ecoExtraKws").value.trim();
+        const focus = document.getElementById("ecoTargetFocus").value.trim();
+        const chs = [...document.querySelectorAll(".eco-ch:checked")].map((c) => c.value);
+        const cns = [...document.querySelectorAll(".eco-cn:checked")].map((c) => c.value);
+        document.getElementById("ecoActiveDetailBox").innerHTML = `<div class="card">⏳ Đang thực thi trọn luồng Hệ sinh thái <strong>"${esc(name || seed)}"</strong> (Quét Shopee VN + TikTokShop VN &rarr; Chấm Jev &amp; Tồn kho &rarr; Theo dõi đặc biệt + Theo dõi Shop &rarr; Nguồn Phụ kiện PDD/Taobao &rarr; Creator Kalodata/Global Selling)...</div>`;
+        const res = await api("/api/ecosystems/run", "POST", {
+          name: name || `Phụ kiện ${seed}`,
+          seed_keyword: seed,
+          extra_keywords: extra,
+          target_focus: focus,
+          channels: chs,
+          cn_platforms: cns,
+          enable_cn_expansion: cns.length > 0,
+          daily_schedule_enabled: document.getElementById("ecoDailySched").checked,
+          enable_kalodata: document.getElementById("ecoEnableKalodata").checked,
+          enable_global_selling_creators: document.getElementById("ecoEnableGlobalSelling").checked,
+        });
+        toast(res.summary);
+        await syncSidebarCountsAndRefs();
+        await loadEcosystemsTab(res.collection?.collection_id);
+      } else if (act === "eco-open-col") {
+        await loadEcosystemsTab(actEl.dataset.id);
+      } else if (act === "eco-check-daily") {
+        toast("Đang cào mới & đối chiếu với Index gốc để tìm SP mới lên sàn & biến động tồn kho...");
+        const res = await api(`/api/ecosystems/${encodeURIComponent(actEl.dataset.id)}/check-daily`, "POST", {});
+        toast(res.summary);
+        await syncSidebarCountsAndRefs();
+        renderEcosystemDetail(res.collection);
+      } else if (act === "eco-toggle-sched") {
+        const res = await api(`/api/ecosystems/${encodeURIComponent(actEl.dataset.id)}`, "PATCH", {
+          daily_schedule_enabled: actEl.dataset.on === "1",
+        });
+        toast(res.summary);
+        renderEcosystemDetail(res.collection);
+      } else if (act === "eco-delete") {
+        await api(`/api/ecosystems/${encodeURIComponent(actEl.dataset.id)}`, "DELETE");
+        ACTIVE_ECO_ID = "";
+        await syncSidebarCountsAndRefs();
+        await loadEcosystemsTab();
+      } else if (act === "eco-send-to-clone") {
+        document.getElementById("vcUrl").value = actEl.dataset.url || "";
+        document.getElementById("vcProdName").value = actEl.dataset.prod || "";
+        showTab("videoclone", "/clone-video");
       }
     } catch (err) {
       toast(err.message || "Có lỗi xảy ra", true);

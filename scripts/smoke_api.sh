@@ -9,7 +9,9 @@ curl -fsS "$BASE/api/my-shops" | python3 -c "import sys,json; d=json.load(sys.st
 curl -fsS "$BASE/api/hunt/painpoints" | python3 -c "import sys,json; d=json.load(sys.stdin); assert 'painpoints' in d, d; print('2c. Painpoints & Trends API OK')"
 curl -fsS "$BASE/api/desk300/status" | python3 -c "import sys,json; d=json.load(sys.stdin); assert d.get('fail_closed') is True, d; print('2d. 300+desk Fail-Closed Gateway Status:', 'READY -> ' + str(d.get('socks_proxy')) if d.get('ok') else 'OFFLINE_GUARDED')"
 curl -fsS "$BASE/api/apify-store/stats" | python3 -c "import sys,json; d=json.load(sys.stdin); assert 'total_actors' in d and 'goals_catalog' in d, d; print('2e. Apify Store Local Catalog OK:', d['total_actors'], 'actors')"
-for route in "/" "/luong-300-desk" "/apify-store" "/shop-cua-toi" "/tu-khoa" "/theo-doi" "/nguon-hang-tq" "/kho-shop" "/chien-dich" "/caidat"; do
+curl -fsS "$BASE/api/ecosystems" | python3 -c "import sys,json; d=json.load(sys.stdin); assert 'collections' in d, d; print('2f. Ecosystem Playbooks Hub OK:', d.get('total', len(d['collections'])), 'collections')"
+curl -fsS "$BASE/api/kalodata/status" | python3 -c "import sys,json; d=json.load(sys.stdin); assert 'account_email' in d and 'profile_name' in d, d; print('2g. Kalodata & Global Selling Bridge OK:', d['profile_name'], d['account_email'])"
+for route in "/" "/he-sinh-thai" "/luong-300-desk" "/apify-store" "/shop-cua-toi" "/tu-khoa" "/theo-doi" "/nguon-hang-tq" "/kho-shop" "/chien-dich" "/caidat"; do
   code=$(curl -s -o /dev/null -w "%{http_code}" "$BASE$route")
   [ "$code" = "200" ] || { echo "SPA route failed: $route ($code)"; exit 1; }
 done

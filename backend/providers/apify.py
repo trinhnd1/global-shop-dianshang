@@ -616,18 +616,19 @@ class ApifyClient:
             if is_url:
                 candidates = [
                     ("zen-studio~taobao-detail-scraper", {"urls": [query_or_url]}),
-                    ("pizani~taobao-product-scraper", {"startUrls": [{"url": query_or_url}]}),
+                    ("scrapesage~taobao-scraper", {"mode": "detail", "itemUrls": [query_or_url]}),
                 ]
             else:
                 candidates = [
-                    ("zen-studio~taobao-search-scraper", {"keyword": query_or_url, "maxItems": lim}),
-                    ("scrapesage~taobao-scraper", {"search": query_or_url, "maxItems": lim}),
-                    ("memo23~taobao-scraper", {"keywords": [query_or_url], "maxItems": lim}),
+                    ("zen-studio~taobao-search-scraper", {"keyword": query_or_url, "maxItems": lim, "enrichWithDetails": False}),
+                    ("scrapesage~taobao-scraper", {"mode": "search", "keywords": [query_or_url], "maxItems": lim, "scrapeDetails": False}),
+                    ("tortuga~taobao-scraper", {"keywords": [query_or_url], "maxItems": lim}),
                 ]
         elif plat == "pinduoduo":
+            pdd_search_url = f"https://mobile.yangkeduo.com/search_result.html?search_key={urllib.parse.quote(query_or_url)}"
             candidates = [
-                ("trusted_tech_spot~pinduoduo-temu-wholesale-bestsellers-scraper", {"keyword": query_or_url, "maxItems": lim}),
-                ("kayhermes~125-pinduoduo-price-promotion-monitor", {"search": query_or_url, "maxItems": lim}),
+                ("trusted_tech_spot~pinduoduo-temu-wholesale-bestsellers-scraper", {"url": pdd_search_url, "includeKeywords": query_or_url, "enableRagEnrichment": False}),
+                ("zen-studio~1688-wholesale-scraper", {"keyword": query_or_url, "maxItems": lim}),
             ]
         else:
             candidates = [

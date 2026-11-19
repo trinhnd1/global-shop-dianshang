@@ -122,14 +122,18 @@ class WatchesService:
         wtype = str(body.get("watch_type") or "keyword").lower().strip()
         if wtype not in ("keyword", "product", "shop"):
             raise ValueError("Loại theo dõi phải là keyword (Từ khoá), product (Sản phẩm), hoặc shop (Shop)")
-        target_key = text(body.get("target_key") or body.get("keyword") or body.get("target_url"), "target_key", 300, required=True)
+        target_key = text(body.get("target_key") or body.get("target_query") or body.get("keyword") or body.get("target_url"), "target_key", 300, required=True)
         target_url = str(body.get("target_url") or (target_key if target_key.startswith("http") else "")).strip()
         plat, mkt, _ = parse_marketplace_spec(str(body.get("platform") or "shopee_vn"), body.get("market"), url=target_url or target_key)
         if plat not in ("shopee", "tiktok_shop"):
             raise ValueError("Nền tảng theo dõi phải thuộc hệ Shopee (VN/PH/SG/MY/TH) hoặc TikTokShop (VN/PH/SG/MY/TH)")
-        title = text(body.get("title") or target_key, "title", 180, required=True)
+        title = text(body.get("title") or body.get("target_label") or target_key, "title", 180, required=True)
         interval_hours = max(1.0, min(168.0, float(body.get("interval_hours") or 12.0)))
         shopee_filters = body.get("shopee_filters") if isinstance(body.get("shopee_filters"), dict) else {}
+        is_special = 1 if bool(body.get("is_special", False)) else 0
+        collection_id = str(body.get("collection_id") or "").strip()
+        linked_pid = body.get("linked_product_id") or body.get("product_id")
+        linked_sid = body.get("linked_shop_id") or body.get("shop_id") or ""
         init_snap = {"shopee_filters": shopee_filters} if shopee_filters else {}
         init_summary = {"shopee_filters": shopee_filters} if shopee_filters else {}
         wid = f"wt_{uuid.uuid4().hex[:10]}"
@@ -140,9 +144,9 @@ class WatchesService:
                 """
                 INSERT INTO watches
                 (watch_id, watch_type, platform, market, target_key, title, target_url, status, interval_hours,
-                 linked_product_id, linked_shop_id, last_checked_at, next_check_at, last_summary_json, baseline_snapshot_json,
-                 created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, '', ?, ?, ?, ?, ?)
+                 linked_product_id, linked_shop_id, is_special, collection_id, last_checked_at, next_check_at,
+                 last_summary_json, baseline_snapshot_json, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, '', ?, ?, ?, ?, ?)
                 """,
                 (
                     wid,
@@ -153,8 +157,10 @@ class WatchesService:
                     title,
                     target_url,
                     interval_hours,
-                    int(body["linked_product_id"]) if body.get("linked_product_id") else None,
-                    str(body.get("linked_shop_id") or ""),
+                    int(linked_pid) if linked_pid else None,
+                    str(linked_sid),
+                    is_special,
+                    collection_id,
                     _future_iso(interval_hours),
                     json.dumps(init_summary, ensure_ascii=False),
                     json.dumps(init_snap, ensure_ascii=False),
@@ -292,11 +298,15 @@ class WatchesService:
 
             cur_price = float((prod_data or {}).get("price_vnd") or 0.0)
             cur_sold = int((prod_data or {}).get("sold_count") or 0)
+            cur_stock = int((prod_data or {}).get("stock") or 0)
             cur_rating = float((prod_data or {}).get("rating") or 0.0)
             is_base = not bool(prev_snap.get("initialized"))
             prev_sold = int(prev_snap.get("sold_count") or 0)
             prev_price = float(prev_snap.get("price_vnd") or 0.0)
-            delta_sold = 0 if is_base else max(0, cur_sold - prev_sold)
+            prev_stock = int(prev_snap.get("stock") or 0)
+            raw_delta_sold = 0 if is_base else max(0, cur_sold - prev_sold)
+            stock_drop = 0 if is_base else (max(0, prev_stock - cur_stock) if (prev_stock > 0 and cur_stock > 0 and cur_stock < prev_stock) else 0)
+            delta_sold = max(raw_delta_sold, stock_drop)
             delta_price = 0.0 if is_base else (cur_price - prev_price)
 
             if prod_data and prod_data.get("title"):
@@ -318,6 +328,9 @@ class WatchesService:
                 "sold_count": cur_sold,
                 "prev_sold_count": prev_sold if not is_base else None,
                 "delta_sold": delta_sold,
+                "stock": cur_stock,
+                "prev_stock": prev_stock if not is_base else None,
+                "stock_drop_inferred_sold": stock_drop,
                 "estimated_gmv_delta_vnd": round(delta_sold * cur_price, 0),
                 "rating": cur_rating,
             }
@@ -326,20 +339,25 @@ class WatchesService:
                 "captured_at": now(),
                 "price_vnd": cur_price,
                 "sold_count": cur_sold,
+                "stock": cur_stock,
                 "rating": cur_rating,
             }
+            stk_note = f" · Tồn kho {cur_stock}" if cur_stock > 0 else ""
+            stk_drop_note = f" (suy từ giảm tồn kho -{stock_drop})" if (stock_drop > raw_delta_sold and stock_drop > 0) else ""
             summary = {
                 "watch_type": "product",
                 "price_vnd": cur_price,
                 "sold_count": cur_sold,
+                "stock": cur_stock,
                 "delta_sold": delta_sold,
+                "stock_drop_inferred_sold": stock_drop,
                 "delta_price_vnd": delta_price,
                 "new_items_count": 0,
                 "rising_items_count": 1 if delta_sold > 0 else 0,
                 "headline": (
-                    f"Mốc gốc SP: Giá {cur_price:,.0f}đ · Đã bán {cur_sold}"
+                    f"Mốc gốc SP: Giá {cur_price:,.0f}đ · Đã bán {cur_sold}{stk_note}"
                     if is_base
-                    else f" Đã bán {cur_sold} (+{delta_sold} lượt mua mới) · Giá {cur_price:,.0f}đ ({delta_price:+,.0f}đ)"
+                    else f"Đã bán {cur_sold} (+{delta_sold} lượt bán gần đây{stk_drop_note}){stk_note} · Giá {cur_price:,.0f}đ ({delta_price:+,.0f}đ)"
                 ),
             }
 
@@ -483,6 +501,8 @@ class WatchesService:
             "interval_hours": r["interval_hours"],
             "linked_product_id": r["linked_product_id"],
             "linked_shop_id": r["linked_shop_id"],
+            "is_special": bool(r["is_special"]) if "is_special" in r.keys() else False,
+            "collection_id": r["collection_id"] if "collection_id" in r.keys() else "",
             "last_checked_at": r["last_checked_at"],
             "next_check_at": r["next_check_at"],
             "last_summary": json.loads(r["last_summary_json"] or "{}"),

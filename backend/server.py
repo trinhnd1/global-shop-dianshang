@@ -17,9 +17,11 @@ from .campaigns_and_sales import CampaignsAndSalesService, DailyBriefingDaemon
 from .china_sourcing import ChinaSourcingService
 from .chrome_profile_hub import DedicatedChromeHub
 from .desk_pipeline import DeskProductWorkflowService
+from .ecosystem_playbook import EcosystemDailySchedulerDaemon, EcosystemPlaybookService
 from .history_log import HistoryLogService
 from .hunt import HuntAndCreatorsService
 from .jobs import JobManager
+from .kalodata_bridge import KalodataAndGlobalSellingService
 from .keywords import KeywordResearchService
 from .ledger import CostLedger
 from .mcp_gateway import McpGatewayService
@@ -194,6 +196,29 @@ class Application:
             jobs=self.jobs,
         )
         self.apify.catalog = self.apify_catalog
+        self.kalodata_bridge = KalodataAndGlobalSellingService(
+            self.connect,
+            self.secrets,
+            self.root,
+            self.chrome_hub,
+        )
+        self.ecosystems = EcosystemPlaybookService(
+            self.connect,
+            self.secrets,
+            self.products,
+            self.shops,
+            self.watches,
+            self.keywords,
+            self.china_sourcing,
+            kalodata_bridge=self.kalodata_bridge,
+            desk300=self.desk300,
+            apify=self.apify,
+            treg=self.treg,
+            jev=self.jev,
+            jobs=self.jobs,
+            telegram_bot=self.telegram_bot,
+        )
+        self.ecosystem_scheduler = EcosystemDailySchedulerDaemon(self.ecosystems)
         self.mcp_gateway = McpGatewayService(self, web_port=web_port)
 
         self.telegram_bot.products_service = self.products
@@ -201,6 +226,8 @@ class Application:
 
         self.handlers = [
             self.mcp_gateway,
+            self.ecosystems,
+            self.kalodata_bridge,
             self.apify_catalog,
             self.desk_pipeline,
             self.products,
@@ -384,6 +411,7 @@ class Application:
                 sc = self.shops.summary_counts()
                 with self.connect() as conn:
                     apify_store_cnt = int(conn.execute("SELECT COUNT(*) FROM apify_store_actors").fetchone()[0])
+                    ecosystems_cnt = int(conn.execute("SELECT COUNT(*) FROM ecosystem_collections").fetchone()[0])
                 return "200 OK", {
                     "vault_products": self.products.count_all(),
                     "watches_count": len(self.watches.list_watches()),
@@ -393,6 +421,7 @@ class Application:
                     "sourcing_count": len(self.china_sourcing.list_items(limit=200)),
                     "desk300_runs_count": len(self.desk_pipeline.list_runs(limit=100)),
                     "apify_store_count": apify_store_cnt,
+                    "ecosystems_count": ecosystems_cnt,
                     "campaigns_count": len(self.campaigns.list_campaigns()),
                     "sales": self.campaigns.sales_summary()["seller_kpis"],
                     "recent_logs": self.history_logs.list_logs(limit=6),

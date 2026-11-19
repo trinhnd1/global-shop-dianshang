@@ -277,6 +277,10 @@ class ProductsService:
                     {"platform": platform, "sell_price_vnd": eff_price, "cost_vnd": eff_cost},
                     defaults=cfg["sourcing"],
                 )
+                prev_stock = int(rec.get("stock") or 0)
+                cur_stock = int(item["stock"]) if item.get("stock") is not None and int(item.get("stock") or 0) > 0 else prev_stock
+                stock_drop = max(0, prev_stock - cur_stock) if (prev_stock > 0 and cur_stock > 0 and cur_stock < prev_stock) else 0
+                inferred_from_stock = int(rec.get("inferred_sold_from_stock") or 0) + stock_drop
                 rec.update({
                     "title": title or rec.get("title", ""),
                     "shop_name": item.get("shop_name") or rec.get("shop_name", ""),
@@ -291,10 +295,13 @@ class ProductsService:
                         or "nước ngoài" in str(item.get("shop_location") or rec.get("shop_location") or "").lower()
                     ),
                     "rating_count": max(int(item.get("rating_count") or 0), int(rec.get("rating_count") or 0)),
+                    "stock": cur_stock,
+                    "initial_stock": int(rec.get("initial_stock") or cur_stock or 0),
+                    "inferred_sold_from_stock": inferred_from_stock,
                     "image_url": image_url or clean_image_url(rec.get("image_url", "")),
                     "rating": rating if rating > 0 else rec.get("rating", 0.0),
                     "sold_30d": sold_30d if sold_30d > 0 else rec.get("sold_30d", 0),
-                    "delta_sold_last": delta_sold,
+                    "delta_sold_last": max(delta_sold, stock_drop),
                     "sources": sources,
                     "sightings": int(rec.get("sightings") or 1) + 1,
                     "economics": econ,
@@ -336,6 +343,7 @@ class ProductsService:
                 bucket = str(item.get("bucket") or ("da_co_nguon_tq" if cost_vnd > 0 else "cho_danh_gia"))
                 if bucket not in BUCKETS or bucket == "da_loai":
                     bucket = "cho_danh_gia"
+                init_stk = max(0, int(item.get("stock") or 0))
                 rec = {
                     "title": title,
                     "shop_name": str(item.get("shop_name") or ""),
@@ -349,6 +357,9 @@ class ProductsService:
                         or "nước ngoài" in str(item.get("shop_location") or "").lower()
                     ),
                     "rating_count": int(item.get("rating_count") or 0),
+                    "stock": init_stk,
+                    "initial_stock": init_stk,
+                    "inferred_sold_from_stock": 0,
                     "image_url": image_url,
                     "rating": round(rating, 2),
                     "sold_30d": sold_30d,
@@ -811,6 +822,9 @@ class ProductsService:
             "cost_vnd": r["cost_vnd"],
             "sold_count": r["sold_count"],
             "sold_30d": rec.get("sold_30d", 0),
+            "stock": int(rec.get("stock") or 0),
+            "initial_stock": int(rec.get("initial_stock") or 0),
+            "inferred_sold_from_stock": int(rec.get("inferred_sold_from_stock") or 0),
             "delta_sold_last": rec.get("delta_sold_last", 0),
             "gmv_vnd": r["gmv_vnd"],
             "jev_score": r["jev_score"],
