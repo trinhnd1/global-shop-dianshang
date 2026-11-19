@@ -38,8 +38,8 @@ class JevClient:
     def ask_atomic(
         self,
         api_key: str,
-        state: dict,
-        questions: list[dict],
+        state,
+        questions: dict,
         model: str = DEFAULT_MODEL,
         base_url: str = DEFAULT_ENDPOINT,
         assets: dict | None = None,
@@ -49,21 +49,30 @@ class JevClient:
         if not key:
             raise JevError("Chưa cấu hình TypeSafe Jev API Key", status=400)
         endpoint = (base_url or DEFAULT_ENDPOINT).strip()
+
+        wire_questions = {}
+        for qid, qspec in (questions or {}).items():
+            clean_q = {k: v for k, v in qspec.items() if k != "question"}
+            if "question" in qspec and "instructions" not in clean_q:
+                clean_q["instructions"] = qspec["question"]
+            wire_questions[qid] = clean_q
+
         has_assets = bool(assets)
         attempts = 3 if has_assets else 2
         last_err: Exception | None = None
 
         for attempt in range(attempts):
             cur_assets = assets
-            cur_state = dict(state)
+            cur_state = dict(state) if isinstance(state, dict) else state
             if has_assets and attempt == 1 and isinstance(assets, dict) and len(assets) > 2:
                 keys = list(assets.keys())
                 cur_assets = {keys[0]: assets[keys[0]], keys[-1]: assets[keys[-1]]}
             elif has_assets and attempt == 2:
                 cur_assets = None
-                cur_state["review_mode"] = "transcript_and_caption_fallback"
+                if isinstance(cur_state, dict):
+                    cur_state["review_mode"] = "transcript_and_caption_fallback"
 
-            payload = {"model": model or DEFAULT_MODEL, "state": cur_state, "questions": questions}
+            payload: dict = {"model": model or DEFAULT_MODEL, "state": cur_state, "questions": wire_questions}
             if cur_assets:
                 payload["assets"] = cur_assets
 
@@ -86,7 +95,7 @@ class JevClient:
                 eff_timeout = max(timeout, 70) if cur_assets else timeout
                 with self._opener(req, timeout=eff_timeout) as resp:
                     raw = json.loads(resp.read().decode("utf-8"))
-                    answers = self._validate_answers(raw, questions)
+                    answers = self._validate_answers(raw, wire_questions)
                     return {
                         "answers": answers,
                         "model": raw.get("model") or model or DEFAULT_MODEL,
@@ -94,12 +103,14 @@ class JevClient:
                         "_cost_usd": 0.0012 if cur_assets else 0.0006,
                     }
             except urllib.error.HTTPError as exc:
-                body = exc.read().decode("utf-8", errors="replace")[:200]
+                body = exc.read().decode("utf-8", errors="replace")[:220]
                 last_err = JevError(f"Jev HTTP {exc.code}: {body}", status=exc.code)
                 if exc.code in (413, 502, 503, 504) and attempt + 1 < attempts:
                     time.sleep(0.6)
                     continue
                 raise last_err from None
+            except JevError:
+                raise
             except Exception as exc:
                 last_err = JevError(f"Lỗi kết nối Jev: {exc}")
                 if attempt + 1 < attempts:
@@ -109,33 +120,36 @@ class JevClient:
         raise last_err or JevError("Không gọi được Jev AI")
 
     @staticmethod
-    def _validate_answers(raw: dict, questions: list[dict]) -> dict:
-        ans = raw.get("answers") if isinstance(raw, dict) else None
-        if not isinstance(ans, dict):
+    def _validate_answers(raw: dict, wire_questions: dict) -> dict:
+        ans_map = raw.get("answers") if isinstance(raw, dict) else None
+        if not isinstance(ans_map, dict):
             raise JevError("Phản hồi Jev thiếu trường answers")
         validated = {}
-        for q in questions:
-            qid = q["id"]
-            qtype = q["type"]
-            val = ans.get(qid)
-            if isinstance(val, dict) and "answer" in val:
-                val = val["answer"]
-            if val is None or isinstance(val, bool):
-                raise JevError(f"Jev trả thiếu hoặc sai kiểu cho câu hỏi {qid}")
+        for qid, qspec in wire_questions.items():
+            qtype = qspec["type"]
+            entry = ans_map.get(qid)
+            if not isinstance(entry, dict):
+                raise JevError(f"Jev trả thiếu câu trả lời cho {qid}")
             if qtype == "score":
-                max_idx = max(1, len(q.get("criteria") or []) - 1)
+                val = entry.get("score")
+                if val is None or isinstance(val, bool):
+                    raise JevError(f"Jev thiếu score cho {qid}")
+                max_idx = max(1, len(qspec.get("criteria") or [0, 1, 2, 3]) - 1)
                 num = float(val)
-                if not math.isfinite(num) or num < 0 or num > max_idx:
+                if not math.isfinite(num) or num < -1e-9 or num > max_idx + 1e-9:
                     raise JevError(f"Điểm Jev {qid} nằm ngoài biên: {val}")
-                validated[qid] = round(1.0 + (num / max_idx) * 9.0, 2)
+                validated[qid] = round(1.0 + (max(0.0, min(float(max_idx), num)) / max_idx) * 9.0, 2)
             elif qtype == "noul":
+                val = entry.get("noul")
+                if val is None or isinstance(val, bool):
+                    raise JevError(f"Jev thiếu noul cho {qid}")
                 num = float(val)
-                if not math.isfinite(num) or num < 0.0 or num > 1.0:
+                if not math.isfinite(num) or num < -1e-9 or num > 1.0 + 1e-9:
                     raise JevError(f"Xác suất Jev {qid} nằm ngoài [0..1]: {val}")
-                validated[qid] = round(num, 4)
+                validated[qid] = round(max(0.0, min(1.0, num)), 4)
             elif qtype == "choice":
-                sval = str(val)
-                if sval not in (q.get("criteria") or {}):
+                sval = entry.get("choice")
+                if not isinstance(sval, str) or sval not in (qspec.get("criteria") or {}):
                     raise JevError(f"Lựa chọn Jev {qid} không hợp lệ: {sval}")
                 validated[qid] = sval
         return validated
@@ -143,33 +157,37 @@ class JevClient:
     def test_connection(self, api_key: str, model: str = DEFAULT_MODEL, base_url: str = DEFAULT_ENDPOINT) -> dict:
         res = self.ask_atomic(
             api_key,
-            state={"probe": "Global Shop Dianshang connection check"},
-            questions=[{"id": "ready", "type": "noul", "question": "Is this commerce evaluation context well-formed?"}],
+            state="Đánh giá sản phẩm bán lẻ tại Việt Nam: Máy xay tỏi ớt mini không dây Inox 304 giá 129.000đ trên Shopee, 3.800 lượt bán.",
+            questions={
+                "ready": {
+                    "type": "noul",
+                    "instructions": "Sản phẩm này có tiềm năng tốt để nhà bán nhập sỉ về kinh doanh trên Shopee và TikTok Shop Việt Nam không?",
+                }
+            },
             model=model,
             base_url=base_url,
-            timeout=20,
+            timeout=22,
         )
         return {"ok": True, "model": res["model"], "probe_answer": res["answers"]["ready"]}
 
     def score_seller_product(self, api_key: str, product: dict, model: str = DEFAULT_MODEL, base_url: str = DEFAULT_ENDPOINT) -> dict:
         """6-pillar Seller Evaluation (buying/importing to sell on Shopee/TikTok Shop, NOT affiliate)."""
-        scale_5 = [
-            "Rất yếu / rủi ro cao",
-            "Dưới trung bình",
-            "Khá / có thể cân nhắc",
-            "Tốt / lợi thế rõ",
+        scale_4 = [
+            "Yếu / rủi ro cao",
+            "Trung bình / cần cân nhắc",
+            "Khá tốt / có lợi thế rõ",
             "Xuất sắc / cơ hội vàng để nhập bán",
         ]
-        questions = [
-            {"id": "suc_cau", "type": "score", "question": "Sức mua thực tế và tốc độ tiêu thụ của sản phẩm này trên Shopee / TikTok Shop?", "criteria": scale_5},
-            {"id": "bien_lai", "type": "score", "question": "Khả năng đạt biên lợi nhuận ròng >=20% khi nhập sỉ từ 1688/Pinduoduo/xưởng về bán lẻ?", "criteria": scale_5},
-            {"id": "de_nhap_tq", "type": "score", "question": "Độ thuận lợi khi nhập hàng & vận chuyển (gọn nhẹ, ít vỡ hỏng, ít rủi ro pháp lý/bảo hành)?", "criteria": scale_5},
-            {"id": "canh_tranh", "type": "score", "question": "Dư địa cạnh tranh cho shop mới (chưa bị độc quyền bởi thương hiệu lớn/Mall phá giá)?", "criteria": scale_5},
-            {"id": "khac_biet", "type": "score", "question": "Khả năng làm combo, tặng kèm, nâng cấp bao bì hoặc định vị giá cao hơn đối thủ?", "criteria": scale_5},
-            {"id": "de_lam_video", "type": "score", "question": "Độ dễ quay video demo công dụng trực quan để chốt đơn tự nhiên và chạy Ads?", "criteria": scale_5},
-            {"id": "nganh_hang", "type": "choice", "question": "Sản phẩm này thuộc ngành hàng chính nào?", "criteria": INDUSTRY_CHOICES},
-            {"id": "dang_nhap_ban", "type": "noul", "question": "Xác suất nhà bán nên nhập test lô nhỏ để bán thương mại ngay trong 14 ngày tới?"},
-        ]
+        questions = {
+            "suc_cau": {"type": "score", "instructions": "Sức mua thực tế và tốc độ tiêu thụ của sản phẩm này trên Shopee / TikTok Shop?", "criteria": scale_4},
+            "bien_lai": {"type": "score", "instructions": "Khả năng đạt biên lợi nhuận ròng >=20% khi nhập sỉ từ 1688/Pinduoduo/xưởng về bán lẻ?", "criteria": scale_4},
+            "de_nhap_tq": {"type": "score", "instructions": "Độ thuận lợi khi nhập hàng & vận chuyển (gọn nhẹ, ít vỡ hỏng, ít rủi ro pháp lý/bảo hành)?", "criteria": scale_4},
+            "canh_tranh": {"type": "score", "instructions": "Dư địa cạnh tranh cho shop mới (chưa bị độc quyền bởi thương hiệu lớn/Mall phá giá)?", "criteria": scale_4},
+            "khac_biet": {"type": "score", "instructions": "Khả năng làm combo, tặng kèm, nâng cấp bao bì hoặc định vị giá cao hơn đối thủ?", "criteria": scale_4},
+            "de_lam_video": {"type": "score", "instructions": "Độ dễ quay video demo công dụng trực quan để chốt đơn tự nhiên và chạy Ads?", "criteria": scale_4},
+            "nganh_hang": {"type": "choice", "instructions": "Sản phẩm này thuộc ngành hàng chính nào?", "criteria": INDUSTRY_CHOICES},
+            "dang_nhap_ban": {"type": "noul", "instructions": "Xác suất nhà bán nên nhập test lô nhỏ để bán thương mại ngay trong 14 ngày tới?"},
+        }
         state = {
             "goal": "Evaluate product potential for an e-commerce merchant importing inventory to sell on Shopee & TikTok Shop",
             "title": product.get("title") or "",
@@ -211,13 +229,13 @@ class JevClient:
         }
 
     def score_keyword_opportunity(self, api_key: str, kw_summary: dict, model: str = DEFAULT_MODEL, base_url: str = DEFAULT_ENDPOINT) -> dict:
-        scale_5 = ["Kém", "Thấp", "Trung bình", "Tốt", "Rất tiềm năng"]
-        questions = [
-            {"id": "intent", "type": "score", "question": "Ý định mua hàng trực tiếp của người tìm từ khoá này cao đến mức nào?", "criteria": scale_5},
-            {"id": "gap", "type": "score", "question": "Cơ hội lọt trang 1 cho shop mới (dựa trên tổng lượng sản phẩm, tỷ lệ Mall và phân bổ lượt bán)?", "criteria": scale_5},
-            {"id": "margin", "type": "score", "question": "Mặt bằng giá bán hiện tại của từ khoá có đủ biên lợi nhuận nhập hàng bán lẻ không?", "criteria": scale_5},
-            {"id": "worth_entering", "type": "noul", "question": "Xác suất nên chọn từ khoá ngách này để tìm nguồn hàng 1688/Pinduoduo nhập về bán?"},
-        ]
+        scale_4 = ["Kém", "Trung bình", "Tốt", "Rất tiềm năng"]
+        questions = {
+            "intent": {"type": "score", "instructions": "Ý định mua hàng trực tiếp của người tìm từ khoá này cao đến mức nào?", "criteria": scale_4},
+            "gap": {"type": "score", "instructions": "Cơ hội lọt trang 1 cho shop mới (dựa trên tổng lượng sản phẩm, tỷ lệ Mall và phân bổ lượt bán)?", "criteria": scale_4},
+            "margin": {"type": "score", "instructions": "Mặt bằng giá bán hiện tại của từ khoá có đủ biên lợi nhuận nhập hàng bán lẻ không?", "criteria": scale_4},
+            "worth_entering": {"type": "noul", "instructions": "Xác suất nên chọn từ khoá ngách này để tìm nguồn hàng 1688/Pinduoduo nhập về bán?"},
+        }
         res = self.ask_atomic(api_key, kw_summary, questions, model=model, base_url=base_url)
         a = res["answers"]
         score_10 = round(a["intent"] * 0.40 + a["gap"] * 0.35 + a["margin"] * 0.25, 2)
@@ -237,14 +255,14 @@ class JevClient:
         model: str = DEFAULT_MODEL,
         base_url: str = DEFAULT_ENDPOINT,
     ) -> dict:
-        scale_5 = ["Yếu", "Dưới chuẩn", "Đạt", "Tốt", "Rất sắc bén"]
-        questions = [
-            {"id": "hook_3s", "type": "score", "question": "Sức hút 3 giây đầu (nỗi đau / kết quả thị giác giữ chân người mua)?", "criteria": scale_5},
-            {"id": "demo_sp", "type": "score", "question": "Mức độ chứng minh công dụng thực tế & chất lượng sản phẩm trên khung hình?", "criteria": scale_5},
-            {"id": "nhip_dieu", "type": "score", "question": "Nhịp dựng và bố cục thuyết phục người xem đặt mua?", "criteria": scale_5},
-            {"id": "cta_chot_don", "type": "score", "question": "Độ rõ ràng của ưu đãi / lời kêu gọi mua hàng cho Shop?", "criteria": scale_5},
-            {"id": "dang_nhan_ban", "type": "noul", "question": "Xác suất Shop nên nhân bản (clone) cấu trúc kịch bản video này để bán hàng?"},
-        ]
+        scale_4 = ["Yếu", "Đạt mức cơ bản", "Tốt", "Rất sắc bén"]
+        questions = {
+            "hook_3s": {"type": "score", "instructions": "Sức hút 3 giây đầu (nỗi đau / kết quả thị giác giữ chân người mua)?", "criteria": scale_4},
+            "demo_sp": {"type": "score", "instructions": "Mức độ chứng minh công dụng thực tế & chất lượng sản phẩm trên khung hình?", "criteria": scale_4},
+            "nhip_dieu": {"type": "score", "instructions": "Nhịp dựng và bố cục thuyết phục người xem đặt mua?", "criteria": scale_4},
+            "cta_chot_don": {"type": "score", "instructions": "Độ rõ ràng của ưu đãi / lời kêu gọi mua hàng cho Shop?", "criteria": scale_4},
+            "dang_nhan_ban": {"type": "noul", "instructions": "Xác suất Shop nên nhân bản (clone) cấu trúc kịch bản video này để bán hàng?"},
+        }
         res = self.ask_atomic(api_key, video_meta, questions, model=model, base_url=base_url, assets=frames_b64)
         a = res["answers"]
         overall = round(a["hook_3s"] * 0.30 + a["demo_sp"] * 0.30 + a["nhip_dieu"] * 0.20 + a["cta_chot_don"] * 0.20, 2)
