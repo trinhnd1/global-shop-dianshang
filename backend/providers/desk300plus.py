@@ -87,7 +87,7 @@ class Desk300PlusClient:
         health_url = f"{self.gateway_url}/health"
         try:
             req = urllib.request.Request(health_url, headers={"User-Agent": "GlobalShopDianshang-Desk300Plus/1.0"})
-            with urllib.request.urlopen(req, timeout=4.0) as resp:
+            with urllib.request.urlopen(req, timeout=10.0) as resp:
                 if resp.status != 200:
                     raise Desk300PlusFailClosedError(
                         f"FAIL-CLOSED: Gateway {self.gateway_url}/health trả HTTP {resp.status} — dừng ngay để không lộ IP Mac.",
