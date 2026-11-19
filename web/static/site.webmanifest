@@ -1,0 +1,30 @@
+{
+  "name": "Global Shop Dianshang — Nghiên cứu Sản phẩm, Nguồn hàng TQ & Vận hành Shop",
+  "short_name": "Global Shop",
+  "description": "Săn sản phẩm tiềm năng Shopee/TikTok SEA, Hệ sinh thái Phụ kiện, Nguồn hàng TQ (1688/Taobao/PDD), 300+desk & Jev AI",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0b1120",
+  "theme_color": "#0f172a",
+  "icons": [
+    {
+      "src": "/static/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/static/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/static/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

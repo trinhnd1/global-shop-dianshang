@@ -152,9 +152,26 @@ class GlobalShopDianshangE2ETest(unittest.TestCase):
     def test_01_security_version_masking_and_tailscale_guards(self):
         st, health = self.req("GET", "/api/health")
         self.assertEqual(st, 200)
-        self.assertEqual(health["version"], "1.0.10")
-        self.assertEqual(__version__, "1.0.10")
+        self.assertEqual(health["version"], "1.0.11")
+        self.assertEqual(__version__, "1.0.11")
         self.assertEqual(health["schema_version"], 6)
+
+        # Custom Favicon, Apple Touch Icon & WebManifest over Tailscale Host
+        for icon_path, expected_ct in (
+            ("/favicon.ico", "image/x-icon"),
+            ("/favicon.svg", "image/svg+xml"),
+            ("/apple-touch-icon.png", "image/png"),
+            ("/site.webmanifest", "application/manifest+json"),
+        ):
+            r_ico = urllib.request.Request(
+                self.base_url + icon_path,
+                headers={"Host": "nguyens-mac-mini.tail213fd3.ts.net:8999"},
+                method="GET",
+            )
+            with urllib.request.urlopen(r_ico, timeout=5) as resp_ico:
+                self.assertEqual(resp_ico.status, 200)
+                self.assertIn(expected_ct, resp_ico.headers.get("Content-Type", ""))
+                self.assertGreater(len(resp_ico.read()), 200)
 
         # Tailscale MagicDNS & CGNAT allowed
         st_ts, _ = self.req("GET", "/api/health", headers={"Host": "nguyens-mac-mini.tail213fd3.ts.net:8999"})

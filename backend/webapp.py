@@ -16,8 +16,26 @@ DEFAULT_STATIC = Path(__file__).resolve().parent.parent / "web" / "static"
 CSP = (
     "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
     "img-src 'self' https: data: blob:; media-src 'self' https: data: blob:; "
-    "connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'self'; form-action 'self'"
+    "manifest-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; "
+    "frame-ancestors 'self'; form-action 'self'"
 )
+ROOT_STATIC_ALIASES = {
+    "/favicon.ico": "favicon.ico",
+    "/favicon.svg": "favicon.svg",
+    "/favicon-32x32.png": "favicon-32x32.png",
+    "/apple-touch-icon.png": "apple-touch-icon.png",
+    "/apple-touch-icon-precomposed.png": "apple-touch-icon.png",
+    "/icon-192.png": "icon-192.png",
+    "/icon-512.png": "icon-512.png",
+    "/site.webmanifest": "site.webmanifest",
+    "/manifest.json": "site.webmanifest",
+}
+EXPLICIT_MIME_TYPES = {
+    ".ico": "image/x-icon",
+    ".svg": "image/svg+xml; charset=utf-8",
+    ".png": "image/png",
+    ".webmanifest": "application/manifest+json; charset=utf-8",
+}
 SECURITY_HEADERS = [
     ("X-Content-Type-Options", "nosniff"),
     ("Referrer-Policy", "no-referrer"),
@@ -54,10 +72,15 @@ class WebApp:
             return self.json_resp(start_response, "404 Not Found", {"detail": "File not found"})
 
         body = target.read_bytes()
-        ctype = mimetypes.guess_type(target.name)[0] or "application/octet-stream"
-        if ctype.startswith("text/") or ctype in ("application/javascript", "application/json", "image/svg+xml"):
-            ctype += "; charset=utf-8"
-        headers = [("Content-Type", ctype), ("Content-Length", str(len(body))), ("Cache-Control", "no-cache")]
+        ext = target.suffix.lower()
+        if ext in EXPLICIT_MIME_TYPES:
+            ctype = EXPLICIT_MIME_TYPES[ext]
+        else:
+            ctype = mimetypes.guess_type(target.name)[0] or "application/octet-stream"
+            if ctype.startswith("text/") or ctype in ("application/javascript", "application/json", "image/svg+xml"):
+                ctype += "; charset=utf-8"
+        cache_hdr = "public, max-age=86400" if ext in EXPLICIT_MIME_TYPES else "no-cache"
+        headers = [("Content-Type", ctype), ("Content-Length", str(len(body))), ("Cache-Control", cache_hdr)]
         start_response("200 OK", headers + SECURITY_HEADERS)
         return [b""] if method == "HEAD" else [body]
 
@@ -80,6 +103,12 @@ class WebApp:
         return [body]
 
     def resolve(self, path: str) -> Path | None:
+        alias_rel = ROOT_STATIC_ALIASES.get(path)
+        if alias_rel:
+            cand_alias = (self.static / alias_rel).resolve()
+            if self.static in cand_alias.parents and cand_alias.is_file():
+                return cand_alias
+            return None
         if not path.startswith("/static/"):
             return self.index
         rel = unquote(path[len("/static/"):])

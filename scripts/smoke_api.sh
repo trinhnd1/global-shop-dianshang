@@ -16,6 +16,11 @@ for route in "/" "/he-sinh-thai" "/luong-300-desk" "/apify-store" "/shop-cua-toi
   [ "$code" = "200" ] || { echo "SPA route failed: $route ($code)"; exit 1; }
 done
 echo "3. SPA deep-links OK"
+for icon_route in "/favicon.ico" "/favicon.svg" "/favicon-32x32.png" "/apple-touch-icon.png" "/icon-192.png" "/icon-512.png" "/site.webmanifest"; do
+  ct=$(curl -fsS -o /dev/null -w "%{content_type}" "$BASE$icon_route")
+  echo "$ct" | grep -qv "text/html" || { echo "Icon route returned HTML instead of icon: $icon_route ($ct)"; exit 1; }
+done
+echo "3b. Custom Favicon, Apple Touch Icon & WebManifest OK"
 bad_host=$(curl -s -o /dev/null -w "%{http_code}" -H "Host: evil.example.com" "$BASE/api/health")
 [ "$bad_host" = "403" ] || [ "$bad_host" = "404" ] || { echo "DNS rebinding guard failed ($bad_host)"; exit 1; }
 echo "4. Host & Tailscale security guard OK ($bad_host)"

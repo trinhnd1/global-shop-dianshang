@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#17153b"/>
+      <stop offset="52%" stop-color="#0f172a"/>
+      <stop offset="100%" stop-color="#231026"/>
+    </linearGradient>
+    <linearGradient id="rimGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#fde047"/>
+      <stop offset="48%" stop-color="#f97316"/>
+      <stop offset="100%" stop-color="#f43f5e"/>
+    </linearGradient>
+    <linearGradient id="shopGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#fb923c"/>
+      <stop offset="52%" stop-color="#ea580c"/>
+      <stop offset="100%" stop-color="#e11d48"/>
+    </linearGradient>
+    <linearGradient id="awningGold" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#fef08a"/>
+      <stop offset="100%" stop-color="#f59e0b"/>
+    </linearGradient>
+    <linearGradient id="orbitCyan" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#38bdf8"/>
+      <stop offset="100%" stop-color="#bae6fd"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Outer Rounded Squircle with Warm Sunset-Gold Rim -->
+  <rect x="16" y="16" width="480" height="480" rx="112" fill="url(#bgGrad)" stroke="url(#rimGrad)" stroke-width="20"/>
+
+  <!-- Ambient Warm Glow -->
+  <circle cx="256" cy="276" r="172" fill="#f97316" opacity="0.14"/>
+
+  <!-- Storefront Base Body -->
+  <rect x="108" y="182" width="296" height="254" rx="46" fill="url(#shopGrad)"/>
+
+  <!-- 3-Scallop Storefront Roof Awning (Shop / Dianshang Emblem) -->
+  <path d="M92 146 C92 118 114 98 142 98 H370 C398 98 420 118 420 146 L432 186 C432 214 409 234 380 234 C354 234 334 217 329 194 C323 217 301 234 256 234 C211 234 189 217 183 194 C178 217 158 234 132 234 C103 234 80 214 80 186 Z"
+        fill="url(#awningGold)"/>
+  <!-- Awning Accent Stripes -->
+  <path d="M188 98 H232 L226 196 C224 212 210 222 194 222 C178 222 168 210 170 194 Z" fill="#ea580c" opacity="0.88"/>
+  <path d="M280 98 H324 L342 194 C344 210 334 222 318 222 C302 222 288 212 286 196 Z" fill="#ea580c" opacity="0.88"/>
+
+  <!-- Crisp Bold White 'G' Monogram (Global Shop) -->
+  <path d="M312 286 H258 V318 H286 C281 340 263 354 238 354 C207 354 184 331 184 300 C184 269 207 246 238 246 C257 246 273 254 283 267 L311 244 C294 223 268 210 238 210 C186 210 146 249 146 300 C146 351 186 390 238 390 C291 390 326 355 326 302 V286 Z"
+        transform="translate(18, 22)"
+        fill="#ffffff"/>
+
+  <!-- Global Cross-Border Orbit Arc -->
+  <path d="M84 358 C134 426 286 436 424 316"
+        fill="none" stroke="#0f172a" stroke-width="28" stroke-linecap="round" opacity="0.55"/>
+  <path d="M84 358 C134 426 286 436 424 316"
+        fill="none" stroke="url(#orbitCyan)" stroke-width="16" stroke-linecap="round"/>
+  <polygon points="446,294 398,308 432,342" fill="#bae6fd"/>
+
+  <!-- Top-Right Global Spark Star -->
+  <path d="M416 74 L425 99 L450 108 L425 117 L416 142 L407 117 L382 108 L407 99 Z" fill="#fef08a"/>
+</svg>
