@@ -138,8 +138,8 @@ class GlobalShopDianshangE2ETest(unittest.TestCase):
     def test_01_security_version_masking_and_tailscale_guards(self):
         st, health = self.req("GET", "/api/health")
         self.assertEqual(st, 200)
-        self.assertEqual(health["version"], "1.0.5")
-        self.assertEqual(__version__, "1.0.5")
+        self.assertEqual(health["version"], "1.0.6")
+        self.assertEqual(__version__, "1.0.6")
         self.assertEqual(health["schema_version"], 4)
 
         # Tailscale MagicDNS & CGNAT allowed
@@ -537,6 +537,121 @@ class GlobalShopDianshangE2ETest(unittest.TestCase):
         st_fail, fail_res = self.req("POST", "/api/desk300/run", {"mode": "vault_process", "product_ids": [pid]})
         self.assertEqual(st_fail, 503)
         self.assertIn("FAIL-CLOSED", fail_res["detail"])
+
+    def test_06_shopee_keyword_filters_overseas_and_vault_badges(self):
+        from backend.providers.apify import ApifyClient
+
+        # 1) Verify filter normalization & Shopee VN URL builder
+        nf = ApifyClient.normalize_shopee_filters({
+            "shipped_from": "overseas",
+            "sort_by": "sales",
+            "min_price": 50000,
+            "max_price": 350000,
+            "min_rating": 4.5,
+            "preferred_seller_only": True,
+            "with_video_only": True,
+        })
+        self.assertEqual(nf["shipped_from"], "Nước ngoài")
+        self.assertEqual(nf["sort_by"], "sales")
+        self.assertTrue(nf["preferred_seller_only"])
+        self.assertTrue(nf["with_video_only"])
+
+        search_url = ApifyClient.build_shopee_vn_search_url("kệ nhà tắm", nf)
+        self.assertIn("locations=N%C6%B0%E1%BB%9Bc+ngo%C3%A0i", search_url)
+        self.assertIn("sortBy=sales", search_url)
+        self.assertIn("shopeeVerified=1", search_url)
+        self.assertIn("withVideo=true", search_url)
+
+        nf_dom = ApifyClient.normalize_shopee_filters({"shipped_from": "Trong nước"})
+        dom_url = ApifyClient.build_shopee_vn_search_url("kệ nhà tắm", nf_dom)
+        self.assertIn("locations=-1", dom_url)
+
+        # 2) Verify `lergassy~shopee-scraper` camelCase item normalization (Overseas + Preferred + RatingCount)
+        norm_it = ApifyClient.normalize_shopee_item({
+            "itemId": "47408137087",
+            "shopId": "1480793884",
+            "shopName": "liao1990.vn",
+            "location": "Nước ngoài",
+            "name": "[Hàng Quốc Tế] Kệ nhà tắm hút chân không siêu chắc",
+            "price": 156658,
+            "rating": 4.9,
+            "ratingCount": 120,
+            "discountPercent": 42,
+            "labels": ["Yêu thích"],
+            "imageUrl": "https://down-vn.img.susercontent.com/file/cn-11134207-820l4-demo",
+            "productUrl": "https://shopee.vn/product/1480793884/47408137087",
+        })
+        self.assertEqual(norm_it["native_product_id"], "47408137087")
+        self.assertEqual(norm_it["native_shop_id"], "1480793884")
+        self.assertEqual(norm_it["shop_location"], "Nước ngoài")
+        self.assertTrue(norm_it["is_overseas"])
+        self.assertTrue(norm_it["is_preferred"])
+        self.assertEqual(norm_it["sold_count"], 360)  # conservative floor from 120 verified buyer ratings
+
+        # 3) Verify live `POST /api/keywords/research` passes `shippedFrom="Nước ngoài"` to Apify & persists `is_overseas` in Kho SP
+        captured_payloads = []
+
+        def fake_opener(req, timeout=60):
+            body_obj = json.loads(req.data.decode("utf-8"))
+            captured_payloads.append((req.full_url, body_obj))
+
+            class _Resp:
+                def __enter__(self_r):
+                    return self_r
+
+                def __exit__(self_r, *args):
+                    pass
+
+                def read(self_r):
+                    return json.dumps([
+                        {
+                            "itemId": "47408137087",
+                            "shopId": "1480793884",
+                            "shopName": "liao1990.vn",
+                            "location": "Nước ngoài",
+                            "name": "Kệ nhà tắm hút chân không Quốc tế",
+                            "price": 156000,
+                            "rating": 4.9,
+                            "ratingCount": 80,
+                            "labels": ["Yêu thích"],
+                            "imageUrl": "https://down-vn.img.susercontent.com/file/cn-11134207-820l4-demo",
+                            "productUrl": "https://shopee.vn/product/1480793884/47408137087",
+                        }
+                    ]).encode("utf-8")
+
+            return _Resp()
+
+        self.req("POST", "/api/providers/apify/keys", {"label": "TestKey", "token": "apify_api_test_overseas_key_1234"})
+        self.api.keywords.apify = ApifyClient(http_opener=fake_opener)
+
+        st_kw, kw_res = self.req("POST", "/api/keywords/research", {
+            "keyword": "kệ nhà tắm",
+            "platform": "shopee",
+            "limit": 10,
+            "score_jev": False,
+            "save_top_to_vault": True,
+            "shopee_filters": {
+                "shipped_from": "Nước ngoài",
+                "sort_by": "sales",
+                "preferred_seller_only": True,
+            },
+        })
+        self.assertEqual(st_kw, 200)
+        self.assertEqual(len(captured_payloads), 1)
+        self.assertIn("lergassy~shopee-scraper", captured_payloads[0][0])
+        self.assertEqual(captured_payloads[0][1]["shippedFrom"], "Nước ngoài")
+        self.assertEqual(captured_payloads[0][1]["sortBy"], "sales")
+        self.assertTrue(captured_payloads[0][1]["preferredSellerOnly"])
+
+        self.assertEqual(kw_res["summary_stats"]["overseas_count"], 1)
+        self.assertEqual(kw_res["summary_stats"]["overseas_share_pct"], 100.0)
+        self.assertEqual(len(kw_res["saved_product_ids"]), 1)
+
+        saved_pid = kw_res["saved_product_ids"][0]
+        _, vault_prod = self.req("GET", f"/api/products/{saved_pid}")
+        self.assertTrue(vault_prod["product"]["is_overseas"])
+        self.assertEqual(vault_prod["product"]["shop_location"], "Nước ngoài")
+        self.assertTrue(vault_prod["product"]["is_preferred"])
 
 
 if __name__ == "__main__":

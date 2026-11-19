@@ -278,6 +278,14 @@ class ProductsService:
                     "title": title or rec.get("title", ""),
                     "shop_name": item.get("shop_name") or rec.get("shop_name", ""),
                     "is_mall": bool(item.get("is_mall") or rec.get("is_mall", False)),
+                    "is_preferred": bool(item.get("is_preferred") or rec.get("is_preferred", False)),
+                    "shop_location": str(item.get("shop_location") or rec.get("shop_location") or "").strip(),
+                    "is_overseas": bool(
+                        item.get("is_overseas")
+                        or rec.get("is_overseas", False)
+                        or "nước ngoài" in str(item.get("shop_location") or rec.get("shop_location") or "").lower()
+                    ),
+                    "rating_count": max(int(item.get("rating_count") or 0), int(rec.get("rating_count") or 0)),
                     "image_url": image_url or clean_image_url(rec.get("image_url", "")),
                     "rating": rating if rating > 0 else rec.get("rating", 0.0),
                     "sold_30d": sold_30d if sold_30d > 0 else rec.get("sold_30d", 0),
@@ -327,6 +335,13 @@ class ProductsService:
                     "title": title,
                     "shop_name": str(item.get("shop_name") or ""),
                     "is_mall": bool(item.get("is_mall")),
+                    "is_preferred": bool(item.get("is_preferred")),
+                    "shop_location": str(item.get("shop_location") or "").strip(),
+                    "is_overseas": bool(
+                        item.get("is_overseas")
+                        or "nước ngoài" in str(item.get("shop_location") or "").lower()
+                    ),
+                    "rating_count": int(item.get("rating_count") or 0),
                     "image_url": image_url,
                     "rating": round(rating, 2),
                     "sold_30d": sold_30d,
@@ -763,6 +778,10 @@ class ProductsService:
             "industry_icon": INDUSTRY_ICONS.get(ind, "📦"),
             "title": rec.get("title", ""),
             "shop_name": rec.get("shop_name", ""),
+            "shop_location": rec.get("shop_location", ""),
+            "is_overseas": bool(rec.get("is_overseas") or "nước ngoài" in str(rec.get("shop_location") or "").lower()),
+            "is_preferred": bool(rec.get("is_preferred")),
+            "rating_count": int(rec.get("rating_count") or 0),
             "is_mall": bool(rec.get("is_mall")),
             "image_url": clean_image_url(rec.get("image_url", "")),
             "rating": rec.get("rating", 0.0),

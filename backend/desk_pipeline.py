@@ -111,6 +111,7 @@ class DeskProductWorkflowService:
         exec_engine: str = "gateway_fast",
         auto_assign_my_shop: bool = True,
         limit: int = 12,
+        shopee_filters: dict | None = None,
         log_fn=None,
     ) -> dict:
         """Run the full 5-step `Apify (#1) -> Treg (#2) -> 300+desk (OPi SOCKS5) -> Jev Decision` workflow."""
@@ -216,7 +217,9 @@ class DeskProductWorkflowService:
                         if apify_toks and self.apify:
                             try:
                                 if ch == "shopee":
-                                    slug, rows_found = self.apify.search_shopee(apify_toks, kw, limit=max(3, min(12, limit)))
+                                    slug, rows_found = self.apify.search_shopee(
+                                        apify_toks, kw, limit=max(3, min(12, limit)), filters=shopee_filters
+                                    )
                                 elif ch == "tiktok_shop":
                                     slug, rows_found = self.apify.search_tiktok_shop(apify_toks, kw, limit=max(3, min(12, limit)))
                                 else:
@@ -529,6 +532,7 @@ class DeskProductWorkflowService:
                 exec_engine=engine,
                 auto_assign_my_shop=bool(body.get("auto_assign_my_shop", True)),
                 limit=int(body.get("limit") or 12),
+                shopee_filters=body.get("shopee_filters") if isinstance(body.get("shopee_filters"), dict) else None,
             )
             return "200 OK", {"run": run_out, "product_ids": run_out["output_product_ids"], "summary": run_out["summary"]}
         if path.startswith("/api/desk300/runs/") and method == "GET":

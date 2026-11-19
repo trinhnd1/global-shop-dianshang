@@ -170,7 +170,16 @@ class HuntAndCreatorsService:
             "budget_limit_usd": float(body.get("budget_limit_usd") or cfg["hunt"]["max_session_cost_usd"]),
         }
 
-    def _search_marketplace_products(self, ctx, channel: str, term: str, limit: int, apify_toks: list[str], treg_tok: str) -> list[dict]:
+    def _search_marketplace_products(
+        self,
+        ctx,
+        channel: str,
+        term: str,
+        limit: int,
+        apify_toks: list[str],
+        treg_tok: str,
+        shopee_filters: dict | None = None,
+    ) -> list[dict]:
         found_rows: list[dict] = []
         if channel == "shopee" and apify_toks and self.apify:
             try:
@@ -178,7 +187,7 @@ class HuntAndCreatorsService:
                     f"shopee:{term}",
                     "apify",
                     0.035,
-                    lambda t=term: self.apify.search_shopee(apify_toks, t, limit=limit),
+                    lambda t=term, sf=shopee_filters: self.apify.search_shopee(apify_toks, t, limit=limit, filters=sf),
                 )
             except Exception as exc:
                 ctx.log(f"⚠️ Shopee '{term}': {exc}")
@@ -322,12 +331,15 @@ class HuntAndCreatorsService:
                 ctx.log("🛒 Tự động kích hoạt tìm Sản phẩm Giải pháp trên Shopee & TikTok Shop từ các Painpoint vừa phát hiện!")
 
             matched_by_pp: dict[str, list[int]] = {}
+            shopee_filters = body.get("shopee_filters") if isinstance(body.get("shopee_filters"), dict) else None
             for search_term, origin_tag in product_search_terms[:8]:
                 ctx.check_cancelled()
                 ctx.log(f"🔎 [Bước 3] Tìm sản phẩm trên {', '.join(mkt_chs)} cho từ khoá: '{search_term}' (nguồn: {origin_tag})")
                 for ch in mkt_chs:
                     ctx.check_cancelled()
-                    found_rows = self._search_marketplace_products(ctx, ch, search_term, items_per_ch, apify_toks, treg_tok)
+                    found_rows = self._search_marketplace_products(
+                        ctx, ch, search_term, items_per_ch, apify_toks, treg_tok, shopee_filters=shopee_filters
+                    )
                     for r in found_rows:
                         if r.get("title"):
                             if origin_tag.startswith("painpoint:"):
@@ -552,6 +564,7 @@ class HuntAndCreatorsService:
         limit_per_channel: int = 6,
         auto_find_products: bool = True,
         marketplace_channels: list[str] | None = None,
+        shopee_filters: dict | None = None,
         job_id: str = "",
         log_fn=None,
         injected_posts: list[dict] | None = None,
@@ -642,7 +655,7 @@ class HuntAndCreatorsService:
                         rows_found: list[dict] = []
                         if mch == "shopee" and apify_toks and self.apify:
                             try:
-                                _, rows_found = self.apify.search_shopee(apify_toks, kw_sol, limit=5)
+                                _, rows_found = self.apify.search_shopee(apify_toks, kw_sol, limit=5, filters=shopee_filters)
                             except Exception:
                                 rows_found = []
                         elif mch == "tiktok_shop":
@@ -899,6 +912,7 @@ class HuntAndCreatorsService:
                 limit_per_channel=int(body.get("limit_per_channel") or 6),
                 auto_find_products=bool(body.get("auto_find_products", True)),
                 marketplace_channels=body.get("marketplace_channels") if isinstance(body.get("marketplace_channels"), list) else None,
+                shopee_filters=body.get("shopee_filters") if isinstance(body.get("shopee_filters"), dict) else None,
             )
         if path.startswith("/api/hunt/painpoints/") and method == "DELETE":
             pp_id = path.strip("/").split("/")[3]

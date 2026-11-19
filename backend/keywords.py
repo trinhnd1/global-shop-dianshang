@@ -52,6 +52,7 @@ class KeywordResearchService:
         limit: int = 20,
         score_jev: bool = True,
         save_top_to_vault: bool = True,
+        shopee_filters: dict | None = None,
     ) -> dict:
         kw = text(keyword, "keyword", 120, required=True)
         plat = platform.lower().strip()
@@ -67,25 +68,43 @@ class KeywordResearchService:
 
         items: list[dict] = []
         source_used = "none"
+        applied_shopee_filters = (
+            self.apify.normalize_shopee_filters(shopee_filters)
+            if (norm_plat == "shopee" and self.apify and hasattr(self.apify, "normalize_shopee_filters"))
+            else {}
+        )
 
         if norm_plat == "shopee":
             if apify_toks and self.apify:
                 try:
-                    slug, items = self.apify.search_shopee(apify_toks, kw, limit=lim, max_charge_usd=max_chg)
+                    slug, items = self.apify.search_shopee(
+                        apify_toks,
+                        kw,
+                        limit=lim,
+                        max_charge_usd=max(0.08, max_chg),
+                        filters=shopee_filters,
+                    )
                     source_used = f"apify:{slug}"
                 except Exception:
                     items = []
             if not items and treg_tok and self.treg:
                 try:
-                    res = self.treg.call(treg_tok, "treg.google.serp.organic", {"q": f"site:shopee.vn {kw}", "num": lim})
+                    serp_q = f"site:shopee.vn {kw}"
+                    if applied_shopee_filters.get("shipped_from") == "Nước ngoài":
+                        serp_q += ' "Nước ngoài"'
+                    res = self.treg.call(treg_tok, "treg.google.serp.organic", {"q": serp_q, "num": lim})
                     for idx, r in enumerate(self.treg._extract_list(res)[:lim], start=1):
                         u = str(r.get("link") or r.get("url") or "")
+                        snip = str(r.get("snippet") or "")
+                        is_ov = "nước ngoài" in snip.lower() or applied_shopee_filters.get("shipped_from") == "Nước ngoài"
                         items.append({
                             "platform": "shopee",
                             "market": "VN",
                             "native_product_id": f"serp_{idx}_{ abs(hash(u)) % 10000000 }",
                             "native_shop_id": "",
                             "shop_name": "Shopee Seller",
+                            "shop_location": "Nước ngoài" if is_ov else "",
+                            "is_overseas": is_ov,
                             "is_mall": "mall" in str(r.get("title") or "").lower(),
                             "title": str(r.get("title") or "").replace(" | Shopee Việt Nam", "").strip(),
                             "price_vnd": 0.0,
@@ -117,6 +136,11 @@ class KeywordResearchService:
         total_sold = sum(int(x.get("sold_count") or 0) for x in items)
         total_gmv = sum(float(x.get("gmv_vnd") or 0.0) for x in items)
         mall_cnt = sum(1 for x in items if x.get("is_mall"))
+        overseas_cnt = sum(
+            1 for x in items
+            if x.get("is_overseas") or "nước ngoài" in str(x.get("shop_location") or "").lower()
+        )
+        preferred_cnt = sum(1 for x in items if x.get("is_preferred"))
         hints = [int(x.get("total_available_hint") or 0) for x in items if int(x.get("total_available_hint") or 0) > 0]
         total_products_est = max(hints) if hints else len(items)
 
@@ -132,6 +156,7 @@ class KeywordResearchService:
             "keyword": kw,
             "platform": norm_plat,
             "source_used": source_used,
+            "shopee_filters": applied_shopee_filters,
             "total_products": total_products_est,
             "sampled_count": len(items),
             "total_sold_sample": total_sold,
@@ -141,6 +166,9 @@ class KeywordResearchService:
             "min_price_vnd": round(min(prices), 0) if prices else 0.0,
             "max_price_vnd": round(max(prices), 0) if prices else 0.0,
             "mall_share_pct": round((mall_cnt / len(items) * 100.0), 1) if items else 0.0,
+            "overseas_count": overseas_cnt,
+            "overseas_share_pct": round((overseas_cnt / len(items) * 100.0), 1) if items else 0.0,
+            "preferred_share_pct": round((preferred_cnt / len(items) * 100.0), 1) if items else 0.0,
             "top3_shop_concentration_pct": top3_concentration_pct,
             "top_shops": [{"shop_name": k, "sold_count": v} for k, v in sorted_shops[:5]],
         }
@@ -259,7 +287,8 @@ class KeywordResearchService:
                 platform=str(body.get("platform") or "shopee"),
                 limit=int(body.get("limit") or 20),
                 score_jev=bool(body.get("score_jev", True)),
-                save_top_to_vault=bool(body.get("save_top_to_vault", False)),
+                save_top_to_vault=bool(body.get("save_top_to_vault", True)),
+                shopee_filters=body.get("shopee_filters") if isinstance(body.get("shopee_filters"), dict) else None,
             )
         if path.startswith("/api/keywords/history/") and method == "GET":
             rid = path.strip("/").split("/")[3]

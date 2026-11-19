@@ -1,4 +1,4 @@
-/* Global Shop Dianshang v1.0.5 — Strict Apify #1 -> Treg #2 + Fail-Closed 300+desk Product Flow -> Jev Decision */
+/* Global Shop Dianshang v1.0.6 — Shopee Native Search Filters (Shop Quốc tế / Nước ngoài, Bán chạy, Mall, Giá...) + Apify #1 -> Treg #2 + 300+desk -> Jev */
 (() => {
   const ROUTE_TO_TAB = {
     "/": "hunt",
@@ -52,6 +52,7 @@
 
   const SUB_FILTERS = {
     all: "Tất cả",
+    overseas: "✈️ Shop Quốc tế / Nước ngoài",
     jev7: "🤖 Điểm Jev ≥ 7.0",
     has_sold: "📦 Đã có lượt bán > 0",
     has_cost: "🇨🇳 Đã có giá vốn TQ",
@@ -755,30 +756,97 @@
     }
   }
 
-  // --- PART 1.2: KEYWORD RESEARCH --------------------------------------------
+  // --- PART 1.2: KEYWORD RESEARCH & SHOPEE SEARCH FILTERS --------------------
+  function collectKeywordShopeeFilters() {
+    if (document.getElementById("kwPlatform")?.value !== "shopee") return undefined;
+    return {
+      shipped_from: document.getElementById("kwShippedFrom")?.value || "",
+      sort_by: document.getElementById("kwSortBy")?.value || "relevancy",
+      min_price: Number(document.getElementById("kwMinPrice")?.value || 0) || undefined,
+      max_price: Number(document.getElementById("kwMaxPrice")?.value || 0) || undefined,
+      min_rating: Number(document.getElementById("kwMinRating")?.value || 0) || undefined,
+      official_shop_only: Boolean(document.getElementById("kwMallOnly")?.checked),
+      preferred_seller_only: Boolean(document.getElementById("kwPreferredOnly")?.checked),
+      with_video_only: Boolean(document.getElementById("kwVideoOnly")?.checked),
+      discounted_only: Boolean(document.getElementById("kwDiscountOnly")?.checked),
+      free_shipping_only: Boolean(document.getElementById("kwFreeshipOnly")?.checked),
+    };
+  }
+
+  function collectHuntShopeeFilters() {
+    const sf = {
+      shipped_from: document.getElementById("huntShopeeShippedFrom")?.value || "",
+      sort_by: document.getElementById("huntShopeeSortBy")?.value || "relevancy",
+      official_shop_only: Boolean(document.getElementById("huntShopeeMallOnly")?.checked),
+      preferred_seller_only: Boolean(document.getElementById("huntShopeePreferredOnly")?.checked),
+      with_video_only: Boolean(document.getElementById("huntShopeeVideoOnly")?.checked),
+    };
+    const hasActive = sf.shipped_from || sf.sort_by !== "relevancy" || sf.official_shop_only || sf.preferred_seller_only || sf.with_video_only;
+    return hasActive ? sf : undefined;
+  }
+
+  function collectDeskShopeeFilters() {
+    const sf = {
+      shipped_from: document.getElementById("deskShopeeShippedFrom")?.value || "",
+      sort_by: document.getElementById("deskShopeeSortBy")?.value || "relevancy",
+    };
+    return sf.shipped_from || sf.sort_by !== "relevancy" ? sf : undefined;
+  }
+
+  function formatShopeeFilterChipsHtml(sf) {
+    if (!sf || typeof sf !== "object") return "";
+    const badges = [];
+    if (sf.shipped_from) badges.push(`<span class="badge gold">✈️ Nơi gửi: ${esc(sf.shipped_from)}</span>`);
+    if (sf.sort_by && sf.sort_by !== "relevancy") badges.push(`<span class="badge blue">↕️ Sắp xếp: ${esc(sf.sort_by)}</span>`);
+    if (sf.min_price || sf.max_price) badges.push(`<span class="badge">🏷️ Giá: ${sf.min_price ? vnd(sf.min_price) : "0đ"} – ${sf.max_price ? vnd(sf.max_price) : "∞"}</span>`);
+    if (sf.min_rating) badges.push(`<span class="badge">⭐ ≥ ${sf.min_rating} sao</span>`);
+    if (sf.official_shop_only) badges.push(`<span class="badge red">🏬 Shopee Mall</span>`);
+    if (sf.preferred_seller_only) badges.push(`<span class="badge gold">⭐ Yêu Thích</span>`);
+    if (sf.with_video_only) badges.push(`<span class="badge green">🎬 Có Video</span>`);
+    if (sf.discounted_only) badges.push(`<span class="badge">🏷️ Giảm giá</span>`);
+    if (sf.free_shipping_only) badges.push(`<span class="badge">🚚 Freeship</span>`);
+    return badges.length ? `<div class="row" style="margin-bottom:8px;gap:6px"><strong>Bộ lọc Shopee đã áp dụng:</strong> ${badges.join("")}</div>` : "";
+  }
+
   function renderKeywordResult(res) {
     const s = res.summary_stats || {};
     const jev = s.jev_evaluation;
+    const sfHtml = formatShopeeFilterChipsHtml(s.shopee_filters);
     const html = `
       <div class="card">
         <div class="row" style="justify-content:space-between;margin-bottom:8px">
-          <h3 style="margin:0">📊 Kết quả Từ khoá: "${esc(res.keyword)}" (${esc(res.platform)})</h3>
+          <h3 style="margin:0">📊 Kết quả Từ khoá: "${esc(res.keyword)}" (${esc(res.platform)}) · <code>${esc(s.source_used || "")}</code></h3>
           <button class="btn btn-sm btn-pri" data-action="jump-kho-pending">📝 Sang Kho Phân loại (${(res.saved_product_ids || []).length} SP đã lưu)</button>
         </div>
+        ${sfHtml}
         <div class="kpi-grid">
           <div class="kpi"><div class="lbl">Tổng lượng SP trên từ khoá</div><div class="val">${esc(s.total_products)}</div></div>
           <div class="kpi"><div class="lbl">Tổng lượt bán mẫu trang 1</div><div class="val green">${Number(s.total_sold_sample || 0).toLocaleString("vi-VN")}</div></div>
           <div class="kpi"><div class="lbl">Giá bán Trung bình / Trung vị</div><div class="val">${vnd(s.avg_price_vnd)} / ${vnd(s.median_price_vnd)}</div></div>
-          <div class="kpi"><div class="lbl">Tỷ lệ Mall / Top 3 Shop chiếm</div><div class="val gold">${s.mall_share_pct}% / ${s.top3_shop_concentration_pct}%</div></div>
+          <div class="kpi"><div class="lbl">✈️ Shop Quốc tế (Nước ngoài)</div><div class="val gold">${s.overseas_share_pct ?? 0}% (${s.overseas_count ?? 0}/${s.sampled_count ?? 0} SP)</div></div>
+          <div class="kpi"><div class="lbl">Tỷ lệ Mall / Top 3 Shop chiếm</div><div class="val">${s.mall_share_pct}% / ${s.top3_shop_concentration_pct}%</div></div>
           <div class="kpi"><div class="lbl">Điểm Cơ hội Jev AI</div><div class="val green">${jev ? jev.opportunity_score_10 + " / 10" : "Chưa chấm"}</div></div>
         </div>
         <table class="tbl">
-          <thead><tr><th>Tên sản phẩm</th><th>Shop</th><th>Giá bán</th><th>Đã bán</th><th>Doanh số ước tính</th></tr></thead>
+          <thead><tr><th>Tên sản phẩm</th><th>Shop &amp; Nơi vận chuyển</th><th>Giá bán</th><th>Đã bán</th><th>Doanh số ước tính</th></tr></thead>
           <tbody>
             ${(res.items || []).map((it) => `
               <tr>
-                <td><a href="${esc(it.url)}" target="_blank" style="color:#93c5fd">${esc(it.title)}</a> ${it.is_mall ? '<span class="badge red">Mall</span>' : ""}</td>
-                <td>${esc(it.shop_name)}</td>
+                <td>
+                  <a href="${esc(it.url)}" target="_blank" style="color:#93c5fd">${esc(it.title)}</a>
+                  ${it.is_mall ? '<span class="badge red">Mall</span>' : ""}
+                  ${it.is_preferred ? '<span class="badge gold">⭐ Yêu thích</span>' : ""}
+                </td>
+                <td>
+                  <div><strong>${esc(it.shop_name || "—")}</strong></div>
+                  ${
+                    it.is_overseas
+                      ? '<span class="badge gold">✈️ Nước ngoài (Shop Quốc tế)</span>'
+                      : it.shop_location
+                        ? `<span class="badge">📍 ${esc(it.shop_location)}</span>`
+                        : ""
+                  }
+                </td>
                 <td>${vnd(it.price_vnd)}</td>
                 <td><strong>${Number(it.sold_count || 0).toLocaleString("vi-VN")}</strong></td>
                 <td>${vnd(it.gmv_vnd)}</td>
@@ -796,18 +864,27 @@
     const rows = data.researches || [];
     document.getElementById("kwHistoryBox").innerHTML = rows.length
       ? `<table class="tbl">
-          <thead><tr><th>Từ khoá</th><th>Sàn</th><th>Tổng SP</th><th>Lượt bán mẫu</th><th>Giá TB</th><th>Mall %</th><th>Điểm Jev</th><th>Thời gian</th></tr></thead>
-          <tbody>${rows.map((r) => `
+          <thead><tr><th>Từ khoá &amp; Bộ lọc</th><th>Sàn</th><th>Tổng SP</th><th>Lượt bán mẫu</th><th>✈️ Nước ngoài</th><th>Giá TB</th><th>Mall %</th><th>Điểm Jev</th><th>Thời gian</th></tr></thead>
+          <tbody>${rows.map((r) => {
+            const st = r.summary_stats || {};
+            const sf = st.shopee_filters || {};
+            return `
             <tr>
-              <td><strong>${esc(r.keyword)}</strong></td>
+              <td>
+                <strong>${esc(r.keyword)}</strong>
+                ${sf.shipped_from ? `<span class="badge gold" style="margin-left:4px">✈️ ${esc(sf.shipped_from)}</span>` : ""}
+                ${sf.sort_by && sf.sort_by !== "relevancy" ? `<span class="badge blue" style="margin-left:4px">${esc(sf.sort_by)}</span>` : ""}
+              </td>
               <td><span class="badge blue">${esc(r.platform)}</span></td>
               <td>${r.total_products}</td>
               <td>${Number(r.total_sold_sample || 0).toLocaleString("vi-VN")}</td>
+              <td>${st.overseas_share_pct != null ? `<strong style="color:#fcd34d">${st.overseas_share_pct}%</strong>` : "—"}</td>
               <td>${vnd(r.avg_price_vnd)}</td>
               <td>${r.mall_share_pct}%</td>
               <td>${r.jev_opportunity_score != null ? `<span class="badge green">${r.jev_opportunity_score}/10</span>` : "—"}</td>
               <td>${fmtTime(r.created_at)}</td>
-            </tr>`).join("")}
+            </tr>`;
+          }).join("")}
           </tbody>
         </table>`
       : `<div style="color:var(--muted)">Chưa có lịch sử tra cứu từ khoá.</div>`;
@@ -822,10 +899,15 @@
           <thead><tr><th>Loại</th><th>Sàn</th><th>Mục tiêu theo dõi</th><th>Kết quả lần check gần nhất</th><th>Check lúc</th><th>Thao tác</th></tr></thead>
           <tbody>${ws.map((w) => {
             const sm = w.last_summary || {};
+            const wsf = sm.shopee_filters || {};
             return `<tr>
               <td><span class="badge gold">${esc(w.watch_type.toUpperCase())}</span></td>
               <td><span class="badge blue">${esc(w.platform)}</span></td>
-              <td><strong>${esc(w.title)}</strong><div style="font-size:11.5px;color:var(--muted)">${esc(w.target_key)}</div></td>
+              <td>
+                <strong>${esc(w.title)}</strong>
+                ${wsf.shipped_from ? `<span class="badge gold" style="margin-left:4px">✈️ ${esc(wsf.shipped_from)}</span>` : ""}
+                <div style="font-size:11.5px;color:var(--muted)">${esc(w.target_key)}</div>
+              </td>
               <td>${esc(sm.headline || "Chưa chạy lần đầu")}</td>
               <td>${fmtTime(w.last_checked_at)}</td>
               <td class="row">
@@ -971,6 +1053,7 @@
 
   function matchSubFilter(p, subKey) {
     if (subKey === "all") return true;
+    if (subKey === "overseas") return Boolean(p.is_overseas);
     if (subKey === "jev7") return p.jev_score != null && Number(p.jev_score) >= 7.0;
     if (subKey === "has_sold") return Number(p.sold_count || 0) > 0;
     if (subKey === "has_cost") return Number(p.cost_vnd || 0) > 0;
@@ -1019,7 +1102,9 @@
             <div class="row" style="gap:5px">
               <span class="badge blue">${esc(p.industry_icon)} ${esc(p.industry_label)}</span>
               <span class="badge green">${esc(p.bucket_icon)} ${esc(p.bucket_label)}</span>
+              ${p.is_overseas ? '<span class="badge gold">✈️ Nước ngoài</span>' : p.shop_location ? `<span class="badge">📍 ${esc(p.shop_location)}</span>` : ""}
               ${p.is_mall ? '<span class="badge red">Mall</span>' : ""}
+              ${p.is_preferred ? '<span class="badge gold">⭐ Yêu thích</span>' : ""}
             </div>
           </div>
         </div>
@@ -1673,6 +1758,7 @@
         const kws = (document.getElementById("deskHuntKeywords")?.value || "").split(/[\n,]+/).map((s) => s.trim()).filter(Boolean);
         const chs = [...document.querySelectorAll(".desk-ch:checked")].map((c) => c.value);
         const eng = document.getElementById("deskEngineSel")?.value || "gateway_fast";
+        const shopeeFilters = collectDeskShopeeFilters();
         document.getElementById("deskActiveRunBox").innerHTML = `<div class="card">⏳ Đang săn sản phẩm (Apify #1 &rarr; Treg #2) và đưa qua <strong>300+desk (OPi SOCKS5) &rarr; Jev AI</strong>...</div>`;
         const res = await api("/api/desk300/run", "POST", {
           mode: "hunt_and_process",
@@ -1680,6 +1766,7 @@
           channels: chs,
           exec_engine: eng,
           auto_assign_my_shop: true,
+          shopee_filters: shopeeFilters,
         });
         renderDeskRunDetail(res.run);
         await syncSidebarCountsAndRefs();
@@ -1740,6 +1827,7 @@
           budget_limit_usd: Number(document.getElementById("huntBudget").value || 0.35),
           use_300desk: document.getElementById("huntUse300Desk")?.checked !== false,
           auto_score_jev: document.getElementById("huntAutoJev").checked,
+          shopee_filters: collectHuntShopeeFilters(),
         };
         if (act === "hunt-estimate") {
           const est = await api("/api/hunt/estimate", "POST", payload);
@@ -1805,6 +1893,7 @@
           topic_query: topic,
           channels: chs,
           auto_find_products: document.getElementById("ppAutoFindProducts")?.checked !== false,
+          shopee_filters: collectHuntShopeeFilters(),
         });
         toast(res.summary);
         await syncSidebarCountsAndRefs();
@@ -1814,6 +1903,32 @@
       } else if (act === "pp-delete") {
         await api(`/api/hunt/painpoints/${encodeURIComponent(actEl.dataset.id)}`, "DELETE");
         await loadPainpoints();
+      } else if (act === "kw-preset-overseas-sales") {
+        document.getElementById("kwPlatform").value = "shopee";
+        document.getElementById("kwShippedFrom").value = "Nước ngoài";
+        document.getElementById("kwSortBy").value = "sales";
+        toast("Đã chọn bộ lọc Shopee: ✈️ Shop Quốc tế / Nước ngoài + 🔥 Bán chạy nhất");
+      } else if (act === "kw-preset-overseas-new") {
+        document.getElementById("kwPlatform").value = "shopee";
+        document.getElementById("kwShippedFrom").value = "Nước ngoài";
+        document.getElementById("kwSortBy").value = "latest";
+        toast("Đã chọn bộ lọc Shopee: ✈️ Shop Quốc tế / Nước ngoài + 🆕 Mới đăng nhất");
+      } else if (act === "kw-preset-domestic") {
+        document.getElementById("kwPlatform").value = "shopee";
+        document.getElementById("kwShippedFrom").value = "Trong nước";
+        document.getElementById("kwSortBy").value = "sales";
+        toast("Đã chọn bộ lọc Shopee: 🇻🇳 Chỉ Shop Trong nước + 🔥 Bán chạy");
+      } else if (act === "kw-preset-reset") {
+        document.getElementById("kwShippedFrom").value = "";
+        document.getElementById("kwSortBy").value = "relevancy";
+        document.getElementById("kwMinPrice").value = "";
+        document.getElementById("kwMaxPrice").value = "";
+        document.getElementById("kwMinRating").value = "";
+        ["kwMallOnly", "kwPreferredOnly", "kwVideoOnly", "kwDiscountOnly", "kwFreeshipOnly"].forEach((id) => {
+          const el = document.getElementById(id);
+          if (el) el.checked = false;
+        });
+        toast("Đã đặt lại bộ lọc Shopee về mặc định");
       } else if (act === "kw-suggest") {
         const kw = document.getElementById("kwInput").value.trim();
         const res = await api("/api/keywords/suggest", "POST", { keyword: kw });
@@ -1823,12 +1938,13 @@
       } else if (act === "pick-kw-chip") {
         document.getElementById("kwInput").value = actEl.dataset.kw;
       } else if (act === "kw-research") {
-        toast("Đang quét từ khoá, chấm điểm Jev & lưu sản phẩm vào Kho...");
+        toast("Đang quét từ khoá (áp dụng bộ lọc Shopee nếu chọn), chấm điểm Jev & lưu sản phẩm vào Kho...");
         const res = await api("/api/keywords/research", "POST", {
           keyword: document.getElementById("kwInput").value.trim(),
           platform: document.getElementById("kwPlatform").value,
           limit: Number(document.getElementById("kwLimit").value || 20),
           save_top_to_vault: document.getElementById("kwSaveVault").checked,
+          shopee_filters: collectKeywordShopeeFilters(),
         });
         renderKeywordResult(res);
         loadKeywordHistory();
@@ -1837,17 +1953,35 @@
       } else if (act === "kw-watch-create") {
         const kw = document.getElementById("kwInput").value.trim();
         const plat = document.getElementById("kwPlatform").value;
-        await api("/api/watches", "POST", { watch_type: "keyword", platform: plat, target_key: kw, title: `Từ khoá: ${kw}`, run_immediately: true });
-        toast(`Đã tạo theo dõi định kỳ từ khoá '${kw}'!`);
+        const sf = collectKeywordShopeeFilters();
+        const locSuffix = sf?.shipped_from ? ` [${sf.shipped_from}]` : "";
+        await api("/api/watches", "POST", {
+          watch_type: "keyword",
+          platform: plat,
+          target_key: kw,
+          title: `Từ khoá: ${kw}${locSuffix}`,
+          shopee_filters: sf,
+          run_immediately: true,
+        });
+        toast(`Đã tạo theo dõi định kỳ từ khoá '${kw}${locSuffix}'!`);
         showTab("watches", "/theo-doi");
       } else if (act === "watch-create") {
         const target = document.getElementById("wtTarget").value.trim();
+        const wType = document.getElementById("wtType").value;
+        const wPlat = document.getElementById("wtPlatform").value;
+        const wtLoc = document.getElementById("wtShopeeShippedFrom")?.value || "";
+        const wtSort = document.getElementById("wtShopeeSortBy")?.value || "relevancy";
+        const wtFilters =
+          wType === "keyword" && wPlat === "shopee" && (wtLoc || wtSort !== "relevancy")
+            ? { shipped_from: wtLoc, sort_by: wtSort }
+            : undefined;
         await api("/api/watches", "POST", {
-          watch_type: document.getElementById("wtType").value,
-          platform: document.getElementById("wtPlatform").value,
+          watch_type: wType,
+          platform: wPlat,
           interval_hours: Number(document.getElementById("wtInterval").value || 12),
           target_key: target,
-          title: document.getElementById("wtTitle").value.trim() || target,
+          title: document.getElementById("wtTitle").value.trim() || (wtLoc ? `${target} (${wtLoc})` : target),
+          shopee_filters: wtFilters,
           run_immediately: true,
         });
         toast("Đã tạo theo dõi & chụp mốc dữ liệu đầu tiên!");
@@ -2315,6 +2449,13 @@
     }
     const tab = ROUTE_TO_TAB[path] || (path.startsWith("/kho") ? "results" : "hunt");
     showTab(tab, null);
+    const kwPlatEl = document.getElementById("kwPlatform");
+    const kwBoxEl = document.getElementById("kwShopeeFiltersBox");
+    if (kwPlatEl && kwBoxEl) {
+      kwPlatEl.addEventListener("change", () => {
+        kwBoxEl.style.display = kwPlatEl.value === "shopee" ? "block" : "none";
+      });
+    }
   }
 
   window.addEventListener("popstate", initRoute);

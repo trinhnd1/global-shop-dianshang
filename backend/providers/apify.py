@@ -218,69 +218,237 @@ class ApifyClient:
             raise last_exc
         return (candidates[0][0] if candidates else ""), []
 
-    # --- Shopee VN Search / Product / Shop -----------------------------------
+    # --- Shopee VN Search (with Overseas / Location / Sort / Mall / Price Filters) ---
 
-    def search_shopee(self, tokens: list[str], query: str, limit: int = 12, max_charge_usd: float = 0.08) -> tuple[str, list[dict]]:
+    @staticmethod
+    def normalize_shopee_filters(filters: dict | None) -> dict:
+        f = dict(filters or {})
+        raw_loc = str(f.get("shipped_from") or f.get("location") or "").strip()
+        loc_map = {
+            "overseas": "Nước ngoài",
+            "nuoc_ngoai": "Nước ngoài",
+            "nước ngoài": "Nước ngoài",
+            "quoc_te": "Nước ngoài",
+            "shop quốc tế": "Nước ngoài",
+            "domestic": "Trong nước",
+            "trong_nuoc": "Trong nước",
+            "trong nước": "Trong nước",
+            "ha_noi": "Hà Nội",
+            "hà nội": "Hà Nội",
+            "hcm": "TP. Hồ Chí Minh",
+            "tp.hcm": "TP. Hồ Chí Minh",
+            "tp. hồ chí minh": "TP. Hồ Chí Minh",
+        }
+        shipped_from = loc_map.get(raw_loc.lower(), raw_loc)
+        raw_sort = str(f.get("sort_by") or f.get("sort") or "relevancy").strip().lower()
+        sort_by = raw_sort if raw_sort in ("relevancy", "sales", "latest", "price_asc", "price_desc") else "relevancy"
+        min_price = int(f["min_price"]) if f.get("min_price") not in (None, "", 0, "0") and str(f.get("min_price")).isdigit() else None
+        max_price = int(f["max_price"]) if f.get("max_price") not in (None, "", 0, "0") and str(f.get("max_price")).isdigit() else None
+        min_rating = float(f["min_rating"]) if f.get("min_rating") not in (None, "", 0, "0") else None
+        return {
+            "shipped_from": shipped_from,
+            "sort_by": sort_by,
+            "min_price": min_price,
+            "max_price": max_price,
+            "min_rating": min_rating,
+            "official_shop_only": bool(f.get("official_shop_only")),
+            "preferred_seller_only": bool(f.get("preferred_seller_only")),
+            "free_shipping_only": bool(f.get("free_shipping_only")),
+            "discounted_only": bool(f.get("discounted_only")),
+            "with_video_only": bool(f.get("with_video_only")),
+        }
+
+    @staticmethod
+    def build_shopee_vn_search_url(query: str, norm_filters: dict) -> str:
+        params: dict[str, str] = {"keyword": query}
+        sf = norm_filters.get("shipped_from") or ""
+        if sf == "Nước ngoài":
+            params["locations"] = "Nước ngoài"
+        elif sf == "Trong nước":
+            params["locations"] = "-1"
+        elif sf:
+            params["locations"] = sf
+
+        sb = norm_filters.get("sort_by") or "relevancy"
+        if sb == "sales":
+            params["sortBy"] = "sales"
+        elif sb == "latest":
+            params["sortBy"] = "ctime"
+        elif sb == "price_asc":
+            params["sortBy"] = "price"
+            params["order"] = "asc"
+        elif sb == "price_desc":
+            params["sortBy"] = "price"
+            params["order"] = "desc"
+
+        if norm_filters.get("min_price"):
+            params["minPrice"] = str(norm_filters["min_price"])
+        if norm_filters.get("max_price"):
+            params["maxPrice"] = str(norm_filters["max_price"])
+        if norm_filters.get("min_rating"):
+            params["ratingFilter"] = str(int(norm_filters["min_rating"]))
+        if norm_filters.get("official_shop_only"):
+            params["officialShop"] = "1"
+        if norm_filters.get("preferred_seller_only"):
+            params["shopeeVerified"] = "1"
+        if norm_filters.get("with_video_only"):
+            params["withVideo"] = "true"
+        return "https://shopee.vn/search?" + urllib.parse.urlencode(params)
+
+    def search_shopee(
+        self,
+        tokens: list[str],
+        query: str,
+        limit: int = 12,
+        max_charge_usd: float = 0.08,
+        filters: dict | None = None,
+    ) -> tuple[str, list[dict]]:
         lim = max(1, min(40, int(limit)))
-        search_url = f"https://shopee.vn/search?keyword={urllib.parse.quote(query)}"
+        nf = self.normalize_shopee_filters(filters)
+        search_url = self.build_shopee_vn_search_url(query, nf)
+
+        # Primary #1: `lergassy~shopee-scraper` (1,192 users/30d, verified native support for VN `shippedFrom="Nước ngoài"`, `sortBy`, `officialShopOnly`, etc.)
+        lergassy_payload: dict = {
+            "mode": "search",
+            "country": "VN",
+            "maxItems": lim,
+            "includeShopAndReviews": True,
+            "sortBy": nf["sort_by"],
+        }
+        if nf["shipped_from"] == "Trong nước":
+            # Shopee VN encodes domestic-only via `locations=-1` on search URL
+            lergassy_payload["startUrls"] = [search_url]
+        else:
+            lergassy_payload["searchTerms"] = [query]
+            if nf["shipped_from"]:
+                lergassy_payload["shippedFrom"] = nf["shipped_from"]
+
+        if nf["min_price"] is not None:
+            lergassy_payload["minPrice"] = nf["min_price"]
+        if nf["max_price"] is not None:
+            lergassy_payload["maxPrice"] = nf["max_price"]
+        if nf["min_rating"] is not None:
+            lergassy_payload["minRating"] = nf["min_rating"]
+        if nf["official_shop_only"]:
+            lergassy_payload["officialShopOnly"] = True
+        if nf["preferred_seller_only"]:
+            lergassy_payload["preferredSellerOnly"] = True
+        if nf["free_shipping_only"]:
+            lergassy_payload["freeShippingOnly"] = True
+        if nf["discounted_only"]:
+            lergassy_payload["discountedOnly"] = True
+        if nf["with_video_only"]:
+            lergassy_payload["withVideoOnly"] = True
+
+        # Failover #2: `memo23~shopee-scraper` & Failover #3: `webdata_labs~shopee-scraper`
+        memo_payload: dict = {"startUrls": [search_url], "country": "VN", "maxItems": lim, "sortBy": nf["sort_by"]}
+        if nf["min_price"] is not None:
+            memo_payload["minPrice"] = nf["min_price"]
+        if nf["max_price"] is not None:
+            memo_payload["maxPrice"] = nf["max_price"]
+
+        webdata_payload: dict = {"startUrls": [search_url], "country": "vn", "maxItemsPerSource": lim, "sort": nf["sort_by"]}
+        if nf["official_shop_only"]:
+            webdata_payload["mallOnly"] = True
+
         candidates = [
-            ("lergassy~shopee-scraper", {"search": query, "country": "vn", "maxItems": lim}),
-            ("xtracto~shopee-search", {"keyword": query, "country": "VN", "maxItems": lim}),
-            ("gio21~shopee-scraper", {"startUrls": [{"url": search_url}], "maxItems": lim}),
+            ("lergassy~shopee-scraper", lergassy_payload),
+            ("memo23~shopee-scraper", memo_payload),
+            ("webdata_labs~shopee-scraper", webdata_payload),
         ]
         slug, rows = self._run_actor_ring(tokens, candidates, max_charge_usd=max_charge_usd)
-        return slug, [self.normalize_shopee_item(r) for r in rows[:lim] if isinstance(r, dict)]
+        normalized = [self.normalize_shopee_item(r) for r in rows if isinstance(r, dict) and r.get("type") != "notice"]
+
+        # Post-guard location filter if actor returned mixed items
+        if nf["shipped_from"] == "Nước ngoài":
+            overseas_only = [x for x in normalized if x.get("is_overseas")]
+            if overseas_only:
+                normalized = overseas_only
+        elif nf["shipped_from"] == "Trong nước":
+            normalized = [x for x in normalized if not x.get("is_overseas")]
+
+        return slug, normalized[:lim]
 
     def scrape_shopee_shop(self, tokens: list[str], shop_url_or_name: str, limit: int = 20, max_charge_usd: float = 0.06) -> tuple[str, list[dict]]:
         lim = max(1, min(50, int(limit)))
         s = shop_url_or_name.strip()
         url = s if s.startswith("http") else f"https://shopee.vn/{s.lstrip('@/')}"
         candidates = [
+            ("lergassy~shopee-scraper", {"mode": "shop", "startUrls": [url], "maxItems": lim}),
             ("memo23~shopee-scraper", {"startUrls": [url], "maxItems": lim}),
-            ("lergassy~shopee-scraper", {"startUrls": [{"url": url}], "maxItems": lim}),
-            ("xtracto~shopee-scraper", {"urls": [url], "maxItems": lim}),
+            ("xtracto~shopee-scraper", {"mode": "url", "url": url, "maxProducts": lim}),
         ]
         slug, rows = self._run_actor_ring(tokens, candidates, max_charge_usd=max_charge_usd)
-        return slug, [self.normalize_shopee_item(r) for r in rows[:lim]]
+        return slug, [self.normalize_shopee_item(r) for r in rows[:lim] if isinstance(r, dict)]
 
     def scrape_shopee_product(self, tokens: list[str], product_url: str, max_charge_usd: float = 0.05) -> dict | None:
         candidates = [
-            ("xtracto~shopee-product-detail", {"urls": [product_url]}),
+            ("lergassy~shopee-scraper", {"mode": "product", "startUrls": [product_url], "maxItems": 1}),
+            ("memo23~shopee-scraper", {"startUrls": [product_url], "maxItems": 1}),
             ("zen-studio~shopee-product-detail-scraper", {"urls": [product_url]}),
-            ("lergassy~shopee-scraper", {"startUrls": [{"url": product_url}], "maxItems": 1}),
         ]
         _, rows = self._run_actor_ring(tokens, candidates, max_charge_usd=max_charge_usd)
         return self.normalize_shopee_item(rows[0]) if rows else None
 
     @staticmethod
     def normalize_shopee_item(r: dict) -> dict:
-        item_id = safe_id_str(r.get("itemid") or r.get("item_id") or r.get("id") or r.get("productId"))
-        shop_id = safe_id_str(r.get("shopid") or r.get("shop_id") or r.get("shopId"))
-        title = str(r.get("name") or r.get("title") or r.get("item_name") or "").strip()
-        raw_price = r.get("price_display") or r.get("formattedPrice") or r.get("price") or r.get("price_min") or 0
+        item_id = safe_id_str(r.get("itemId") or r.get("itemid") or r.get("item_id") or r.get("productId") or r.get("id"))
+        shop_id = safe_id_str(r.get("shopId") or r.get("shopid") or r.get("shop_id"))
+        title = str(r.get("title") or r.get("name") or r.get("item_name") or "").strip()
+        raw_price = r.get("price_display") or r.get("formattedPrice") or r.get("price") or r.get("priceMin") or r.get("price_min") or 0
         price_vnd = parse_vnd_price(raw_price, "VND")
-        sold_all = parse_int_metric(r.get("historical_sold") or r.get("sold_count") or r.get("global_sold_count") or r.get("sold") or 0)
-        sold_30d = parse_int_metric(r.get("sold") or r.get("monthly_sold") or 0)
+        sold_all = parse_int_metric(
+            r.get("historical_sold")
+            or r.get("historicalSold")
+            or r.get("sold_count")
+            or r.get("soldCount")
+            or r.get("global_sold_count")
+            or r.get("sold")
+            or 0
+        )
+        sold_30d = parse_int_metric(r.get("sold") or r.get("monthly_sold") or r.get("monthlySold") or 0)
+        rating_count = parse_int_metric(r.get("ratingCount") or r.get("cmt_count") or r.get("review_count") or 0)
+        # When search card omits exact sold count but shows verified buyer reviews (`ratingCount`), estimate floor conservatively (`ratingCount * 3`) only if sold_all == 0
+        eff_sold = max(sold_all, sold_30d) if max(sold_all, sold_30d) > 0 else (rating_count * 3 if rating_count > 0 else 0)
+
         url = str(r.get("url") or r.get("link") or "").strip()
         if not url and shop_id and item_id:
             url = f"https://shopee.vn/product/{shop_id}/{item_id}"
-        img = str(r.get("image") or r.get("thumbnail") or r.get("cover") or "").strip()
+        img = str(r.get("imageUrl") or r.get("image") or r.get("thumbnail") or r.get("cover") or "").strip()
         if img and not img.startswith("http"):
             img = f"https://down-vn.img.susercontent.com/file/{img}"
         rating = float(r.get("item_rating", {}).get("rating_star") if isinstance(r.get("item_rating"), dict) else (r.get("rating") or r.get("rating_star") or 0.0))
+
+        shop_location = str(r.get("location") or r.get("shop_location") or r.get("shopLocation") or "").strip()
+        loc_low = shop_location.lower()
+        is_overseas = bool(
+            r.get("is_overseas")
+            or r.get("isOverseas")
+            or r.get("cb_option") == 1
+            or any(k in loc_low for k in ("nước ngoài", "overseas", "mainland china", "quốc tế", "china", "trung quốc", "hàn quốc"))
+        )
+        labels_raw = [str(x).lower() for x in (r.get("labels") or [])] if isinstance(r.get("labels"), list) else []
+        is_mall = bool(r.get("is_official_shop") or r.get("isMall") or r.get("officialShop") or any("mall" in lb for lb in labels_raw))
+        is_preferred = bool(r.get("shopee_verified") or r.get("isPreferred") or any("preferred" in lb or "yêu thích" in lb for lb in labels_raw))
+
         return {
             "platform": "shopee",
             "market": "VN",
             "native_product_id": item_id,
             "native_shop_id": shop_id,
-            "shop_name": str(r.get("shop_name") or r.get("shopName") or r.get("seller_name") or ""),
-            "is_mall": bool(r.get("is_official_shop") or r.get("shopee_verified") or r.get("isMall")),
+            "shop_name": str(r.get("shopName") or r.get("shop_name") or r.get("shopUsername") or r.get("seller_name") or ""),
+            "shop_location": shop_location,
+            "is_overseas": is_overseas,
+            "is_mall": is_mall,
+            "is_preferred": is_preferred,
             "title": title,
             "price_vnd": price_vnd,
-            "sold_count": max(sold_all, sold_30d),
+            "sold_count": eff_sold,
             "sold_30d": sold_30d,
-            "gmv_vnd": round(price_vnd * max(sold_all, sold_30d), 0),
+            "rating_count": rating_count,
+            "gmv_vnd": round(price_vnd * eff_sold, 0),
             "rating": round(rating, 2) if 0 < rating <= 5 else 0.0,
+            "discount_pct": parse_int_metric(r.get("discountPercent") or 0),
             "stock": parse_int_metric(r.get("stock") or 0),
             "total_available_hint": parse_int_metric(r.get("total_count") or r.get("totalCount") or 0),
             "url": url,

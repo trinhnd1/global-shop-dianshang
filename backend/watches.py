@@ -131,6 +131,9 @@ class WatchesService:
         title = text(body.get("title") or target_key, "title", 180, required=True)
         target_url = str(body.get("target_url") or (target_key if target_key.startswith("http") else "")).strip()
         interval_hours = max(1.0, min(168.0, float(body.get("interval_hours") or 12.0)))
+        shopee_filters = body.get("shopee_filters") if isinstance(body.get("shopee_filters"), dict) else {}
+        init_snap = {"shopee_filters": shopee_filters} if shopee_filters else {}
+        init_summary = {"shopee_filters": shopee_filters} if shopee_filters else {}
         wid = f"wt_{uuid.uuid4().hex[:10]}"
         ts = now()
 
@@ -141,7 +144,7 @@ class WatchesService:
                 (watch_id, watch_type, platform, market, target_key, title, target_url, status, interval_hours,
                  linked_product_id, linked_shop_id, last_checked_at, next_check_at, last_summary_json, baseline_snapshot_json,
                  created_at, updated_at)
-                VALUES (?, ?, ?, 'VN', ?, ?, ?, 'active', ?, ?, ?, '', ?, '{}', '{}', ?, ?)
+                VALUES (?, ?, ?, 'VN', ?, ?, ?, 'active', ?, ?, ?, '', ?, ?, ?, ?, ?)
                 """,
                 (
                     wid,
@@ -154,6 +157,8 @@ class WatchesService:
                     int(body["linked_product_id"]) if body.get("linked_product_id") else None,
                     str(body.get("linked_shop_id") or ""),
                     _future_iso(interval_hours),
+                    json.dumps(init_summary, ensure_ascii=False),
+                    json.dumps(init_snap, ensure_ascii=False),
                     ts,
                     ts,
                 ),
@@ -180,6 +185,7 @@ class WatchesService:
         prev_snap = w.get("_snapshot") or {}
 
         if wtype == "keyword":
+            saved_sf = (prev_snap.get("shopee_filters") or (w.get("last_summary") or {}).get("shopee_filters") or None)
             if injected_items is not None:
                 items = injected_items
                 tot_cnt = injected_total_count if injected_total_count is not None else len(items)
@@ -190,6 +196,7 @@ class WatchesService:
                     limit=20,
                     score_jev=False,
                     save_top_to_vault=False,
+                    shopee_filters=saved_sf if isinstance(saved_sf, dict) and saved_sf else None,
                 )
                 items = res["items"]
                 tot_cnt = res["summary_stats"]["total_products"]
@@ -200,8 +207,11 @@ class WatchesService:
                     if ni.get("title"):
                         self.products.upsert_product(ni, source=f"watch_keyword_new:{plat}:{w['target_key']}")
             next_snap = diff.pop("next_snapshot")
+            if saved_sf:
+                next_snap["shopee_filters"] = saved_sf
             summary = {
                 "watch_type": "keyword",
+                "shopee_filters": saved_sf or {},
                 "total_count": diff["total_count"],
                 "prev_total_count": diff["prev_total_count"],
                 "total_count_delta": diff["total_count_delta"],

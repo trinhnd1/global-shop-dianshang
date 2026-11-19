@@ -11,7 +11,7 @@
     <aside class="side" id="sidebar">
       <div class="brand">
         <h1>🏬 Global Shop Dianshang</h1>
-        <div class="sub">Apify #1 · Treg #2 · 300+desk · Jev (<span id="sideVer">v1.0.5</span>)</div>
+        <div class="sub">Apify #1 · Treg #2 · 300+desk · Jev (<span id="sideVer">v1.0.6</span>)</div>
       </div>
 
       <div class="nav-sec">1 · Nghiên cứu, 300+desk &amp; Shop của tôi</div>
@@ -48,7 +48,7 @@
         <div class="row">
           <button class="btn btn-sm menu-btn" data-action="toggle-menu">☰ Menu</button>
           <span class="badge green" id="topStatusBadge">🟢 Sẵn sàng</span>
-          <span class="badge blue" id="topVerBadge">📦 v1.0.5</span>
+          <span class="badge blue" id="topVerBadge">📦 v1.0.6</span>
         </div>
         <div class="row">
           <button class="btn btn-sm btn-pri" data-action="jump-deskflow">🤖 300+desk &rarr; Jev</button>
@@ -109,6 +109,29 @@
                   <label><input type="checkbox" class="hunt-ch" value="lazada" /> 📦 Lazada VN</label>
                   <label style="color:#fcd34d"><input type="checkbox" id="huntUse300Desk" checked /> 🤖 Xử lý SP qua 300+desk (OPi SOCKS5)</label>
                   <label><input type="checkbox" id="huntAutoJev" checked /> 🎯 Jev AI Ra quyết định</label>
+                </div>
+                <div style="margin-top:8px;padding-top:8px;border-top:1px dashed var(--border)">
+                  <div style="font-size:11.8px;color:#fcd34d;margin-bottom:5px">✈️ Bộ lọc nâng cao khi quét Shopee VN (Apify <code>lergassy/shopee-scraper</code>):</div>
+                  <div class="grid2" style="margin-bottom:6px">
+                    <select id="huntShopeeShippedFrom" style="font-size:12px;padding:6px 8px">
+                      <option value="">🌐 Nơi gửi Shopee: Tất cả</option>
+                      <option value="Nước ngoài">✈️ Shop Quốc tế / Vận chuyển từ Nước ngoài</option>
+                      <option value="Trong nước">🇻🇳 Chỉ Shop Trong nước</option>
+                      <option value="Hà Nội">📍 Hà Nội</option>
+                      <option value="TP. Hồ Chí Minh">📍 TP. Hồ Chí Minh</option>
+                    </select>
+                    <select id="huntShopeeSortBy" style="font-size:12px;padding:6px 8px">
+                      <option value="relevancy">🔎 Sắp xếp Shopee: Liên quan nhất</option>
+                      <option value="sales">🔥 Bán chạy nhất (Top Sales)</option>
+                      <option value="latest">🆕 Mới đăng nhất</option>
+                      <option value="price_asc">🏷️ Giá thấp &rarr; cao</option>
+                    </select>
+                  </div>
+                  <div class="row" style="gap:10px;font-size:12px">
+                    <label><input type="checkbox" id="huntShopeeMallOnly" /> 🏬 Shopee Mall</label>
+                    <label><input type="checkbox" id="huntShopeePreferredOnly" /> ⭐ Shop Yêu Thích</label>
+                    <label><input type="checkbox" id="huntShopeeVideoOnly" /> 🎬 Có Video SP</label>
+                  </div>
                 </div>
               </div>
 
@@ -281,10 +304,24 @@
                 <label>Từ khoá sản phẩm cần săn &amp; xử lý trọn luồng (cách nhau dấu phẩy)</label>
                 <input type="text" id="deskHuntKeywords" placeholder="VD: máy massage cổ vai gáy, kệ gia vị xoay, phễu thoát sàn ngăn mùi" />
               </div>
-              <div class="row" style="margin-bottom:10px">
+              <div class="row" style="margin-bottom:8px">
                 <label><input type="checkbox" class="desk-ch" value="shopee" checked /> 🛍 Shopee VN</label>
                 <label><input type="checkbox" class="desk-ch" value="tiktok_shop" checked /> 🛒 TikTok Shop</label>
                 <label><input type="checkbox" class="desk-ch" value="lazada" /> 📦 Lazada VN</label>
+              </div>
+              <div class="grid2" style="margin-bottom:10px">
+                <select id="deskShopeeShippedFrom" style="font-size:12px">
+                  <option value="">🌐 Shopee: Mọi nơi gửi</option>
+                  <option value="Nước ngoài">✈️ Shop Quốc tế / Nước ngoài</option>
+                  <option value="Trong nước">🇻🇳 Chỉ Shop Trong nước</option>
+                  <option value="Hà Nội">📍 Hà Nội</option>
+                  <option value="TP. Hồ Chí Minh">📍 TP. Hồ Chí Minh</option>
+                </select>
+                <select id="deskShopeeSortBy" style="font-size:12px">
+                  <option value="relevancy">🔎 Sắp xếp: Liên quan</option>
+                  <option value="sales">🔥 Bán chạy nhất</option>
+                  <option value="latest">🆕 Mới nhất</option>
+                </select>
               </div>
               <button class="btn btn-gold" data-action="desk300-run-hunt">⚡ Săn Apify #1 &rarr; Xử lý 300+desk &rarr; Jev Chốt Ngay</button>
             </div>
@@ -322,6 +359,66 @@
               <div class="field">
                 <label>Số lượng mẫu phân tích sâu</label>
                 <input type="number" id="kwLimit" value="20" min="5" max="40" />
+              </div>
+            </div>
+
+            <!-- SHOPEE ADVANCED SEARCH FILTERS (APIFY NATIVE: OVERSEAS / SORT / PRICE / MALL / VIDEO) -->
+            <div id="kwShopeeFiltersBox" style="background:#081222;border:1px solid rgba(251,191,36,0.38);border-radius:10px;padding:10px 12px;margin-bottom:12px">
+              <div class="row" style="justify-content:space-between;margin-bottom:8px">
+                <div style="font-size:12.5px;color:#fcd34d;font-weight:600">
+                  ✈️ Bộ lọc Tìm kiếm Shopee VN (Hỗ trợ gốc qua Apify <code>lergassy/shopee-scraper</code> — Shop Quốc tế / Nước ngoài, Bán chạy, Khoảng giá, Mall...)
+                </div>
+                <div class="chips" style="margin:0">
+                  <button type="button" class="chip" data-action="kw-preset-overseas-sales">✈️ Shop Quốc tế + 🔥 Bán chạy</button>
+                  <button type="button" class="chip" data-action="kw-preset-overseas-new">✈️ Shop Quốc tế + 🆕 Mới đăng</button>
+                  <button type="button" class="chip" data-action="kw-preset-domestic">🇻🇳 Chỉ Shop Trong nước</button>
+                  <button type="button" class="chip" data-action="kw-preset-reset">✕ Mặc định</button>
+                </div>
+              </div>
+              <div class="grid4">
+                <div class="field" style="margin:0">
+                  <label>Nơi bán / Vận chuyển từ</label>
+                  <select id="kwShippedFrom">
+                    <option value="">🌐 Tất cả nơi gửi</option>
+                    <option value="Nước ngoài">✈️ Shop Quốc tế / Vận chuyển từ Nước ngoài</option>
+                    <option value="Trong nước">🇻🇳 Chỉ Shop Trong nước</option>
+                    <option value="Hà Nội">📍 Hà Nội</option>
+                    <option value="TP. Hồ Chí Minh">📍 TP. Hồ Chí Minh</option>
+                  </select>
+                </div>
+                <div class="field" style="margin:0">
+                  <label>Sắp xếp kết quả theo</label>
+                  <select id="kwSortBy">
+                    <option value="relevancy">🔎 Liên quan nhất</option>
+                    <option value="sales">🔥 Bán chạy nhất (Top Sales)</option>
+                    <option value="latest">🆕 Mới nhất</option>
+                    <option value="price_asc">🏷️ Giá thấp &rarr; cao</option>
+                    <option value="price_desc">🏷️ Giá cao &rarr; thấp</option>
+                  </select>
+                </div>
+                <div class="field" style="margin:0">
+                  <label>Khoảng giá bán lẻ (VNĐ)</label>
+                  <div class="row" style="flex-wrap:nowrap;gap:6px">
+                    <input type="number" id="kwMinPrice" min="0" step="5000" placeholder="Từ đ" />
+                    <input type="number" id="kwMaxPrice" min="0" step="5000" placeholder="Đến đ" />
+                  </div>
+                </div>
+                <div class="field" style="margin:0">
+                  <label>Đánh giá Sao tối thiểu</label>
+                  <select id="kwMinRating">
+                    <option value="">⭐ Mọi mức sao</option>
+                    <option value="4">⭐ Từ 4.0 sao trở lên</option>
+                    <option value="4.5">⭐ Từ 4.5 sao trở lên</option>
+                    <option value="4.8">⭐ Từ 4.8 sao trở lên</option>
+                  </select>
+                </div>
+              </div>
+              <div class="row" style="margin-top:8px;gap:14px;font-size:12.5px">
+                <label><input type="checkbox" id="kwMallOnly" /> 🏬 Chỉ Shopee Mall</label>
+                <label><input type="checkbox" id="kwPreferredOnly" /> ⭐ Shop Yêu Thích</label>
+                <label><input type="checkbox" id="kwVideoOnly" /> 🎬 Có Video sản phẩm</label>
+                <label><input type="checkbox" id="kwDiscountOnly" /> 🏷️ Đang giảm giá</label>
+                <label><input type="checkbox" id="kwFreeshipOnly" /> 🚚 Miễn phí vận chuyển</label>
               </div>
             </div>
             <div class="row">
@@ -378,6 +475,24 @@
               <div class="field">
                 <label>Tên gợi nhớ</label>
                 <input type="text" id="wtTitle" placeholder="Để trống sẽ tự lấy theo mục tiêu" />
+              </div>
+            </div>
+            <div class="grid2" style="margin-bottom:10px">
+              <div class="field" style="margin:0">
+                <label>Bộ lọc Nơi gửi Shopee (áp dụng khi Theo dõi Từ khoá Shopee)</label>
+                <select id="wtShopeeShippedFrom">
+                  <option value="">🌐 Tất cả nơi gửi</option>
+                  <option value="Nước ngoài">✈️ Chỉ theo dõi Shop Quốc tế / Vận chuyển từ Nước ngoài</option>
+                  <option value="Trong nước">🇻🇳 Chỉ theo dõi Shop Trong nước</option>
+                </select>
+              </div>
+              <div class="field" style="margin:0">
+                <label>Thứ tự ưu tiên khi Theo dõi Từ khoá Shopee</label>
+                <select id="wtShopeeSortBy">
+                  <option value="relevancy">🔎 Liên quan nhất</option>
+                  <option value="sales">🔥 Bán chạy nhất</option>
+                  <option value="latest">🆕 Mới đăng nhất (phát hiện SP mới nhanh)</option>
+                </select>
               </div>
             </div>
             <button class="btn btn-pri" data-action="watch-create">➕ Tạo Theo dõi &amp; Chụp Mốc Gốc Ngay</button>
