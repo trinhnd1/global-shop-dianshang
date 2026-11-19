@@ -27,16 +27,54 @@ class McpGatewayService:
                 "name": "gs_research_keyword",
                 "scope": "hunt_keywords",
                 "is_write": True,
-                "description": "Tra cứu từ khoá Shopee hoặc TikTok Shop: tổng lượng SP, lượt bán, phân bổ giá, tỷ lệ Mall & điểm cơ hội Jev AI.",
+                "description": "Tra cứu từ khoá Shopee (VN/PH/SG/MY/TH) hoặc TikTokShop (VN/PH/SG/MY/TH): tổng lượng SP, lượt bán, phân bổ giá, tỷ lệ Mall/Nước ngoài & điểm Jev AI.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
                         "keyword": {"type": "string"},
-                        "platform": {"type": "string", "enum": ["shopee", "tiktok_shop"]},
+                        "platform": {
+                            "type": "string",
+                            "enum": [
+                                "shopee_vn", "shopee_ph", "shopee_sg", "shopee_my", "shopee_th",
+                                "tiktok_shop_vn", "tiktok_shop_ph", "tiktok_shop_sg", "tiktok_shop_my", "tiktok_shop_th",
+                                "shopee", "tiktok_shop",
+                            ],
+                        },
                         "limit": {"type": "integer"},
                         "save_top_to_vault": {"type": "boolean"},
                     },
                     "required": ["keyword"],
+                },
+            },
+            {
+                "name": "gs_apify_store_search",
+                "scope": "system",
+                "is_write": False,
+                "description": "Tìm kiếm Actor phù hợp trong Kho API Apify Store đã lưu cục bộ (theo mục tiêu goal hoặc từ khoá).",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "q": {"type": "string"},
+                        "goal": {"type": "string"},
+                        "pay_per_use_only": {"type": "boolean"},
+                        "limit": {"type": "integer"},
+                    },
+                },
+            },
+            {
+                "name": "gs_apify_store_call",
+                "scope": "hunt_keywords",
+                "is_write": True,
+                "description": "Gọi trực tiếp bất kỳ Actor nào trong Kho Apify Store theo slug hoặc theo goal mục tiêu.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "actor_slug": {"type": "string"},
+                        "goal": {"type": "string"},
+                        "payload": {"type": "object"},
+                        "max_charge_usd": {"type": "number"},
+                        "save_products_to_vault": {"type": "boolean"},
+                    },
                 },
             },
             {
@@ -195,6 +233,21 @@ class McpGatewayService:
                 "campaigns": self.app.campaigns.list_campaigns(),
                 "sales": self.app.campaigns.sales_summary(),
             }
+        if name == "gs_apify_store_search":
+            return self.app.apify_catalog.search_actors(
+                q=str(args.get("q") or ""),
+                goal=str(args.get("goal") or ""),
+                pay_per_use_only=bool(args.get("pay_per_use_only", True)),
+                limit=int(args.get("limit") or 15),
+            )
+        if name == "gs_apify_store_call":
+            return self.app.apify_catalog.call_actor_on_demand(
+                actor_slug=str(args.get("actor_slug") or ""),
+                goal=str(args.get("goal") or ""),
+                payload=args.get("payload") if isinstance(args.get("payload"), dict) else {},
+                max_charge_usd=float(args.get("max_charge_usd") or 0.06),
+                save_products_to_vault=bool(args.get("save_products_to_vault", False)),
+            )
         raise ValueError(f"Tool MCP không tồn tại: {name}")
 
     def handle_http_mcp(self, env: dict, start_response):

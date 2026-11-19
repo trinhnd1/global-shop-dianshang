@@ -138,9 +138,9 @@ class GlobalShopDianshangE2ETest(unittest.TestCase):
     def test_01_security_version_masking_and_tailscale_guards(self):
         st, health = self.req("GET", "/api/health")
         self.assertEqual(st, 200)
-        self.assertEqual(health["version"], "1.0.6")
-        self.assertEqual(__version__, "1.0.6")
-        self.assertEqual(health["schema_version"], 4)
+        self.assertEqual(health["version"], "1.0.7")
+        self.assertEqual(__version__, "1.0.7")
+        self.assertEqual(health["schema_version"], 5)
 
         # Tailscale MagicDNS & CGNAT allowed
         st_ts, _ = self.req("GET", "/api/health", headers={"Host": "nguyens-mac-mini.tail213fd3.ts.net:8999"})
@@ -652,6 +652,207 @@ class GlobalShopDianshangE2ETest(unittest.TestCase):
         self.assertTrue(vault_prod["product"]["is_overseas"])
         self.assertEqual(vault_prod["product"]["shop_location"], "Nước ngoài")
         self.assertTrue(vault_prod["product"]["is_preferred"])
+
+    def test_07_multi_market_sea_shopee_tiktokshop_and_apify_store_catalog(self):
+        from backend.apify_catalog import ApifyStoreCatalogService
+        from backend.markets import parse_marketplace_spec
+        from backend.providers.apify import ApifyClient
+
+        # 1) Verify all 10 explicit SEA marketplaces (VN, PH, SG, MY, TH for Shopee & TikTokShop)
+        for mkt, dom in (("VN", "shopee.vn"), ("PH", "shopee.ph"), ("SG", "shopee.sg"), ("MY", "shopee.com.my"), ("TH", "shopee.co.th")):
+            plat, m_out, ch_code = parse_marketplace_spec(f"shopee_{mkt.lower()}")
+            self.assertEqual((plat, m_out, ch_code), ("shopee", mkt, f"shopee_{mkt.lower()}"))
+            nf = ApifyClient.normalize_shopee_filters({"shipped_from": "overseas"}, market=mkt)
+            u = ApifyClient.build_shopee_search_url("organizer", nf, market=mkt)
+            self.assertIn(f"https://{dom}/search?", u)
+
+            t_plat, t_mkt, t_code = parse_marketplace_spec(f"tiktokshop_{mkt.lower()}")
+            self.assertEqual((t_plat, t_mkt, t_code), ("tiktok_shop", mkt, f"tiktok_shop_{mkt.lower()}"))
+
+        # 2) Verify Keyword Research on `shopee_ph` (PHP -> VND + Mainland China overseas) and `tiktok_shop_sg` (SGD -> VND + market="sg")
+        captured_calls = []
+
+        def fake_multi_opener(req, timeout=60):
+            body_obj = json.loads(req.data.decode("utf-8")) if req.data else {}
+            captured_calls.append((req.full_url, body_obj))
+
+            class _Resp:
+                def __enter__(self_r):
+                    return self_r
+
+                def __exit__(self_r, *args):
+                    pass
+
+                def read(self_r):
+                    if "shopee-scraper" in req.full_url:
+                        return json.dumps([
+                            {
+                                "itemId": "9988776655",
+                                "shopId": "11223344",
+                                "shopName": "manila_crossborder.ph",
+                                "location": "Mainland China",
+                                "name": "Portable Mini Fan Rechargeable PH",
+                                "price": 299,
+                                "rating": 4.8,
+                                "soldCount": 520,
+                                "productUrl": "https://shopee.ph/product/11223344/9988776655",
+                            }
+                        ]).encode("utf-8")
+                    return json.dumps([
+                        {
+                            "productId": "1739998887776665554",
+                            "shopName": "SG Smart Home",
+                            "title": "Kitchen Sink Rack Organizer SG",
+                            "price": 19.90,
+                            "soldCount": 310,
+                            "url": "https://shop.tiktok.com/view/product/1739998887776665554?region=SG",
+                        }
+                    ]).encode("utf-8")
+
+            return _Resp()
+
+        self.req("POST", "/api/providers/apify/keys", {"label": "MultiMktKey", "token": "apify_api_test_multimarket_key_5678"})
+        fake_apify = ApifyClient(http_opener=fake_multi_opener)
+        self.api.keywords.apify = fake_apify
+        self.api.apify_catalog.apify = fake_apify
+
+        st_ph, ph_res = self.req("POST", "/api/keywords/research", {
+            "keyword": "mini fan",
+            "platform": "shopee_ph",
+            "limit": 8,
+            "score_jev": False,
+            "save_top_to_vault": True,
+            "shopee_filters": {"shipped_from": "overseas", "sort_by": "sales"},
+        })
+        self.assertEqual(st_ph, 200)
+        self.assertEqual(ph_res["market"], "PH")
+        self.assertIn("Shopee PH", ph_res["channel_label"])
+        self.assertEqual(captured_calls[0][1]["country"], "PH")
+        self.assertEqual(captured_calls[0][1]["shippedFrom"], "Mainland China")
+        self.assertEqual(ph_res["items"][0]["native_currency"], "PHP")
+        self.assertEqual(ph_res["items"][0]["native_price"], 299.0)
+        self.assertGreater(ph_res["items"][0]["price_vnd"], 100000.0)
+
+        st_sg, sg_res = self.req("POST", "/api/keywords/research", {
+            "keyword": "sink rack",
+            "platform": "tiktok_shop_sg",
+            "limit": 8,
+            "score_jev": False,
+            "save_top_to_vault": True,
+        })
+        self.assertEqual(st_sg, 200)
+        self.assertEqual(sg_res["market"], "SG")
+        self.assertIn("TikTokShop SG", sg_res["channel_label"])
+        self.assertEqual(captured_calls[1][1]["market"], "sg")
+        self.assertEqual(sg_res["items"][0]["native_currency"], "SGD")
+
+        # Filter Kho SP explicitly by `shopee_ph` vs `tiktok_shop_sg`
+        _, list_ph = self.req("GET", "/api/products?platform=shopee_ph")
+        self.assertEqual(len(list_ph["products"]), 1)
+        self.assertEqual(list_ph["products"][0]["market"], "PH")
+        _, list_sg = self.req("GET", "/api/products?platform=tiktok_shop_sg")
+        self.assertEqual(len(list_sg["products"]), 1)
+        self.assertEqual(list_sg["products"][0]["market"], "SG")
+
+        # 3) Verify Full Apify Store Catalog Sync, Goal Search, Schema Inspector & On-Demand Call
+        def fake_store_opener(req, timeout=25):
+            u = req.full_url
+
+            class _StoreResp:
+                def __enter__(self_r):
+                    return self_r
+
+                def __exit__(self_r, *args):
+                    pass
+
+                def read(self_r):
+                    if "/v2/store?" in u and "offset=0" in u:
+                        return json.dumps({
+                            "data": {
+                                "total": 2,
+                                "items": [
+                                    {
+                                        "id": "act_shopee_1",
+                                        "username": "lergassy",
+                                        "name": "shopee-scraper",
+                                        "title": "Shopee Scraper (Products, Search, Shops)",
+                                        "description": "Scrape Shopee VN, PH, SG, MY, TH products and shops.",
+                                        "categories": ["ECOMMERCE"],
+                                        "currentPricingInfo": {"pricingModel": "PAY_PER_EVENT", "pricePerUnitUsd": 0.002},
+                                        "stats": {"totalUsers": 2500, "totalUsers30Days": 1192, "publicActorRunStats30Days": {"SUCCEEDED": 950, "TOTAL": 1000}},
+                                        "actorReviewRating": 4.9,
+                                        "actorReviewCount": 32,
+                                    },
+                                    {
+                                        "id": "act_tts_1",
+                                        "username": "harshmaur",
+                                        "name": "tiktok-shop-scraper",
+                                        "title": "TikTok Shop Scraper (VN, PH, SG, MY, TH)",
+                                        "description": "Extract TikTok Shop products across Southeast Asia.",
+                                        "categories": ["ECOMMERCE"],
+                                        "currentPricingInfo": {"pricingModel": "PRICE_PER_DATASET_ITEM", "pricePerUnitUsd": 0.003},
+                                        "stats": {"totalUsers": 900, "totalUsers30Days": 340, "publicActorRunStats30Days": {"SUCCEEDED": 480, "TOTAL": 500}},
+                                        "actorReviewRating": 4.7,
+                                        "actorReviewCount": 14,
+                                    },
+                                ],
+                            }
+                        }).encode("utf-8")
+                    if "/v2/store?" in u:
+                        return json.dumps({"data": {"total": 2, "items": []}}).encode("utf-8")
+                    if "/v2/acts/" in u:
+                        return json.dumps({"data": {"title": "Shopee Scraper", "taggedBuilds": {"latest": {"buildId": "bld_123456789"}}}}).encode("utf-8")
+                    if "/v2/actor-builds/" in u:
+                        return json.dumps({
+                            "data": {
+                                "actorDefinition": {
+                                    "input": {
+                                        "properties": {
+                                            "country": {"type": "string", "default": "VN", "enum": ["VN", "PH", "SG", "MY", "TH"]},
+                                            "searchTerms": {"type": "array", "prefill": ["fan"]},
+                                        }
+                                    }
+                                }
+                            }
+                        }).encode("utf-8")
+                    return b"{}"
+
+            return _StoreResp()
+
+        self.api.apify_catalog = ApifyStoreCatalogService(
+            self.api.connect,
+            self.api.secrets,
+            self.tmp.name,
+            apify_client=fake_apify,
+            products=self.api.products,
+            jobs=self.api.jobs,
+            http_opener=fake_store_opener,
+        )
+        self.api.handlers[1] = self.api.apify_catalog
+
+        st_sync, sync_res = self.req("POST", "/api/apify-store/sync", {"max_pages": 2, "page_size": 100})
+        self.assertEqual(st_sync, 200)
+        self.assertEqual(sync_res["actors_saved"], 2)
+        self.assertTrue((Path(self.tmp.name) / "apify_store_catalog.json").is_file())
+
+        st_srch, srch_res = self.req("GET", "/api/apify-store/search?goal=shopee&pay_per_use_only=1")
+        self.assertEqual(st_srch, 200)
+        self.assertEqual(srch_res["total"], 1)
+        self.assertEqual(srch_res["actors"][0]["slug"], "lergassy~shopee-scraper")
+
+        st_sch, sch_res = self.req("GET", "/api/apify-store/actors/lergassy~shopee-scraper/schema")
+        self.assertEqual(st_sch, 200)
+        self.assertIn("country", sch_res["input_schema"]["properties"])
+
+        # Call on-demand by `goal="shopee"` -> automatically selects `lergassy~shopee-scraper` and executes!
+        st_call, call_res = self.req("POST", "/api/apify-store/call", {
+            "goal": "shopee",
+            "payload": {"mode": "search", "country": "PH", "searchTerms": ["fan"]},
+            "save_products_to_vault": True,
+        })
+        self.assertEqual(st_call, 200)
+        self.assertEqual(call_res["actor_slug"], "lergassy~shopee-scraper")
+        self.assertEqual(call_res["items_count"], 1)
 
 
 if __name__ == "__main__":

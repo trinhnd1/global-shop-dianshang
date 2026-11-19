@@ -512,6 +512,57 @@ MIGRATIONS: list[tuple[int, str, list[str]]] = [
             "CREATE INDEX IF NOT EXISTS idx_desk300_runs_nnn ON desk300_runs(nnn_no DESC)",
         ],
     ),
+    (
+        5,
+        "v5_apify_store_catalog_and_on_demand_router",
+        [
+            """
+            CREATE TABLE IF NOT EXISTS apify_store_actors (
+                actor_id TEXT PRIMARY KEY,
+                slug TEXT NOT NULL UNIQUE,
+                full_name TEXT NOT NULL,
+                username TEXT NOT NULL,
+                name TEXT NOT NULL,
+                title TEXT NOT NULL,
+                description TEXT NOT NULL DEFAULT '',
+                categories_json TEXT NOT NULL DEFAULT '[]',
+                goal_tags_json TEXT NOT NULL DEFAULT '[]',
+                pricing_model TEXT NOT NULL DEFAULT 'FREE',
+                unit_price_usd REAL,
+                is_pay_per_use INTEGER NOT NULL DEFAULT 1,
+                total_users INTEGER NOT NULL DEFAULT 0,
+                users_30d INTEGER NOT NULL DEFAULT 0,
+                runs_30d_succeeded INTEGER NOT NULL DEFAULT 0,
+                runs_30d_total INTEGER NOT NULL DEFAULT 0,
+                success_rate_30d REAL NOT NULL DEFAULT 0.0,
+                rating REAL NOT NULL DEFAULT 0.0,
+                review_count INTEGER NOT NULL DEFAULT 0,
+                quality_score REAL NOT NULL DEFAULT 0.0,
+                store_url TEXT NOT NULL DEFAULT '',
+                input_schema_json TEXT NOT NULL DEFAULT '{}',
+                raw_json TEXT NOT NULL DEFAULT '{}',
+                synced_at TEXT NOT NULL
+            )
+            """,
+            "CREATE INDEX IF NOT EXISTS idx_apify_store_quality ON apify_store_actors(quality_score DESC, users_30d DESC)",
+            "CREATE INDEX IF NOT EXISTS idx_apify_store_users30d ON apify_store_actors(users_30d DESC)",
+            "CREATE INDEX IF NOT EXISTS idx_apify_store_pricing ON apify_store_actors(is_pay_per_use, quality_score DESC)",
+            """
+            CREATE TABLE IF NOT EXISTS apify_store_sync_runs (
+                sync_id TEXT PRIMARY KEY,
+                status TEXT NOT NULL,
+                total_reported INTEGER NOT NULL DEFAULT 0,
+                actors_saved INTEGER NOT NULL DEFAULT 0,
+                pages_scanned INTEGER NOT NULL DEFAULT 0,
+                duration_ms INTEGER NOT NULL DEFAULT 0,
+                catalog_file TEXT NOT NULL DEFAULT '',
+                error_text TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                completed_at TEXT NOT NULL DEFAULT ''
+            )
+            """,
+        ],
+    ),
 ]
 
 

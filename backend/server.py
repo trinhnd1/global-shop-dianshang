@@ -12,6 +12,7 @@ from urllib.parse import parse_qs
 from wsgiref.simple_server import ServerHandler, WSGIRequestHandler, WSGIServer
 
 from . import PRODUCT_NAME, get_build_info, settings
+from .apify_catalog import ApifyStoreCatalogService
 from .campaigns_and_sales import CampaignsAndSalesService, DailyBriefingDaemon
 from .china_sourcing import ChinaSourcingService
 from .chrome_profile_hub import DedicatedChromeHub
@@ -184,6 +185,15 @@ class Application:
         self.campaigns = CampaignsAndSalesService(self.connect, self.secrets, self.products, self.shops, telegram_bot=self.telegram_bot)
         self.products.campaigns_service = self.campaigns
         self.daily_brief_daemon = DailyBriefingDaemon(self.campaigns)
+        self.apify_catalog = ApifyStoreCatalogService(
+            self.connect,
+            self.secrets,
+            self.root,
+            apify_client=self.apify,
+            products=self.products,
+            jobs=self.jobs,
+        )
+        self.apify.catalog = self.apify_catalog
         self.mcp_gateway = McpGatewayService(self, web_port=web_port)
 
         self.telegram_bot.products_service = self.products
@@ -191,6 +201,7 @@ class Application:
 
         self.handlers = [
             self.mcp_gateway,
+            self.apify_catalog,
             self.desk_pipeline,
             self.products,
             self.keywords,
@@ -371,6 +382,8 @@ class Application:
                 }
             if path == "/api/overview" and method == "GET":
                 sc = self.shops.summary_counts()
+                with self.connect() as conn:
+                    apify_store_cnt = int(conn.execute("SELECT COUNT(*) FROM apify_store_actors").fetchone()[0])
                 return "200 OK", {
                     "vault_products": self.products.count_all(),
                     "watches_count": len(self.watches.list_watches()),
@@ -379,6 +392,7 @@ class Application:
                     "competitor_shops_count": sc["competitor_count"],
                     "sourcing_count": len(self.china_sourcing.list_items(limit=200)),
                     "desk300_runs_count": len(self.desk_pipeline.list_runs(limit=100)),
+                    "apify_store_count": apify_store_cnt,
                     "campaigns_count": len(self.campaigns.list_campaigns()),
                     "sales": self.campaigns.sales_summary()["seller_kpis"],
                     "recent_logs": self.history_logs.list_logs(limit=6),

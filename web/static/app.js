@@ -1,4 +1,4 @@
-/* Global Shop Dianshang v1.0.6 — Shopee Native Search Filters (Shop Quốc tế / Nước ngoài, Bán chạy, Mall, Giá...) + Apify #1 -> Treg #2 + 300+desk -> Jev */
+/* Global Shop Dianshang v1.0.7 — Multi-Market Shopee & TikTokShop (VN, PH, SG, MY, TH) + Full Apify Store Catalog & Smart Goal Caller */
 (() => {
   const ROUTE_TO_TAB = {
     "/": "hunt",
@@ -18,6 +18,7 @@
     "/chien-dich": "campaigns",
     "/doanh-so": "analytics",
     "/nhat-ky": "history",
+    "/apify-store": "apifystore",
     "/tro-ly": "chat",
     "/caidat": "settings",
   };
@@ -72,13 +73,25 @@
 
   const DEFAULT_FEES_BY_PLAT = {
     tiktok_shop: 11.5,
+    tiktok_shop_vn: 11.5,
+    tiktok_shop_ph: 11.0,
+    tiktok_shop_sg: 10.5,
+    tiktok_shop_my: 11.0,
+    tiktok_shop_th: 11.0,
     shopee: 12.5,
+    shopee_vn: 12.5,
+    shopee_ph: 12.0,
+    shopee_sg: 11.5,
+    shopee_my: 12.0,
+    shopee_th: 12.0,
     facebook_fanpage: 0,
     tiktok_channel: 11.5,
     lazada: 11.0,
     instagram: 0,
     website: 0,
   };
+
+  let APIFY_STORE_GOAL = "";
 
   let CURRENT_TAB = "hunt";
   let CURRENT_BUCKET = "all";
@@ -106,6 +119,18 @@
   function vnd(n) {
     const num = Number(n || 0);
     return Math.round(num).toLocaleString("vi-VN") + "đ";
+  }
+
+  function fmtPriceDual(item) {
+    const pv = Number(item?.price_vnd || 0);
+    const np = Number(item?.native_price || 0);
+    const ccy = String(item?.native_currency || "VND").toUpperCase();
+    if (pv <= 0 && np <= 0) return '<span style="color:#fcd34d">Chưa lấy</span>';
+    if (ccy !== "VND" && np > 0) {
+      const sym = { PHP: "₱", SGD: "S$", MYR: "RM", THB: "฿" }[ccy] || `${ccy} `;
+      return `${sym}${np.toLocaleString("en-US", { maximumFractionDigits: 2 })} <span style="font-size:11px;color:var(--muted)">(${vnd(pv)})</span>`;
+    }
+    return vnd(pv);
   }
 
   function fmtDuration(ms) {
@@ -226,6 +251,10 @@
       document.getElementById("cntSourcing").textContent = ov.sourcing_count;
       const elDeskCnt = document.getElementById("cntDeskRuns");
       if (elDeskCnt) elDeskCnt.textContent = ov.desk300_runs_count || 0;
+      const elApifyCnt = document.getElementById("cntApifyStore");
+      if (elApifyCnt) elApifyCnt.textContent = Number(ov.apify_store_count || 0).toLocaleString("en-US");
+      const elTopApifyCnt = document.getElementById("topApifyCnt");
+      if (elTopApifyCnt) elTopApifyCnt.textContent = Number(ov.apify_store_count || 0).toLocaleString("en-US");
       if (ov.recent_logs?.length) {
         document.getElementById("cntHistoryLogs").textContent = ov.recent_logs[0].seq_no || ov.recent_logs.length;
       }
@@ -351,6 +380,7 @@
     else if (tab === "campaigns") await loadCampaigns();
     else if (tab === "analytics") await loadAnalytics();
     else if (tab === "history") await loadHistoryAndJobs();
+    else if (tab === "apifystore") await loadApifyStoreTab();
     else if (tab === "chat") await loadChatAndPins();
     else if (tab === "settings") await loadSettings();
   }
@@ -758,7 +788,8 @@
 
   // --- PART 1.2: KEYWORD RESEARCH & SHOPEE SEARCH FILTERS --------------------
   function collectKeywordShopeeFilters() {
-    if (document.getElementById("kwPlatform")?.value !== "shopee") return undefined;
+    const platVal = document.getElementById("kwPlatform")?.value || "";
+    if (!platVal.startsWith("shopee")) return undefined;
     return {
       shipped_from: document.getElementById("kwShippedFrom")?.value || "",
       sort_by: document.getElementById("kwSortBy")?.value || "relevancy",
@@ -815,7 +846,7 @@
     const html = `
       <div class="card">
         <div class="row" style="justify-content:space-between;margin-bottom:8px">
-          <h3 style="margin:0">📊 Kết quả Từ khoá: "${esc(res.keyword)}" (${esc(res.platform)}) · <code>${esc(s.source_used || "")}</code></h3>
+          <h3 style="margin:0">📊 Kết quả Từ khoá: "${esc(res.keyword)}" (${esc(res.channel_label || res.platform)}) · <code>${esc(s.source_used || "")}</code></h3>
           <button class="btn btn-sm btn-pri" data-action="jump-kho-pending">📝 Sang Kho Phân loại (${(res.saved_product_ids || []).length} SP đã lưu)</button>
         </div>
         ${sfHtml}
@@ -847,7 +878,7 @@
                         : ""
                   }
                 </td>
-                <td>${vnd(it.price_vnd)}</td>
+                <td>${fmtPriceDual(it)}</td>
                 <td><strong>${Number(it.sold_count || 0).toLocaleString("vi-VN")}</strong></td>
                 <td>${vnd(it.gmv_vnd)}</td>
               </tr>
@@ -875,7 +906,7 @@
                 ${sf.shipped_from ? `<span class="badge gold" style="margin-left:4px">✈️ ${esc(sf.shipped_from)}</span>` : ""}
                 ${sf.sort_by && sf.sort_by !== "relevancy" ? `<span class="badge blue" style="margin-left:4px">${esc(sf.sort_by)}</span>` : ""}
               </td>
-              <td><span class="badge blue">${esc(r.platform)}</span></td>
+              <td><span class="badge blue">${esc(r.channel_label || r.platform)}</span></td>
               <td>${r.total_products}</td>
               <td>${Number(r.total_sold_sample || 0).toLocaleString("vi-VN")}</td>
               <td>${st.overseas_share_pct != null ? `<strong style="color:#fcd34d">${st.overseas_share_pct}%</strong>` : "—"}</td>
@@ -902,7 +933,7 @@
             const wsf = sm.shopee_filters || {};
             return `<tr>
               <td><span class="badge gold">${esc(w.watch_type.toUpperCase())}</span></td>
-              <td><span class="badge blue">${esc(w.platform)}</span></td>
+              <td><span class="badge blue">${esc(w.channel_label || w.platform)}</span></td>
               <td>
                 <strong>${esc(w.title)}</strong>
                 ${wsf.shipped_from ? `<span class="badge gold" style="margin-left:4px">✈️ ${esc(wsf.shipped_from)}</span>` : ""}
@@ -1092,7 +1123,7 @@
             <div class="row" style="justify-content:space-between">
               <label style="font-size:12px;color:var(--muted);cursor:pointer">
                 <input type="checkbox" data-action="toggle-select-pid" data-id="${p.id}" ${SELECTED_PIDS.has(p.id) ? "checked" : ""}/>
-                #${p.id} · ${esc(p.platform.toUpperCase())}
+                #${p.id} · ${esc(p.platform_market_label || p.platform.toUpperCase())}
               </label>
               <span class="badge ${p.jev_score >= 7 ? "gold" : p.jev_score != null ? "green" : ""}">${p.jev_score != null ? `🎯 Jev ${p.jev_score}/10` : "⏳ Chưa chấm Jev"}</span>
             </div>
@@ -1118,7 +1149,7 @@
         </div>
 
         <div class="pstats">
-          <div>🏷️ Giá bán<strong>${p.price_vnd > 0 ? vnd(p.price_vnd) : '<span style="color:#fcd34d">Chưa lấy</span>'}</strong></div>
+          <div>🏷️ Giá bán<strong>${fmtPriceDual(p)}</strong></div>
           <div>🇨🇳 Giá vốn<strong>${p.cost_vnd > 0 ? vnd(p.cost_vnd) : "Chưa ghép"}</strong></div>
           <div>📦 Lượt bán<strong>${Number(p.sold_count || 0).toLocaleString("vi-VN")}</strong></div>
           <div>💰 Lãi/đơn<strong style="color:${(ec.net_profit_per_order_vnd || 0) > 0 ? "#6ee7b7" : "var(--muted)"}">${p.cost_vnd > 0 && p.price_vnd > 0 ? vnd(ec.net_profit_per_order_vnd) : "—"}</strong></div>
@@ -1191,7 +1222,7 @@
     document.getElementById("msEditId").value = "";
     document.getElementById("msFormHeading").textContent = "➕ Thêm Shop TikTok · Shopee · Facebook Fanpage mới";
     document.getElementById("msUrl").value = "";
-    document.getElementById("msPlatform").value = "tiktok_shop";
+    document.getElementById("msPlatform").value = "tiktok_shop_vn";
     document.getElementById("msName").value = "";
     document.getElementById("msStatus").value = "active";
     if (document.getElementById("msIndustry")) document.getElementById("msIndustry").value = "gia_dung";
@@ -1208,7 +1239,7 @@
     document.getElementById("msEditId").value = shop.shop_id;
     document.getElementById("msFormHeading").textContent = `✏️ Đang sửa: ${shop.shop_name}`;
     document.getElementById("msUrl").value = shop.shop_url || shop.handle || "";
-    document.getElementById("msPlatform").value = shop.platform || "shopee";
+    document.getElementById("msPlatform").value = shop.channel_code || shop.platform || "shopee_vn";
     document.getElementById("msName").value = shop.shop_name || "";
     document.getElementById("msStatus").value = shop.status || "active";
     if (document.getElementById("msIndustry")) document.getElementById("msIndustry").value = shop.industry || "gia_dung";
@@ -1552,6 +1583,112 @@
     card.scrollIntoView({ behavior: "smooth", block: "nearest" });
   }
 
+  // --- PART 4.3B: APIFY STORE CATALOG & SMART GOAL CALLER --------------------
+  async function loadApifyStoreTab() {
+    const q = document.getElementById("apifyStoreSearchQ")?.value || "";
+    const sortBy = document.getElementById("apifyStoreSort")?.value || "quality";
+    const ppuOnly = document.getElementById("apifyStorePpuOnly")?.checked !== false;
+
+    const qs = new URLSearchParams({
+      q,
+      goal: APIFY_STORE_GOAL,
+      sort_by: sortBy,
+      pay_per_use_only: ppuOnly ? "1" : "0",
+      limit: "40",
+    });
+
+    const [stats, srch] = await Promise.all([
+      api("/api/apify-store/stats"),
+      api(`/api/apify-store/search?${qs}`),
+    ]);
+
+    const lastSync = stats.last_sync;
+    document.getElementById("apifyStoreKpiStrip").innerHTML = `
+      <div class="kpi"><div class="lbl">🧩 Tổng Actors đã lưu cục bộ</div><div class="val sky">${Number(stats.total_actors || 0).toLocaleString("en-US")}</div></div>
+      <div class="kpi"><div class="lbl">💳 Trả theo lượt / Free (Dùng ngay)</div><div class="val green">${Number(stats.pay_per_use_actors || 0).toLocaleString("en-US")}</div></div>
+      <div class="kpi"><div class="lbl">🛍 Actors Thương mại điện tử</div><div class="val gold">${Number(stats.ecommerce_actors || 0).toLocaleString("en-US")}</div></div>
+      <div class="kpi"><div class="lbl">📱 Actors Mạng xã hội / Painpoint</div><div class="val">${Number(stats.social_actors || 0).toLocaleString("en-US")}</div></div>
+      <div class="kpi"><div class="lbl">🕒 Đồng bộ gần nhất</div><div class="val" style="font-size:13px">${lastSync ? fmtTime(lastSync.completed_at || lastSync.created_at) : "Chưa quét"}</div></div>
+    `;
+
+    const gCounts = stats.goal_counts || {};
+    const gCatalog = stats.goals_catalog || {};
+    document.getElementById("apifyStoreGoalChips").innerHTML =
+      `<button type="button" class="chip ${!APIFY_STORE_GOAL ? "active" : ""}" data-action="apify-goal-chip" data-goal="">🗂 Tất cả mục tiêu (${Number(stats.total_actors || 0).toLocaleString("en-US")})</button>` +
+      Object.entries(gCatalog)
+        .map(([gk, glbl]) => `<button type="button" class="chip ${APIFY_STORE_GOAL === gk ? "active" : ""}" data-action="apify-goal-chip" data-goal="${esc(gk)}">${esc(glbl)} (${gCounts[gk] || 0})</button>`)
+        .join("");
+
+    document.getElementById("apifyStoreMatchedLbl").textContent = Number(srch.total || 0).toLocaleString("en-US");
+    const actors = srch.actors || [];
+    document.getElementById("apifyStoreTableBox").innerHTML = actors.length
+      ? `<table class="tbl">
+          <thead><tr><th>Actor (Username/Name)</th><th>Mục tiêu phù hợp</th><th>Cơ chế tính phí</th><th>Người dùng 30d</th><th>Tỷ lệ thành công</th><th>Điểm Chất lượng</th><th>Thao tác</th></tr></thead>
+          <tbody>
+            ${actors.map((a) => `
+              <tr>
+                <td>
+                  <div><a href="${esc(a.store_url)}" target="_blank" style="color:#93c5fd;font-weight:700">${esc(a.title)}</a></div>
+                  <div style="font-size:11.5px;color:#fcd34d"><code>${esc(a.full_name)}</code></div>
+                  <div style="font-size:11.5px;color:var(--muted);max-width:410px">${esc((a.description || "").slice(0, 120))}</div>
+                </td>
+                <td>${(a.goal_tags || []).map((g) => `<span class="badge blue" style="margin:1px">${esc(g)}</span>`).join("") || "—"}</td>
+                <td>
+                  <span class="badge ${a.is_pay_per_use ? "green" : ""}">${esc(a.pricing_model)}</span>
+                  ${a.unit_price_usd != null ? `<div style="font-size:11px;color:var(--muted)">$${a.unit_price_usd}/unit</div>` : ""}
+                </td>
+                <td><strong>${Number(a.users_30d || 0).toLocaleString("en-US")}</strong> <span style="font-size:11px;color:var(--muted)">/ ${Number(a.total_users || 0).toLocaleString("en-US")}</span></td>
+                <td>${a.runs_30d_total > 0 ? `<strong style="color:${a.success_rate_30d >= 85 ? "#6ee7b7" : "#fcd34d"}">${a.success_rate_30d}%</strong>` : "—"}</td>
+                <td><span class="badge gold">🏆 ${a.quality_score}</span></td>
+                <td>
+                  <button class="btn btn-sm btn-pri" data-action="apify-open-actor" data-slug="${esc(a.slug)}">📋 Schema &amp; Gọi Ngay</button>
+                </td>
+              </tr>`).join("")}
+          </tbody>
+        </table>`
+      : `<div style="padding:18px;text-align:center;color:var(--muted)">Chưa có Actor nào khớp bộ lọc — bấm <strong>"🔄 Quét &amp; Cập nhật Toàn bộ Apify Store"</strong> ở góc phải trên nếu kho đang trống!</div>`;
+  }
+
+  async function openApifyActorCallModal(slug) {
+    toast(`Đang tải Input Schema chuẩn của Actor ${slug.replace("~", "/")}...`);
+    const sc = await api(`/api/apify-store/actors/${encodeURIComponent(slug)}/schema`);
+    const props = sc.input_schema?.properties || {};
+    const propsHtml = Object.entries(props)
+      .slice(0, 16)
+      .map(
+        ([k, v]) =>
+          `<tr><td><code>${esc(k)}</code></td><td>${esc(v.type || "")}</td><td>${v.enum ? `<code>${esc(v.enum.slice(0, 8).join(", "))}</code>` : "—"}</td><td style="font-size:11.5px;color:var(--muted)">${esc((v.description || "").replace(/<[^>]+>/g, "").slice(0, 110))}</td></tr>`
+      )
+      .join("");
+
+    openModal(`⚡ Gọi Trực tiếp Actor: ${sc.full_name} — ${sc.title}`, `
+      <div style="margin-bottom:10px;font-size:12.5px;color:#7dd3fc">
+        Slug hệ thống: <code>${esc(sc.slug)}</code> ${sc.cached ? '<span class="badge green">Đã lưu Cache Schema</span>' : '<span class="badge blue">Vừa tải Schema mới</span>'}
+      </div>
+      ${
+        propsHtml
+          ? `<div style="max-height:190px;overflow:auto;border:1px solid var(--border);border-radius:8px;margin-bottom:10px">
+              <table class="tbl"><thead><tr><th>Tham số</th><th>Kiểu</th><th>Enum hợp lệ</th><th>Mô tả</th></tr></thead><tbody>${propsHtml}</tbody></table>
+             </div>`
+          : ""
+      }
+      <div class="field">
+        <label>📥 JSON Payload gửi vào Actor (chỉnh sửa theo mục tiêu của bạn)</label>
+        <textarea id="mApifyCallPayload" rows="6" style="font-family:monospace;font-size:12.5px">${esc(JSON.stringify(sc.sample_payload || {}, null, 2))}</textarea>
+      </div>
+      <div class="grid2">
+        <div class="field">
+          <label>Trần chi phí an toàn cho lần gọi này (USD)</label>
+          <input type="number" id="mApifyMaxCharge" value="0.06" min="0.015" max="0.50" step="0.01" />
+        </div>
+        <div class="row" style="align-items:flex-end">
+          <label style="font-size:12.5px;color:#6ee7b7"><input type="checkbox" id="mApifySaveVault" /> 📦 Tự động lưu kết quả SP vào Kho SP</label>
+        </div>
+      </div>
+      <button class="btn btn-pri" data-action="apify-exec-call" data-slug="${esc(sc.slug)}">🚀 Gọi Actor Ngay qua Vòng Key Apify</button>
+    `);
+  }
+
   // --- PART 4.4 & 4.5: CHAT/PINS & SETTINGS ----------------------------------
   async function loadChatAndPins() {
     const [ch, pn] = await Promise.all([api("/api/chat/messages"), api("/api/pins")]);
@@ -1644,9 +1781,19 @@
       const v = ev.target.value.trim().toLowerCase();
       const sel = document.getElementById("msPlatform");
       let detected = "";
-      if (v.includes("shopee.")) detected = "shopee";
+      if (v.includes("shopee.ph")) detected = "shopee_ph";
+      else if (v.includes("shopee.sg")) detected = "shopee_sg";
+      else if (v.includes("shopee.com.my")) detected = "shopee_my";
+      else if (v.includes("shopee.co.th")) detected = "shopee_th";
+      else if (v.includes("shopee.")) detected = "shopee_vn";
       else if (v.includes("facebook.com") || v.includes("fb.com") || v.includes("fb.watch")) detected = "facebook_fanpage";
-      else if (v.includes("tiktok.com") || v.includes("tiktokshop")) detected = "tiktok_shop";
+      else if (v.includes("tiktok.com") || v.includes("tiktokshop")) {
+        if (v.includes("region=ph")) detected = "tiktok_shop_ph";
+        else if (v.includes("region=sg")) detected = "tiktok_shop_sg";
+        else if (v.includes("region=my")) detected = "tiktok_shop_my";
+        else if (v.includes("region=th")) detected = "tiktok_shop_th";
+        else detected = "tiktok_shop_vn";
+      }
       else if (v.includes("lazada.")) detected = "lazada";
       else if (v.includes("instagram.com")) detected = "instagram";
       if (detected && sel && sel.value !== detected) {
@@ -1655,6 +1802,9 @@
           document.getElementById("msFee").value = DEFAULT_FEES_BY_PLAT[detected];
         }
       }
+    } else if (ev.target.id === "apifyStoreSearchQ") {
+      clearTimeout(ev.target._t);
+      ev.target._t = setTimeout(() => loadApifyStoreTab(), 260);
     } else if (ev.target.id === "msSearchQ") {
       clearTimeout(ev.target._t);
       ev.target._t = setTimeout(() => loadMyShops(), 220);
@@ -1679,6 +1829,8 @@
         closeModal();
       } else if (act === "jump-deskflow") {
         showTab("deskflow", "/luong-300-desk");
+      } else if (act === "jump-apifystore") {
+        showTab("apifystore", "/apify-store");
       } else if (act === "jump-myshops") {
         showTab("myshops", "/shop-cua-toi");
       } else if (act === "jump-kho-all") {
@@ -1904,20 +2056,26 @@
         await api(`/api/hunt/painpoints/${encodeURIComponent(actEl.dataset.id)}`, "DELETE");
         await loadPainpoints();
       } else if (act === "kw-preset-overseas-sales") {
-        document.getElementById("kwPlatform").value = "shopee";
-        document.getElementById("kwShippedFrom").value = "Nước ngoài";
+        const kwPl = document.getElementById("kwPlatform");
+        if (!kwPl.value.startsWith("shopee")) kwPl.value = "shopee_vn";
+        document.getElementById("kwShopeeFiltersBox").style.display = "block";
+        document.getElementById("kwShippedFrom").value = "overseas";
         document.getElementById("kwSortBy").value = "sales";
         toast("Đã chọn bộ lọc Shopee: ✈️ Shop Quốc tế / Nước ngoài + 🔥 Bán chạy nhất");
       } else if (act === "kw-preset-overseas-new") {
-        document.getElementById("kwPlatform").value = "shopee";
-        document.getElementById("kwShippedFrom").value = "Nước ngoài";
+        const kwPl = document.getElementById("kwPlatform");
+        if (!kwPl.value.startsWith("shopee")) kwPl.value = "shopee_vn";
+        document.getElementById("kwShopeeFiltersBox").style.display = "block";
+        document.getElementById("kwShippedFrom").value = "overseas";
         document.getElementById("kwSortBy").value = "latest";
         toast("Đã chọn bộ lọc Shopee: ✈️ Shop Quốc tế / Nước ngoài + 🆕 Mới đăng nhất");
       } else if (act === "kw-preset-domestic") {
-        document.getElementById("kwPlatform").value = "shopee";
-        document.getElementById("kwShippedFrom").value = "Trong nước";
+        const kwPl = document.getElementById("kwPlatform");
+        if (!kwPl.value.startsWith("shopee")) kwPl.value = "shopee_vn";
+        document.getElementById("kwShopeeFiltersBox").style.display = "block";
+        document.getElementById("kwShippedFrom").value = "domestic";
         document.getElementById("kwSortBy").value = "sales";
-        toast("Đã chọn bộ lọc Shopee: 🇻🇳 Chỉ Shop Trong nước + 🔥 Bán chạy");
+        toast("Đã chọn bộ lọc Shopee: 🏠 Chỉ Shop Nội địa + 🔥 Bán chạy");
       } else if (act === "kw-preset-reset") {
         document.getElementById("kwShippedFrom").value = "";
         document.getElementById("kwSortBy").value = "relevancy";
@@ -1972,7 +2130,7 @@
         const wtLoc = document.getElementById("wtShopeeShippedFrom")?.value || "";
         const wtSort = document.getElementById("wtShopeeSortBy")?.value || "relevancy";
         const wtFilters =
-          wType === "keyword" && wPlat === "shopee" && (wtLoc || wtSort !== "relevancy")
+          wType === "keyword" && wPlat.startsWith("shopee") && (wtLoc || wtSort !== "relevancy")
             ? { shipped_from: wtLoc, sort_by: wtSort }
             : undefined;
         await api("/api/watches", "POST", {
@@ -2425,6 +2583,49 @@
         });
         toast("Đã lưu toàn bộ cấu hình vào Keychain & SQLite!");
         loadSettings();
+      } else if (act === "apify-goal-chip") {
+        APIFY_STORE_GOAL = actEl.dataset.goal || "";
+        await loadApifyStoreTab();
+      } else if (act === "apify-store-search" || act === "apify-store-refresh") {
+        await loadApifyStoreTab();
+      } else if (act === "apify-store-sync") {
+        toast("Đang khởi chạy quét & lưu toàn bộ 16,000+ Actors từ Apify Store...");
+        const res = await api("/api/apify-store/sync", "POST", { background: true, max_pages: 25, page_size: 1000 });
+        toast(res.summary || "Đang đồng bộ Apify Store dưới nền!");
+        setTimeout(() => {
+          syncSidebarCountsAndRefs();
+          if (CURRENT_TAB === "apifystore") loadApifyStoreTab();
+        }, 4000);
+      } else if (act === "apify-open-actor") {
+        await openApifyActorCallModal(actEl.dataset.slug);
+      } else if (act === "apify-exec-call") {
+        let parsedPayload = {};
+        try {
+          parsedPayload = JSON.parse(document.getElementById("mApifyCallPayload").value || "{}");
+        } catch (_) {
+          toast("JSON Payload không hợp lệ — hãy kiểm tra dấu ngoặc kép!", true);
+          return;
+        }
+        const maxChg = Number(document.getElementById("mApifyMaxCharge").value || 0.06);
+        const saveVault = Boolean(document.getElementById("mApifySaveVault")?.checked);
+        toast(`Đang gọi trực tiếp Actor ${actEl.dataset.slug.replace("~", "/")}...`);
+        const res = await api("/api/apify-store/call", "POST", {
+          actor_slug: actEl.dataset.slug,
+          payload: parsedPayload,
+          max_charge_usd: maxChg,
+          save_products_to_vault: saveVault,
+        });
+        closeModal();
+        document.getElementById("apifyStoreCallResultBox").innerHTML = `
+          <div class="card" style="border-color:rgba(16,185,129,0.5);background:#071422">
+            <div class="row" style="justify-content:space-between;margin-bottom:6px">
+              <strong style="color:#6ee7b7">✅ ${esc(res.summary)}</strong>
+              <button class="btn btn-sm" onclick="this.closest('.card').remove()">✕ Đóng</button>
+            </div>
+            <pre class="codebox" style="max-height:280px">${esc(JSON.stringify(res.items.slice(0, 10), null, 2))}</pre>
+          </div>`;
+        toast(res.summary);
+        syncSidebarCountsAndRefs();
       }
     } catch (err) {
       toast(err.message || "Có lỗi xảy ra", true);
@@ -2453,7 +2654,7 @@
     const kwBoxEl = document.getElementById("kwShopeeFiltersBox");
     if (kwPlatEl && kwBoxEl) {
       kwPlatEl.addEventListener("change", () => {
-        kwBoxEl.style.display = kwPlatEl.value === "shopee" ? "block" : "none";
+        kwBoxEl.style.display = kwPlatEl.value.startsWith("shopee") ? "block" : "none";
       });
     }
   }

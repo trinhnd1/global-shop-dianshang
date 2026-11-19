@@ -4,11 +4,17 @@ import re
 import uuid
 
 from . import settings
+from .markets import EXPLICIT_MARKETPLACE_CHANNELS, format_platform_market_label, parse_marketplace_spec
 from .products import INDUSTRIES, INDUSTRY_ICONS, infer_industry
 from .responses import ApiError, json_object, now, text
 
 SOCIAL_PAINPOINT_CHANNELS = ("facebook_organic", "facebook_ads", "threads", "x", "reddit")
-MARKETPLACE_CHANNELS = ("shopee", "tiktok_shop", "lazada")
+MARKETPLACE_CHANNELS = (
+    "shopee",
+    "tiktok_shop",
+    "lazada",
+    *tuple(EXPLICIT_MARKETPLACE_CHANNELS.keys()),
+)
 
 PAINPOINT_LEXICON_MAP: list[tuple[tuple[str, ...], str, list[str]]] = [
     (
@@ -181,38 +187,40 @@ class HuntAndCreatorsService:
         shopee_filters: dict | None = None,
     ) -> list[dict]:
         found_rows: list[dict] = []
-        if channel == "shopee" and apify_toks and self.apify:
+        base_plat, mkt, ch_code = parse_marketplace_spec(channel)
+        ch_lbl = format_platform_market_label(base_plat, mkt)
+        if base_plat == "shopee" and apify_toks and self.apify:
             try:
                 _, found_rows = ctx.run_step(
-                    f"shopee:{term}",
+                    f"{ch_code}:{term}",
                     "apify",
                     0.035,
-                    lambda t=term, sf=shopee_filters: self.apify.search_shopee(apify_toks, t, limit=limit, filters=sf),
+                    lambda t=term, sf=shopee_filters, m=mkt: self.apify.search_shopee(apify_toks, t, limit=limit, filters=sf, market=m),
                 )
             except Exception as exc:
-                ctx.log(f"⚠️ Shopee '{term}': {exc}")
-        elif channel in ("tiktok", "tiktok_shop"):
+                ctx.log(f"⚠️ {ch_lbl} '{term}': {exc}")
+        elif base_plat == "tiktok_shop":
             if apify_toks and self.apify:
                 try:
                     _, found_rows = ctx.run_step(
-                        f"tiktok_shop:{term}",
+                        f"{ch_code}:{term}",
                         "apify",
                         0.035,
-                        lambda t=term: self.apify.search_tiktok_shop(apify_toks, t, limit=limit),
+                        lambda t=term, m=mkt: self.apify.search_tiktok_shop(apify_toks, t, limit=limit, market=m),
                     )
                 except Exception as exc:
-                    ctx.log(f"⚠️ Apify TikTok Shop '{term}': {exc}")
+                    ctx.log(f"⚠️ Apify {ch_lbl} '{term}': {exc}")
             if not found_rows and treg_tok and self.treg:
                 try:
                     _, found_rows, _ = ctx.run_step(
-                        f"treg_tiktok:{term}",
+                        f"treg_{ch_code}:{term}",
                         "treg",
                         0.025,
-                        lambda t=term: self.treg.search_tiktok_shop(treg_tok, t, limit=limit),
+                        lambda t=term, m=mkt: self.treg.search_tiktok_shop(treg_tok, t, limit=limit, market=m),
                     )
                 except Exception as exc:
-                    ctx.log(f"⚠️ Treg TikTok Shop '{term}': {exc}")
-        elif channel == "lazada" and apify_toks and self.apify:
+                    ctx.log(f"⚠️ Treg {ch_lbl} '{term}': {exc}")
+        elif base_plat == "lazada" and apify_toks and self.apify:
             try:
                 _, found_rows = ctx.run_step(
                     f"lazada:{term}",
@@ -649,24 +657,25 @@ class HuntAndCreatorsService:
                             matched_pids.append(saved["id"])
                             matched_products.append(saved)
             else:
-                mkt_targets = [c for c in (marketplace_channels or ["shopee", "tiktok_shop"]) if c in MARKETPLACE_CHANNELS]
+                mkt_targets = [c for c in (marketplace_channels or ["shopee_vn", "tiktok_shop_vn"]) if c in MARKETPLACE_CHANNELS]
                 for kw_sol in rec_keywords[:2]:
                     for mch in mkt_targets:
                         rows_found: list[dict] = []
-                        if mch == "shopee" and apify_toks and self.apify:
+                        b_plat, b_mkt, _ = parse_marketplace_spec(mch)
+                        if b_plat == "shopee" and apify_toks and self.apify:
                             try:
-                                _, rows_found = self.apify.search_shopee(apify_toks, kw_sol, limit=5, filters=shopee_filters)
+                                _, rows_found = self.apify.search_shopee(apify_toks, kw_sol, limit=5, filters=shopee_filters, market=b_mkt)
                             except Exception:
                                 rows_found = []
-                        elif mch == "tiktok_shop":
+                        elif b_plat == "tiktok_shop":
                             if apify_toks and self.apify:
                                 try:
-                                    _, rows_found = self.apify.search_tiktok_shop(apify_toks, kw_sol, limit=5)
+                                    _, rows_found = self.apify.search_tiktok_shop(apify_toks, kw_sol, limit=5, market=b_mkt)
                                 except Exception:
                                     rows_found = []
                             if not rows_found and treg_tok and self.treg:
                                 try:
-                                    _, rows_found, _ = self.treg.search_tiktok_shop(treg_tok, kw_sol, limit=5)
+                                    _, rows_found, _ = self.treg.search_tiktok_shop(treg_tok, kw_sol, limit=5, market=b_mkt)
                                 except Exception:
                                     rows_found = []
                         for r in rows_found:

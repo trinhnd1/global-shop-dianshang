@@ -11,7 +11,7 @@
     <aside class="side" id="sidebar">
       <div class="brand">
         <h1>🏬 Global Shop Dianshang</h1>
-        <div class="sub">Apify #1 · Treg #2 · 300+desk · Jev (<span id="sideVer">v1.0.6</span>)</div>
+        <div class="sub">Apify #1 · Treg #2 · 300+desk · Jev (<span id="sideVer">v1.0.7</span>)</div>
       </div>
 
       <div class="nav-sec">1 · Nghiên cứu, 300+desk &amp; Shop của tôi</div>
@@ -39,6 +39,7 @@
       <button class="nav-btn" data-tab="campaigns" data-route="/chien-dich"><span>🚀 Chiến dịch Ngành hàng</span></button>
       <button class="nav-btn" data-tab="analytics" data-route="/doanh-so"><span>💰 Lượt bán, Doanh số &amp; Lãi ròng</span></button>
       <button class="nav-btn" data-tab="history" data-route="/nhat-ky"><span>📜 Nhật ký Công việc (GS-XXXX)</span><em class="ncount" id="cntHistoryLogs">0</em></button>
+      <button class="nav-btn" data-tab="apifystore" data-route="/apify-store"><span>🧩 Kho API Apify Store</span><em class="ncount" id="cntApifyStore">0</em></button>
       <button class="nav-btn" data-tab="chat" data-route="/tro-ly"><span>💬 Trợ lý Bán hàng &amp; Ghim</span></button>
       <button class="nav-btn" data-tab="settings" data-route="/caidat"><span>⚙️ Kết nối, API &amp; Telegram</span></button>
     </aside>
@@ -48,10 +49,11 @@
         <div class="row">
           <button class="btn btn-sm menu-btn" data-action="toggle-menu">☰ Menu</button>
           <span class="badge green" id="topStatusBadge">🟢 Sẵn sàng</span>
-          <span class="badge blue" id="topVerBadge">📦 v1.0.6</span>
+          <span class="badge blue" id="topVerBadge">📦 v1.0.7</span>
         </div>
         <div class="row">
           <button class="btn btn-sm btn-pri" data-action="jump-deskflow">🤖 300+desk &rarr; Jev</button>
+          <button class="btn btn-sm" data-action="jump-apifystore">🧩 Apify Store (<span id="topApifyCnt">0</span>)</button>
           <button class="btn btn-sm btn-blue" data-action="jump-myshops">🏠 Shop của tôi (<span id="topMyShopsCnt">0</span>)</button>
           <button class="btn btn-sm" data-action="jump-kho-all">🗂 Kho SP (<span id="topVaultCnt">0</span>)</button>
           <button class="btn btn-sm btn-gold" data-action="jump-history">📜 Nhật ký Công việc</button>
@@ -102,23 +104,39 @@
                   <label><input type="checkbox" class="hunt-ch" value="x" /> 𝕏 X (Twitter)</label>
                   <label><input type="checkbox" class="hunt-ch" value="reddit" /> 👽 Reddit</label>
                 </div>
-                <label style="color:#6ee7b7;margin-top:8px">Bước B · Sàn TMĐT Tìm SP (Ưu tiên #1 Apify &rarr; #2 Treg) + Xử lý 300+desk &rarr; Jev Ra Quyết định:</label>
-                <div class="row" style="gap:10px;margin-top:4px">
-                  <label><input type="checkbox" class="hunt-ch" value="shopee" checked /> 🛍 Shopee VN</label>
-                  <label><input type="checkbox" class="hunt-ch" value="tiktok_shop" checked /> 🛒 TikTok Shop</label>
-                  <label><input type="checkbox" class="hunt-ch" value="lazada" /> 📦 Lazada VN</label>
-                  <label style="color:#fcd34d"><input type="checkbox" id="huntUse300Desk" checked /> 🤖 Xử lý SP qua 300+desk (OPi SOCKS5)</label>
-                  <label><input type="checkbox" id="huntAutoJev" checked /> 🎯 Jev AI Ra quyết định</label>
+                <label style="color:#6ee7b7;margin-top:8px">Bước B · Sàn TMĐT Đông Nam Á Tìm SP (Ưu tiên #1 Apify &rarr; #2 Treg) + Xử lý 300+desk &rarr; Jev:</label>
+                <div style="margin-top:4px;font-size:12px">
+                  <div class="row" style="gap:9px;margin-bottom:4px">
+                    <strong style="color:#fdba74;min-width:86px">🛍 Shopee:</strong>
+                    <label><input type="checkbox" class="hunt-ch" value="shopee_vn" checked /> 🇻🇳 Shopee VN</label>
+                    <label><input type="checkbox" class="hunt-ch" value="shopee_ph" /> 🇵🇭 Shopee PH</label>
+                    <label><input type="checkbox" class="hunt-ch" value="shopee_sg" /> 🇸🇬 Shopee SG</label>
+                    <label><input type="checkbox" class="hunt-ch" value="shopee_my" /> 🇲🇾 Shopee MY</label>
+                    <label><input type="checkbox" class="hunt-ch" value="shopee_th" /> 🇹🇭 Shopee TH</label>
+                  </div>
+                  <div class="row" style="gap:9px;margin-bottom:4px">
+                    <strong style="color:#7dd3fc;min-width:86px">🛒 TikTokShop:</strong>
+                    <label><input type="checkbox" class="hunt-ch" value="tiktok_shop_vn" checked /> 🇻🇳 TikTokShop VN</label>
+                    <label><input type="checkbox" class="hunt-ch" value="tiktok_shop_ph" /> 🇵🇭 TikTokShop PH</label>
+                    <label><input type="checkbox" class="hunt-ch" value="tiktok_shop_sg" /> 🇸🇬 TikTokShop SG</label>
+                    <label><input type="checkbox" class="hunt-ch" value="tiktok_shop_my" /> 🇲🇾 TikTokShop MY</label>
+                    <label><input type="checkbox" class="hunt-ch" value="tiktok_shop_th" /> 🇹🇭 TikTokShop TH</label>
+                  </div>
+                  <div class="row" style="gap:10px">
+                    <label><input type="checkbox" class="hunt-ch" value="lazada" /> 📦 Lazada VN</label>
+                    <label style="color:#fcd34d"><input type="checkbox" id="huntUse300Desk" checked /> 🤖 Xử lý SP qua 300+desk (OPi SOCKS5)</label>
+                    <label><input type="checkbox" id="huntAutoJev" checked /> 🎯 Jev AI Ra quyết định</label>
+                  </div>
                 </div>
                 <div style="margin-top:8px;padding-top:8px;border-top:1px dashed var(--border)">
-                  <div style="font-size:11.8px;color:#fcd34d;margin-bottom:5px">✈️ Bộ lọc nâng cao khi quét Shopee VN (Apify <code>lergassy/shopee-scraper</code>):</div>
+                  <div style="font-size:11.8px;color:#fcd34d;margin-bottom:5px">✈️ Bộ lọc nâng cao khi quét Shopee (tự map Quốc tế cho VN / PH / SG / MY / TH):</div>
                   <div class="grid2" style="margin-bottom:6px">
                     <select id="huntShopeeShippedFrom" style="font-size:12px;padding:6px 8px">
                       <option value="">🌐 Nơi gửi Shopee: Tất cả</option>
-                      <option value="Nước ngoài">✈️ Shop Quốc tế / Vận chuyển từ Nước ngoài</option>
-                      <option value="Trong nước">🇻🇳 Chỉ Shop Trong nước</option>
-                      <option value="Hà Nội">📍 Hà Nội</option>
-                      <option value="TP. Hồ Chí Minh">📍 TP. Hồ Chí Minh</option>
+                      <option value="overseas">✈️ Shop Quốc tế / Vận chuyển từ Nước ngoài</option>
+                      <option value="domestic">🏠 Chỉ Shop Nội địa tại nước đó</option>
+                      <option value="Hà Nội">📍 Hà Nội (Shopee VN)</option>
+                      <option value="TP. Hồ Chí Minh">📍 TP. Hồ Chí Minh (Shopee VN)</option>
                     </select>
                     <select id="huntShopeeSortBy" style="font-size:12px;padding:6px 8px">
                       <option value="relevancy">🔎 Sắp xếp Shopee: Liên quan nhất</option>
@@ -304,18 +322,32 @@
                 <label>Từ khoá sản phẩm cần săn &amp; xử lý trọn luồng (cách nhau dấu phẩy)</label>
                 <input type="text" id="deskHuntKeywords" placeholder="VD: máy massage cổ vai gáy, kệ gia vị xoay, phễu thoát sàn ngăn mùi" />
               </div>
-              <div class="row" style="margin-bottom:8px">
-                <label><input type="checkbox" class="desk-ch" value="shopee" checked /> 🛍 Shopee VN</label>
-                <label><input type="checkbox" class="desk-ch" value="tiktok_shop" checked /> 🛒 TikTok Shop</label>
-                <label><input type="checkbox" class="desk-ch" value="lazada" /> 📦 Lazada VN</label>
+              <div style="font-size:12px;margin-bottom:8px">
+                <div class="row" style="gap:8px;margin-bottom:4px">
+                  <strong style="color:#fdba74">🛍 Shopee:</strong>
+                  <label><input type="checkbox" class="desk-ch" value="shopee_vn" checked /> 🇻🇳 Shopee VN</label>
+                  <label><input type="checkbox" class="desk-ch" value="shopee_ph" /> 🇵🇭 Shopee PH</label>
+                  <label><input type="checkbox" class="desk-ch" value="shopee_sg" /> 🇸🇬 Shopee SG</label>
+                  <label><input type="checkbox" class="desk-ch" value="shopee_my" /> 🇲🇾 Shopee MY</label>
+                  <label><input type="checkbox" class="desk-ch" value="shopee_th" /> 🇹🇭 Shopee TH</label>
+                </div>
+                <div class="row" style="gap:8px">
+                  <strong style="color:#7dd3fc">🛒 TikTokShop:</strong>
+                  <label><input type="checkbox" class="desk-ch" value="tiktok_shop_vn" checked /> 🇻🇳 TikTokShop VN</label>
+                  <label><input type="checkbox" class="desk-ch" value="tiktok_shop_ph" /> 🇵🇭 TikTokShop PH</label>
+                  <label><input type="checkbox" class="desk-ch" value="tiktok_shop_sg" /> 🇸🇬 TikTokShop SG</label>
+                  <label><input type="checkbox" class="desk-ch" value="tiktok_shop_my" /> 🇲🇾 TikTokShop MY</label>
+                  <label><input type="checkbox" class="desk-ch" value="tiktok_shop_th" /> 🇹🇭 TikTokShop TH</label>
+                  <label><input type="checkbox" class="desk-ch" value="lazada" /> 📦 Lazada VN</label>
+                </div>
               </div>
               <div class="grid2" style="margin-bottom:10px">
                 <select id="deskShopeeShippedFrom" style="font-size:12px">
                   <option value="">🌐 Shopee: Mọi nơi gửi</option>
-                  <option value="Nước ngoài">✈️ Shop Quốc tế / Nước ngoài</option>
-                  <option value="Trong nước">🇻🇳 Chỉ Shop Trong nước</option>
-                  <option value="Hà Nội">📍 Hà Nội</option>
-                  <option value="TP. Hồ Chí Minh">📍 TP. Hồ Chí Minh</option>
+                  <option value="overseas">✈️ Shop Quốc tế / Nước ngoài</option>
+                  <option value="domestic">🏠 Chỉ Shop Nội địa</option>
+                  <option value="Hà Nội">📍 Hà Nội (VN)</option>
+                  <option value="TP. Hồ Chí Minh">📍 TP. Hồ Chí Minh (VN)</option>
                 </select>
                 <select id="deskShopeeSortBy" style="font-size:12px">
                   <option value="relevancy">🔎 Sắp xếp: Liên quan</option>
@@ -350,10 +382,22 @@
                 <input type="text" id="kwInput" placeholder="VD: hộp đựng giày trong suốt, kệ gia vị xoay" />
               </div>
               <div class="field">
-                <label>Sàn thương mại điện tử</label>
+                <label>Sàn &amp; Quốc gia TMĐT (VN · PH · SG · MY · TH)</label>
                 <select id="kwPlatform">
-                  <option value="shopee">Shopee Việt Nam</option>
-                  <option value="tiktok_shop">TikTok Shop VN</option>
+                  <optgroup label="🛍 Shopee Đông Nam Á">
+                    <option value="shopee_vn">🇻🇳 Shopee VN (shopee.vn)</option>
+                    <option value="shopee_ph">🇵🇭 Shopee PH (shopee.ph)</option>
+                    <option value="shopee_sg">🇸🇬 Shopee SG (shopee.sg)</option>
+                    <option value="shopee_my">🇲🇾 Shopee MY (shopee.com.my)</option>
+                    <option value="shopee_th">🇹🇭 Shopee TH (shopee.co.th)</option>
+                  </optgroup>
+                  <optgroup label="🛒 TikTokShop Đông Nam Á">
+                    <option value="tiktok_shop_vn">🇻🇳 TikTokShop VN</option>
+                    <option value="tiktok_shop_ph">🇵🇭 TikTokShop PH</option>
+                    <option value="tiktok_shop_sg">🇸🇬 TikTokShop SG</option>
+                    <option value="tiktok_shop_my">🇲🇾 TikTokShop MY</option>
+                    <option value="tiktok_shop_th">🇹🇭 TikTokShop TH</option>
+                  </optgroup>
                 </select>
               </div>
               <div class="field">
@@ -377,13 +421,13 @@
               </div>
               <div class="grid4">
                 <div class="field" style="margin:0">
-                  <label>Nơi bán / Vận chuyển từ</label>
+                  <label>Nơi bán / Vận chuyển từ (Shopee VN/PH/SG/MY/TH)</label>
                   <select id="kwShippedFrom">
                     <option value="">🌐 Tất cả nơi gửi</option>
-                    <option value="Nước ngoài">✈️ Shop Quốc tế / Vận chuyển từ Nước ngoài</option>
-                    <option value="Trong nước">🇻🇳 Chỉ Shop Trong nước</option>
-                    <option value="Hà Nội">📍 Hà Nội</option>
-                    <option value="TP. Hồ Chí Minh">📍 TP. Hồ Chí Minh</option>
+                    <option value="overseas">✈️ Shop Quốc tế / Vận chuyển từ Nước ngoài</option>
+                    <option value="domestic">🏠 Chỉ Shop Nội địa tại nước đang chọn</option>
+                    <option value="Hà Nội">📍 Hà Nội (Shopee VN)</option>
+                    <option value="TP. Hồ Chí Minh">📍 TP. Hồ Chí Minh (Shopee VN)</option>
                   </select>
                 </div>
                 <div class="field" style="margin:0">
@@ -456,10 +500,22 @@
                 </select>
               </div>
               <div class="field">
-                <label>Nền tảng</label>
+                <label>Nền tảng &amp; Quốc gia</label>
                 <select id="wtPlatform">
-                  <option value="shopee">Shopee VN</option>
-                  <option value="tiktok_shop">TikTok Shop VN</option>
+                  <optgroup label="🛍 Shopee Đông Nam Á">
+                    <option value="shopee_vn">🇻🇳 Shopee VN</option>
+                    <option value="shopee_ph">🇵🇭 Shopee PH</option>
+                    <option value="shopee_sg">🇸🇬 Shopee SG</option>
+                    <option value="shopee_my">🇲🇾 Shopee MY</option>
+                    <option value="shopee_th">🇹🇭 Shopee TH</option>
+                  </optgroup>
+                  <optgroup label="🛒 TikTokShop Đông Nam Á">
+                    <option value="tiktok_shop_vn">🇻🇳 TikTokShop VN</option>
+                    <option value="tiktok_shop_ph">🇵🇭 TikTokShop PH</option>
+                    <option value="tiktok_shop_sg">🇸🇬 TikTokShop SG</option>
+                    <option value="tiktok_shop_my">🇲🇾 TikTokShop MY</option>
+                    <option value="tiktok_shop_th">🇹🇭 TikTokShop TH</option>
+                  </optgroup>
                 </select>
               </div>
               <div class="field">
@@ -482,8 +538,8 @@
                 <label>Bộ lọc Nơi gửi Shopee (áp dụng khi Theo dõi Từ khoá Shopee)</label>
                 <select id="wtShopeeShippedFrom">
                   <option value="">🌐 Tất cả nơi gửi</option>
-                  <option value="Nước ngoài">✈️ Chỉ theo dõi Shop Quốc tế / Vận chuyển từ Nước ngoài</option>
-                  <option value="Trong nước">🇻🇳 Chỉ theo dõi Shop Trong nước</option>
+                  <option value="overseas">✈️ Chỉ theo dõi Shop Quốc tế / Vận chuyển từ Nước ngoài</option>
+                  <option value="domestic">🏠 Chỉ theo dõi Shop Nội địa</option>
                 </select>
               </div>
               <div class="field" style="margin:0">
@@ -526,10 +582,22 @@
               </div>
               <div class="grid2">
                 <div class="field">
-                  <label>Sàn</label>
+                  <label>Sàn &amp; Quốc gia</label>
                   <select id="scanShopPlat">
-                    <option value="shopee">Shopee VN</option>
-                    <option value="tiktok_shop">TikTok Shop VN</option>
+                    <optgroup label="🛍 Shopee Đông Nam Á">
+                      <option value="shopee_vn">🇻🇳 Shopee VN</option>
+                      <option value="shopee_ph">🇵🇭 Shopee PH</option>
+                      <option value="shopee_sg">🇸🇬 Shopee SG</option>
+                      <option value="shopee_my">🇲🇾 Shopee MY</option>
+                      <option value="shopee_th">🇹🇭 Shopee TH</option>
+                    </optgroup>
+                    <optgroup label="🛒 TikTokShop Đông Nam Á">
+                      <option value="tiktok_shop_vn">🇻🇳 TikTokShop VN</option>
+                      <option value="tiktok_shop_ph">🇵🇭 TikTokShop PH</option>
+                      <option value="tiktok_shop_sg">🇸🇬 TikTokShop SG</option>
+                      <option value="tiktok_shop_my">🇲🇾 TikTokShop MY</option>
+                      <option value="tiktok_shop_th">🇹🇭 TikTokShop TH</option>
+                    </optgroup>
                   </select>
                 </div>
                 <div class="field">
@@ -589,13 +657,29 @@
             </div>
             <div class="grid4" style="margin-top:8px">
               <select id="filterPlatform">
-                <option value="">🌐 Mọi Sàn TMĐT</option>
-                <option value="shopee">🛍 Shopee</option>
-                <option value="tiktok_shop">🛒 TikTok Shop</option>
-                <option value="lazada">📦 Lazada</option>
-                <option value="1688">🇨🇳 1688</option>
-                <option value="pinduoduo">🇨🇳 Pinduoduo</option>
-                <option value="taobao">🇨🇳 Taobao</option>
+                <option value="">🌐 Mọi Sàn TMĐT &amp; Quốc gia</option>
+                <optgroup label="🛍 Shopee (Đông Nam Á)">
+                  <option value="shopee">🛍 Tất cả Shopee</option>
+                  <option value="shopee_vn">🇻🇳 Shopee VN</option>
+                  <option value="shopee_ph">🇵🇭 Shopee PH</option>
+                  <option value="shopee_sg">🇸🇬 Shopee SG</option>
+                  <option value="shopee_my">🇲🇾 Shopee MY</option>
+                  <option value="shopee_th">🇹🇭 Shopee TH</option>
+                </optgroup>
+                <optgroup label="🛒 TikTokShop (Đông Nam Á)">
+                  <option value="tiktok_shop">🛒 Tất cả TikTokShop</option>
+                  <option value="tiktok_shop_vn">🇻🇳 TikTokShop VN</option>
+                  <option value="tiktok_shop_ph">🇵🇭 TikTokShop PH</option>
+                  <option value="tiktok_shop_sg">🇸🇬 TikTokShop SG</option>
+                  <option value="tiktok_shop_my">🇲🇾 TikTokShop MY</option>
+                  <option value="tiktok_shop_th">🇹🇭 TikTokShop TH</option>
+                </optgroup>
+                <optgroup label="📦 Khác &amp; Nguồn TQ">
+                  <option value="lazada">📦 Lazada VN</option>
+                  <option value="1688">🇨🇳 1688</option>
+                  <option value="pinduoduo">🇨🇳 Pinduoduo</option>
+                  <option value="taobao">🇨🇳 Taobao</option>
+                </optgroup>
               </select>
               <input type="number" id="filterSoldMin" min="0" placeholder="📦 Lượt bán tối thiểu" />
               <select id="filterSort">
@@ -731,15 +815,29 @@
 
               <div class="grid3">
                 <div class="field">
-                  <label>Nền tảng kênh bán</label>
+                  <label>Nền tảng &amp; Quốc gia kênh bán</label>
                   <select id="msPlatform">
-                    <option value="tiktok_shop">🛒 TikTok Shop</option>
-                    <option value="shopee">🛍 Shopee VN</option>
-                    <option value="facebook_fanpage">📘 Facebook Fanpage</option>
-                    <option value="tiktok_channel">🎵 Kênh TikTok (Giỏ hàng)</option>
-                    <option value="lazada">📦 Lazada VN</option>
-                    <option value="instagram">📸 Instagram Shop</option>
-                    <option value="website">🌐 Website / Landing Page</option>
+                    <optgroup label="🛒 TikTokShop Đông Nam Á">
+                      <option value="tiktok_shop_vn">🇻🇳 TikTokShop VN</option>
+                      <option value="tiktok_shop_ph">🇵🇭 TikTokShop PH</option>
+                      <option value="tiktok_shop_sg">🇸🇬 TikTokShop SG</option>
+                      <option value="tiktok_shop_my">🇲🇾 TikTokShop MY</option>
+                      <option value="tiktok_shop_th">🇹🇭 TikTokShop TH</option>
+                    </optgroup>
+                    <optgroup label="🛍 Shopee Đông Nam Á">
+                      <option value="shopee_vn">🇻🇳 Shopee VN</option>
+                      <option value="shopee_ph">🇵🇭 Shopee PH</option>
+                      <option value="shopee_sg">🇸🇬 Shopee SG</option>
+                      <option value="shopee_my">🇲🇾 Shopee MY</option>
+                      <option value="shopee_th">🇹🇭 Shopee TH</option>
+                    </optgroup>
+                    <optgroup label="📢 Fanpage &amp; Kênh khác">
+                      <option value="facebook_fanpage">📘 Facebook Fanpage</option>
+                      <option value="tiktok_channel">🎵 Kênh TikTok (Giỏ hàng)</option>
+                      <option value="lazada">📦 Lazada VN</option>
+                      <option value="instagram">📸 Instagram Shop</option>
+                      <option value="website">🌐 Website / Landing Page</option>
+                    </optgroup>
                   </select>
                 </div>
                 <div class="field">
@@ -832,12 +930,26 @@
             <input type="hidden" id="shRole" value="competitor_shop" />
             <div class="grid3">
               <div class="field">
-                <label>Nền tảng đối thủ</label>
+                <label>Nền tảng &amp; Quốc gia đối thủ</label>
                 <select id="shPlatform">
-                  <option value="shopee">🛍 Shopee VN</option>
-                  <option value="tiktok_shop">🛒 TikTok Shop VN</option>
-                  <option value="facebook_fanpage">📘 Facebook Fanpage Đối thủ</option>
-                  <option value="lazada">📦 Lazada VN</option>
+                  <optgroup label="🛍 Shopee Đông Nam Á">
+                    <option value="shopee_vn">🇻🇳 Shopee VN</option>
+                    <option value="shopee_ph">🇵🇭 Shopee PH</option>
+                    <option value="shopee_sg">🇸🇬 Shopee SG</option>
+                    <option value="shopee_my">🇲🇾 Shopee MY</option>
+                    <option value="shopee_th">🇹🇭 Shopee TH</option>
+                  </optgroup>
+                  <optgroup label="🛒 TikTokShop Đông Nam Á">
+                    <option value="tiktok_shop_vn">🇻🇳 TikTokShop VN</option>
+                    <option value="tiktok_shop_ph">🇵🇭 TikTokShop PH</option>
+                    <option value="tiktok_shop_sg">🇸🇬 TikTokShop SG</option>
+                    <option value="tiktok_shop_my">🇲🇾 TikTokShop MY</option>
+                    <option value="tiktok_shop_th">🇹🇭 TikTokShop TH</option>
+                  </optgroup>
+                  <optgroup label="📢 Khác">
+                    <option value="facebook_fanpage">📘 Facebook Fanpage Đối thủ</option>
+                    <option value="lazada">📦 Lazada VN</option>
+                  </optgroup>
                 </select>
               </div>
               <div class="field"><label>Tên Shop / Fanpage đối thủ</label><input type="text" id="shName" placeholder="VD: LocknLock Official / Gia Dụng X" /></div>
@@ -1048,6 +1160,57 @@
           <div class="card">
             <h3>⏱ Tiến trình Nền (Background Jobs) &amp; Kiểm soát Chi phí API</h3>
             <div id="jobsTableBox"></div>
+          </div>
+        </section>
+
+        <!-- VIEW 4.3B: KHO API APIFY STORE TOÀN DIỆN (LƯU TRỮ & GỌI THEO MỤC TIÊU) -->
+        <section class="view" id="view-apifystore">
+          <div class="page-head">
+            <div>
+              <h2>🧩 Kho Danh mục API Apify Store Toàn diện — Lưu Cục bộ &amp; Gọi Theo Mục tiêu</h2>
+              <p>Quét &amp; lưu trữ toàn bộ <strong>16,000+ Actors đang hoạt động trên <code>https://apify.com/store</code></strong> vào SQLite + <code>apify_store_catalog.json</code>, phân loại sẵn theo 19 mục tiêu (Shopee, TikTokShop, 1688, Taobao, PDD, FB Ads, Threads, Reddit, X, Google Trends...), xem trực tiếp Input Schema và bấm gọi ngay khi cần.</p>
+            </div>
+            <div class="row">
+              <button class="btn btn-sm btn-pri" data-action="apify-store-sync">🔄 Quét &amp; Cập nhật Toàn bộ Apify Store</button>
+              <button class="btn btn-sm" data-action="apify-store-refresh">↻ Làm mới</button>
+            </div>
+          </div>
+
+          <div class="kpi-grid" id="apifyStoreKpiStrip"></div>
+
+          <div class="card">
+            <div style="font-size:12.5px;color:#fcd34d;font-weight:600;margin-bottom:6px">🎯 Chọn nhanh theo Mục tiêu Khai thác (Goal Router):</div>
+            <div class="chips" id="apifyStoreGoalChips"></div>
+
+            <div class="grid4" style="margin-top:8px">
+              <div class="field" style="grid-column:span 2;margin:0">
+                <label>Tìm kiếm tên Actor, tác giả hoặc mô tả chức năng</label>
+                <input type="text" id="apifyStoreSearchQ" placeholder="VD: shopee, tiktok shop, 1688, taobao, threads, reddit, amazon, youtube..." />
+              </div>
+              <div class="field" style="margin:0">
+                <label>Sắp xếp ưu tiên</label>
+                <select id="apifyStoreSort">
+                  <option value="quality">🏆 Điểm Chất lượng &amp; Ổn định (Đề xuất)</option>
+                  <option value="users">👥 Nhiều người dùng 30 ngày nhất</option>
+                  <option value="runs">⚡ Nhiều lượt chạy thành công nhất</option>
+                  <option value="rating">⭐ Điểm đánh giá cao nhất</option>
+                </select>
+              </div>
+              <div class="row" style="align-items:flex-end;justify-content:space-between">
+                <label style="font-size:12px"><input type="checkbox" id="apifyStorePpuOnly" checked /> 💳 Chỉ Actor trả theo lượt / Free</label>
+                <button class="btn btn-pri" data-action="apify-store-search">🔍 Tìm Actor</button>
+              </div>
+            </div>
+          </div>
+
+          <div id="apifyStoreCallResultBox"></div>
+
+          <div class="card">
+            <div class="row" style="justify-content:space-between;margin-bottom:8px">
+              <h3 style="margin:0">📚 Danh sách Actors trong Kho Apify Store (<span id="apifyStoreMatchedLbl">0</span> kết quả)</h3>
+              <span style="font-size:12px;color:var(--muted)">Bấm <strong>"📋 Schema &amp; Gọi Ngay"</strong> để xem tham số chuẩn của Actor và chạy trực tiếp</span>
+            </div>
+            <div id="apifyStoreTableBox"></div>
           </div>
         </section>
 

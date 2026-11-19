@@ -6,6 +6,7 @@ import time
 import uuid
 
 from . import settings
+from .markets import format_platform_market_label, parse_marketplace_spec
 from .responses import ApiError, canonicalize_commerce_url, json_object, now, safe_id_str, text
 
 
@@ -121,15 +122,12 @@ class WatchesService:
         wtype = str(body.get("watch_type") or "keyword").lower().strip()
         if wtype not in ("keyword", "product", "shop"):
             raise ValueError("Loại theo dõi phải là keyword (Từ khoá), product (Sản phẩm), hoặc shop (Shop)")
-        plat = str(body.get("platform") or "shopee").lower().strip()
-        if plat == "tiktok":
-            plat = "tiktok_shop"
-        if plat not in ("shopee", "tiktok_shop"):
-            raise ValueError("Nền tảng theo dõi phải là shopee hoặc tiktok_shop")
-
         target_key = text(body.get("target_key") or body.get("keyword") or body.get("target_url"), "target_key", 300, required=True)
-        title = text(body.get("title") or target_key, "title", 180, required=True)
         target_url = str(body.get("target_url") or (target_key if target_key.startswith("http") else "")).strip()
+        plat, mkt, _ = parse_marketplace_spec(str(body.get("platform") or "shopee_vn"), body.get("market"), url=target_url or target_key)
+        if plat not in ("shopee", "tiktok_shop"):
+            raise ValueError("Nền tảng theo dõi phải thuộc hệ Shopee (VN/PH/SG/MY/TH) hoặc TikTokShop (VN/PH/SG/MY/TH)")
+        title = text(body.get("title") or target_key, "title", 180, required=True)
         interval_hours = max(1.0, min(168.0, float(body.get("interval_hours") or 12.0)))
         shopee_filters = body.get("shopee_filters") if isinstance(body.get("shopee_filters"), dict) else {}
         init_snap = {"shopee_filters": shopee_filters} if shopee_filters else {}
@@ -144,12 +142,13 @@ class WatchesService:
                 (watch_id, watch_type, platform, market, target_key, title, target_url, status, interval_hours,
                  linked_product_id, linked_shop_id, last_checked_at, next_check_at, last_summary_json, baseline_snapshot_json,
                  created_at, updated_at)
-                VALUES (?, ?, ?, 'VN', ?, ?, ?, 'active', ?, ?, ?, '', ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, '', ?, ?, ?, ?, ?)
                 """,
                 (
                     wid,
                     wtype,
                     plat,
+                    mkt,
                     target_key,
                     title,
                     target_url,
@@ -182,6 +181,8 @@ class WatchesService:
 
         wtype = w["watch_type"]
         plat = w["platform"]
+        mkt = w.get("market") or "VN"
+        ch_code = f"{plat}_{mkt.lower()}"
         prev_snap = w.get("_snapshot") or {}
 
         if wtype == "keyword":
@@ -192,7 +193,8 @@ class WatchesService:
             else:
                 res = self.keywords.research_keyword(
                     keyword=w["target_key"],
-                    platform=plat,
+                    platform=ch_code,
+                    market=mkt,
                     limit=20,
                     score_jev=False,
                     save_top_to_vault=False,
@@ -205,7 +207,8 @@ class WatchesService:
             if auto_save_new_to_vault and diff["new_items"]:
                 for ni in diff["new_items"][:15]:
                     if ni.get("title"):
-                        self.products.upsert_product(ni, source=f"watch_keyword_new:{plat}:{w['target_key']}")
+                        ni_copy = {**ni, "market": mkt}
+                        self.products.upsert_product(ni_copy, source=f"watch_keyword_new:{ch_code}:{w['target_key']}")
             next_snap = diff.pop("next_snapshot")
             if saved_sf:
                 next_snap["shopee_filters"] = saved_sf
@@ -466,11 +469,13 @@ class WatchesService:
 
     @staticmethod
     def _format_watch(r) -> dict:
+        mkt = r["market"] or "VN"
         return {
             "watch_id": r["watch_id"],
             "watch_type": r["watch_type"],
             "platform": r["platform"],
-            "market": r["market"],
+            "market": mkt,
+            "channel_label": format_platform_market_label(r["platform"], mkt),
             "target_key": r["target_key"],
             "title": r["title"],
             "target_url": r["target_url"],

@@ -15,6 +15,7 @@ import uuid
 
 from . import settings
 from .china_sourcing import translate_vn_to_cn_keyword
+from .markets import parse_marketplace_spec
 from .providers.desk300plus import Desk300PlusClient, Desk300PlusFailClosedError
 from .responses import ApiError, json_object, now, safe_csv_cell, text
 
@@ -208,35 +209,40 @@ class DeskProductWorkflowService:
             # --- STEP 1: COLLECT & ENRICH VIA APIFY (#1 PRIORITY) -> TREG (#2 BACKUP) ---
             _mark_step(1, "running", "Đang thu thập & làm giàu số liệu gốc (Ưu tiên #1 Apify -> #2 Treg dự phòng)...")
             if mode == "hunt_and_process" and keywords:
-                mkt_chs = [c for c in (channels or ["shopee", "tiktok_shop"]) if c in ("shopee", "tiktok_shop", "lazada")]
+                raw_chs = channels or ["shopee_vn", "tiktok_shop_vn"]
                 for kw in keywords[:4]:
-                    for ch in mkt_chs:
+                    for ch in raw_chs:
+                        b_plat, b_mkt, ch_code = parse_marketplace_spec(ch)
+                        if b_plat not in ("shopee", "tiktok_shop", "lazada"):
+                            continue
                         rows_found: list[dict] = []
                         src_tag = ""
                         # STRICT PRIORITY #1: APIFY
                         if apify_toks and self.apify:
                             try:
-                                if ch == "shopee":
+                                if b_plat == "shopee":
                                     slug, rows_found = self.apify.search_shopee(
-                                        apify_toks, kw, limit=max(3, min(12, limit)), filters=shopee_filters
+                                        apify_toks, kw, limit=max(3, min(12, limit)), filters=shopee_filters, market=b_mkt
                                     )
-                                elif ch == "tiktok_shop":
-                                    slug, rows_found = self.apify.search_tiktok_shop(apify_toks, kw, limit=max(3, min(12, limit)))
+                                elif b_plat == "tiktok_shop":
+                                    slug, rows_found = self.apify.search_tiktok_shop(
+                                        apify_toks, kw, limit=max(3, min(12, limit)), market=b_mkt
+                                    )
                                 else:
                                     slug, rows_found = self.apify.search_lazada(apify_toks, kw, limit=max(3, min(12, limit)))
                                 src_tag = f"apify:{slug}"
                             except Exception:
                                 rows_found = []
                         # STRICT PRIORITY #2: TREG BACKUP ONLY IF APIFY EMPTY
-                        if not rows_found and treg_tok and self.treg and ch == "tiktok_shop":
+                        if not rows_found and treg_tok and self.treg and b_plat == "tiktok_shop":
                             try:
-                                ep, rows_found, _ = self.treg.search_tiktok_shop(treg_tok, kw, limit=max(3, min(12, limit)))
+                                ep, rows_found, _ = self.treg.search_tiktok_shop(treg_tok, kw, limit=max(3, min(12, limit)), market=b_mkt)
                                 src_tag = f"treg_backup:{ep}"
                             except Exception:
                                 rows_found = []
                         for r in rows_found:
                             if r.get("title"):
-                                saved = self.products.upsert_product(r, source=f"desk300_hunt:{src_tag}:{kw}")
+                                saved = self.products.upsert_product(r, source=f"desk300_hunt:{ch_code}:{src_tag}:{kw}")
                                 if saved["id"] not in input_pids:
                                     input_pids.append(saved["id"])
 

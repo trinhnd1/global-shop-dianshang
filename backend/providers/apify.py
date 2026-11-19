@@ -5,6 +5,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+from ..markets import SEA_MARKETS, convert_local_price_to_vnd, detect_market_from_url, normalize_market_code, shopee_domain_for_market
 from ..responses import safe_id_str
 
 
@@ -218,34 +219,38 @@ class ApifyClient:
             raise last_exc
         return (candidates[0][0] if candidates else ""), []
 
-    # --- Shopee VN Search (with Overseas / Location / Sort / Mall / Price Filters) ---
+    # --- Shopee Multi-Market Search (VN · PH · SG · MY · TH + Overseas / Sort / Mall / Price Filters) ---
 
     @staticmethod
-    def normalize_shopee_filters(filters: dict | None) -> dict:
+    def normalize_shopee_filters(filters: dict | None, market: str = "VN") -> dict:
+        mkt = normalize_market_code(market, "VN")
+        mkt_meta = SEA_MARKETS[mkt]
         f = dict(filters or {})
         raw_loc = str(f.get("shipped_from") or f.get("location") or "").strip()
-        loc_map = {
-            "overseas": "Nước ngoài",
-            "nuoc_ngoai": "Nước ngoài",
-            "nước ngoài": "Nước ngoài",
-            "quoc_te": "Nước ngoài",
-            "shop quốc tế": "Nước ngoài",
-            "domestic": "Trong nước",
-            "trong_nuoc": "Trong nước",
-            "trong nước": "Trong nước",
-            "ha_noi": "Hà Nội",
-            "hà nội": "Hà Nội",
-            "hcm": "TP. Hồ Chí Minh",
-            "tp.hcm": "TP. Hồ Chí Minh",
-            "tp. hồ chí minh": "TP. Hồ Chí Minh",
-        }
-        shipped_from = loc_map.get(raw_loc.lower(), raw_loc)
+        low_loc = raw_loc.lower()
+        if low_loc in ("overseas", "nuoc_ngoai", "nước ngoài", "quoc_te", "shop quốc tế", "mainland china", "ต่างประเทศ"):
+            shipped_from = mkt_meta["shopee_overseas_label"]
+        elif low_loc in ("domestic", "trong_nuoc", "trong nước", "local", "ภายในประเทศ"):
+            shipped_from = "Trong nước" if mkt == "VN" else mkt_meta["shopee_domestic_loc"]
+        elif mkt == "VN":
+            vn_map = {
+                "ha_noi": "Hà Nội",
+                "hà nội": "Hà Nội",
+                "hcm": "TP. Hồ Chí Minh",
+                "tp.hcm": "TP. Hồ Chí Minh",
+                "tp. hồ chí minh": "TP. Hồ Chí Minh",
+            }
+            shipped_from = vn_map.get(low_loc, raw_loc)
+        else:
+            shipped_from = raw_loc
+
         raw_sort = str(f.get("sort_by") or f.get("sort") or "relevancy").strip().lower()
         sort_by = raw_sort if raw_sort in ("relevancy", "sales", "latest", "price_asc", "price_desc") else "relevancy"
         min_price = int(f["min_price"]) if f.get("min_price") not in (None, "", 0, "0") and str(f.get("min_price")).isdigit() else None
         max_price = int(f["max_price"]) if f.get("max_price") not in (None, "", 0, "0") and str(f.get("max_price")).isdigit() else None
         min_rating = float(f["min_rating"]) if f.get("min_rating") not in (None, "", 0, "0") else None
         return {
+            "market": mkt,
             "shipped_from": shipped_from,
             "sort_by": sort_by,
             "min_price": min_price,
@@ -259,12 +264,12 @@ class ApifyClient:
         }
 
     @staticmethod
-    def build_shopee_vn_search_url(query: str, norm_filters: dict) -> str:
+    def build_shopee_search_url(query: str, norm_filters: dict, market: str = "VN") -> str:
+        mkt = normalize_market_code(norm_filters.get("market") or market, "VN")
+        dom = shopee_domain_for_market(mkt)
         params: dict[str, str] = {"keyword": query}
         sf = norm_filters.get("shipped_from") or ""
-        if sf == "Nước ngoài":
-            params["locations"] = "Nước ngoài"
-        elif sf == "Trong nước":
+        if mkt == "VN" and sf == "Trong nước":
             params["locations"] = "-1"
         elif sf:
             params["locations"] = sf
@@ -293,7 +298,11 @@ class ApifyClient:
             params["shopeeVerified"] = "1"
         if norm_filters.get("with_video_only"):
             params["withVideo"] = "true"
-        return "https://shopee.vn/search?" + urllib.parse.urlencode(params)
+        return f"https://{dom}/search?" + urllib.parse.urlencode(params)
+
+    @classmethod
+    def build_shopee_vn_search_url(cls, query: str, norm_filters: dict) -> str:
+        return cls.build_shopee_search_url(query, norm_filters, market="VN")
 
     def search_shopee(
         self,
@@ -302,21 +311,22 @@ class ApifyClient:
         limit: int = 12,
         max_charge_usd: float = 0.08,
         filters: dict | None = None,
+        market: str = "VN",
     ) -> tuple[str, list[dict]]:
         lim = max(1, min(40, int(limit)))
-        nf = self.normalize_shopee_filters(filters)
-        search_url = self.build_shopee_vn_search_url(query, nf)
+        mkt = normalize_market_code(market, "VN")
+        nf = self.normalize_shopee_filters(filters, market=mkt)
+        search_url = self.build_shopee_search_url(query, nf, market=mkt)
 
-        # Primary #1: `lergassy~shopee-scraper` (1,192 users/30d, verified native support for VN `shippedFrom="Nước ngoài"`, `sortBy`, `officialShopOnly`, etc.)
+        # Primary #1: `lergassy~shopee-scraper` (native support for VN, PH, SG, MY, TH + `shippedFrom`, `sortBy`, `officialShopOnly`, etc.)
         lergassy_payload: dict = {
             "mode": "search",
-            "country": "VN",
+            "country": mkt,
             "maxItems": lim,
             "includeShopAndReviews": True,
             "sortBy": nf["sort_by"],
         }
-        if nf["shipped_from"] == "Trong nước":
-            # Shopee VN encodes domestic-only via `locations=-1` on search URL
+        if mkt == "VN" and nf["shipped_from"] == "Trong nước":
             lergassy_payload["startUrls"] = [search_url]
         else:
             lergassy_payload["searchTerms"] = [query]
@@ -341,13 +351,13 @@ class ApifyClient:
             lergassy_payload["withVideoOnly"] = True
 
         # Failover #2: `memo23~shopee-scraper` & Failover #3: `webdata_labs~shopee-scraper`
-        memo_payload: dict = {"startUrls": [search_url], "country": "VN", "maxItems": lim, "sortBy": nf["sort_by"]}
+        memo_payload: dict = {"startUrls": [search_url], "country": mkt, "maxItems": lim, "sortBy": nf["sort_by"]}
         if nf["min_price"] is not None:
             memo_payload["minPrice"] = nf["min_price"]
         if nf["max_price"] is not None:
             memo_payload["maxPrice"] = nf["max_price"]
 
-        webdata_payload: dict = {"startUrls": [search_url], "country": "vn", "maxItemsPerSource": lim, "sort": nf["sort_by"]}
+        webdata_payload: dict = {"startUrls": [search_url], "country": mkt.lower(), "maxItemsPerSource": lim, "sort": nf["sort_by"]}
         if nf["official_shop_only"]:
             webdata_payload["mallOnly"] = True
 
@@ -357,46 +367,65 @@ class ApifyClient:
             ("webdata_labs~shopee-scraper", webdata_payload),
         ]
         slug, rows = self._run_actor_ring(tokens, candidates, max_charge_usd=max_charge_usd)
-        normalized = [self.normalize_shopee_item(r) for r in rows if isinstance(r, dict) and r.get("type") != "notice"]
+        normalized = [self.normalize_shopee_item(r, default_market=mkt) for r in rows if isinstance(r, dict) and r.get("type") != "notice"]
 
-        # Post-guard location filter if actor returned mixed items
-        if nf["shipped_from"] == "Nước ngoài":
+        overseas_target = SEA_MARKETS[mkt]["shopee_overseas_label"]
+        if nf["shipped_from"] == overseas_target:
             overseas_only = [x for x in normalized if x.get("is_overseas")]
             if overseas_only:
                 normalized = overseas_only
-        elif nf["shipped_from"] == "Trong nước":
+        elif nf["shipped_from"] in ("Trong nước", "Local", "Singapore", "ภายในประเทศ"):
             normalized = [x for x in normalized if not x.get("is_overseas")]
 
         return slug, normalized[:lim]
 
-    def scrape_shopee_shop(self, tokens: list[str], shop_url_or_name: str, limit: int = 20, max_charge_usd: float = 0.06) -> tuple[str, list[dict]]:
+    def scrape_shopee_shop(
+        self,
+        tokens: list[str],
+        shop_url_or_name: str,
+        limit: int = 20,
+        max_charge_usd: float = 0.06,
+        market: str = "VN",
+    ) -> tuple[str, list[dict]]:
         lim = max(1, min(50, int(limit)))
         s = shop_url_or_name.strip()
-        url = s if s.startswith("http") else f"https://shopee.vn/{s.lstrip('@/')}"
+        mkt = normalize_market_code(detect_market_from_url(s) or market, "VN")
+        dom = shopee_domain_for_market(mkt)
+        url = s if s.startswith("http") else f"https://{dom}/{s.lstrip('@/')}"
         candidates = [
-            ("lergassy~shopee-scraper", {"mode": "shop", "startUrls": [url], "maxItems": lim}),
-            ("memo23~shopee-scraper", {"startUrls": [url], "maxItems": lim}),
-            ("xtracto~shopee-scraper", {"mode": "url", "url": url, "maxProducts": lim}),
+            ("lergassy~shopee-scraper", {"mode": "shop", "country": mkt, "startUrls": [url], "maxItems": lim}),
+            ("memo23~shopee-scraper", {"country": mkt, "startUrls": [url], "maxItems": lim}),
         ]
         slug, rows = self._run_actor_ring(tokens, candidates, max_charge_usd=max_charge_usd)
-        return slug, [self.normalize_shopee_item(r) for r in rows[:lim] if isinstance(r, dict)]
+        return slug, [self.normalize_shopee_item(r, default_market=mkt) for r in rows[:lim] if isinstance(r, dict) and r.get("type") != "notice"]
 
-    def scrape_shopee_product(self, tokens: list[str], product_url: str, max_charge_usd: float = 0.05) -> dict | None:
+    def scrape_shopee_product(self, tokens: list[str], product_url: str, max_charge_usd: float = 0.05, market: str = "VN") -> dict | None:
+        mkt = normalize_market_code(detect_market_from_url(product_url) or market, "VN")
         candidates = [
-            ("lergassy~shopee-scraper", {"mode": "product", "startUrls": [product_url], "maxItems": 1}),
-            ("memo23~shopee-scraper", {"startUrls": [product_url], "maxItems": 1}),
+            ("lergassy~shopee-scraper", {"mode": "product", "country": mkt, "startUrls": [product_url], "maxItems": 1}),
+            ("memo23~shopee-scraper", {"country": mkt, "startUrls": [product_url], "maxItems": 1}),
             ("zen-studio~shopee-product-detail-scraper", {"urls": [product_url]}),
         ]
         _, rows = self._run_actor_ring(tokens, candidates, max_charge_usd=max_charge_usd)
-        return self.normalize_shopee_item(rows[0]) if rows else None
+        return self.normalize_shopee_item(rows[0], default_market=mkt) if rows else None
 
     @staticmethod
-    def normalize_shopee_item(r: dict) -> dict:
+    def normalize_shopee_item(r: dict, default_market: str = "VN") -> dict:
+        raw_url = str(r.get("productUrl") or r.get("url") or r.get("link") or "").strip()
+        mkt = normalize_market_code(
+            str(r.get("country") or "").upper() or detect_market_from_url(raw_url) or default_market,
+            "VN",
+        )
+        ccy = SEA_MARKETS[mkt]["currency"]
+        dom = shopee_domain_for_market(mkt)
+
         item_id = safe_id_str(r.get("itemId") or r.get("itemid") or r.get("item_id") or r.get("productId") or r.get("id"))
         shop_id = safe_id_str(r.get("shopId") or r.get("shopid") or r.get("shop_id"))
         title = str(r.get("title") or r.get("name") or r.get("item_name") or "").strip()
         raw_price = r.get("price_display") or r.get("formattedPrice") or r.get("price") or r.get("priceMin") or r.get("price_min") or 0
-        price_vnd = parse_vnd_price(raw_price, "VND")
+        native_price = parse_vnd_price(raw_price, ccy)
+        price_vnd, _, _ = convert_local_price_to_vnd(native_price, mkt)
+
         sold_all = parse_int_metric(
             r.get("historical_sold")
             or r.get("historicalSold")
@@ -408,15 +437,14 @@ class ApifyClient:
         )
         sold_30d = parse_int_metric(r.get("sold") or r.get("monthly_sold") or r.get("monthlySold") or 0)
         rating_count = parse_int_metric(r.get("ratingCount") or r.get("cmt_count") or r.get("review_count") or 0)
-        # When search card omits exact sold count but shows verified buyer reviews (`ratingCount`), estimate floor conservatively (`ratingCount * 3`) only if sold_all == 0
         eff_sold = max(sold_all, sold_30d) if max(sold_all, sold_30d) > 0 else (rating_count * 3 if rating_count > 0 else 0)
 
-        url = str(r.get("url") or r.get("link") or "").strip()
+        url = raw_url
         if not url and shop_id and item_id:
-            url = f"https://shopee.vn/product/{shop_id}/{item_id}"
+            url = f"https://{dom}/product/{shop_id}/{item_id}"
         img = str(r.get("imageUrl") or r.get("image") or r.get("thumbnail") or r.get("cover") or "").strip()
         if img and not img.startswith("http"):
-            img = f"https://down-vn.img.susercontent.com/file/{img}"
+            img = f"https://down-{mkt.lower()}.img.susercontent.com/file/{img}"
         rating = float(r.get("item_rating", {}).get("rating_star") if isinstance(r.get("item_rating"), dict) else (r.get("rating") or r.get("rating_star") or 0.0))
 
         shop_location = str(r.get("location") or r.get("shop_location") or r.get("shopLocation") or "").strip()
@@ -425,7 +453,7 @@ class ApifyClient:
             r.get("is_overseas")
             or r.get("isOverseas")
             or r.get("cb_option") == 1
-            or any(k in loc_low for k in ("nước ngoài", "overseas", "mainland china", "quốc tế", "china", "trung quốc", "hàn quốc"))
+            or any(k in loc_low for k in ("nước ngoài", "overseas", "mainland china", "quốc tế", "china", "trung quốc", "hàn quốc", "ต่างประเทศ"))
         )
         labels_raw = [str(x).lower() for x in (r.get("labels") or [])] if isinstance(r.get("labels"), list) else []
         is_mall = bool(r.get("is_official_shop") or r.get("isMall") or r.get("officialShop") or any("mall" in lb for lb in labels_raw))
@@ -433,7 +461,7 @@ class ApifyClient:
 
         return {
             "platform": "shopee",
-            "market": "VN",
+            "market": mkt,
             "native_product_id": item_id,
             "native_shop_id": shop_id,
             "shop_name": str(r.get("shopName") or r.get("shop_name") or r.get("shopUsername") or r.get("seller_name") or ""),
@@ -442,6 +470,8 @@ class ApifyClient:
             "is_mall": is_mall,
             "is_preferred": is_preferred,
             "title": title,
+            "native_price": native_price,
+            "native_currency": ccy,
             "price_vnd": price_vnd,
             "sold_count": eff_sold,
             "sold_30d": sold_30d,
@@ -455,42 +485,56 @@ class ApifyClient:
             "image_url": img,
         }
 
-    # --- TikTok Shop & TikTok Video / Creator --------------------------------
+    # --- TikTokShop Multi-Market (VN · PH · SG · MY · TH) & TikTok Creator ---
 
-    def search_tiktok_shop(self, tokens: list[str], query: str, limit: int = 12, max_charge_usd: float = 0.06) -> tuple[str, list[dict]]:
+    def search_tiktok_shop(
+        self,
+        tokens: list[str],
+        query: str,
+        limit: int = 12,
+        max_charge_usd: float = 0.06,
+        market: str = "VN",
+    ) -> tuple[str, list[dict]]:
         lim = max(1, min(40, int(limit)))
+        mkt = normalize_market_code(market, "VN")
         candidates = [
-            ("harshmaur~tiktok-shop-scraper", {"keyword": query, "region": "VN", "maxItems": lim}),
-            ("pratikdani~tiktok-shop-search-scraper", {"query": query, "country": "VN", "maxResults": lim}),
+            ("harshmaur~tiktok-shop-scraper", {"searchQueries": [query], "market": mkt.lower(), "maxProductsPerSource": lim}),
+            ("pratikdani~tiktok-shop-search-scraper", {"keyword": query, "country_code": mkt, "limit": lim}),
             ("clockworks~tiktok-shop-scraper", {"searchQueries": [query], "resultsPerPage": lim}),
         ]
         slug, rows = self._run_actor_ring(tokens, candidates, max_charge_usd=max_charge_usd)
-        return slug, [self.normalize_tiktok_shop_item(r) for r in rows[:lim]]
+        return slug, [self.normalize_tiktok_shop_item(r, default_market=mkt) for r in rows[:lim] if isinstance(r, dict)]
 
-    def scrape_tiktok_shop_detail(self, tokens: list[str], product_url_or_id: str, max_charge_usd: float = 0.05) -> dict | None:
+    def scrape_tiktok_shop_detail(self, tokens: list[str], product_url_or_id: str, max_charge_usd: float = 0.05, market: str = "VN") -> dict | None:
         s = product_url_or_id.strip()
-        url = s if s.startswith("http") else f"https://shop.tiktok.com/view/product/{s}?region=VN"
+        mkt = normalize_market_code(detect_market_from_url(s) or market, "VN")
+        url = s if s.startswith("http") else f"https://shop.tiktok.com/view/product/{s}?region={mkt}"
         candidates = [
             ("cunning_soil~tiktok-shop-product-scraper-mobile-api", {"urls": [url], "outputMode": "full_readable"}),
             ("jungle_synthesizer~tiktok-shop-product-detail-scraper", {"productUrls": [url]}),
-            ("harshmaur~tiktok-shop-scraper", {"productUrls": [url]}),
+            ("harshmaur~tiktok-shop-scraper", {"startUrls": [url], "market": mkt.lower()}),
         ]
         _, rows = self._run_actor_ring(tokens, candidates, max_charge_usd=max_charge_usd)
-        return self.normalize_tiktok_shop_item(rows[0]) if rows else None
+        return self.normalize_tiktok_shop_item(rows[0], default_market=mkt) if rows else None
 
     @staticmethod
-    def normalize_tiktok_shop_item(r: dict) -> dict:
+    def normalize_tiktok_shop_item(r: dict, default_market: str = "VN") -> dict:
+        raw_url = str(r.get("url") or r.get("product_url") or r.get("productUrl") or "").strip()
+        mkt = normalize_market_code(
+            str(r.get("market") or r.get("region") or r.get("country") or "").upper() or detect_market_from_url(raw_url) or default_market,
+            "VN",
+        )
+        ccy = SEA_MARKETS[mkt]["currency"]
         pid = safe_id_str(r.get("product_id") or r.get("productId") or r.get("id"))
         sid = safe_id_str(r.get("seller_id") or r.get("shop_id") or r.get("shopId"))
         title = str(r.get("title") or r.get("product_name") or r.get("name") or "").strip()
         disp_price = r.get("priceDisplay") or r.get("formattedPrice") or r.get("sale_price_format") or r.get("price")
-        price_vnd = parse_vnd_price(disp_price, "VND")
-        if 0 < price_vnd < 1000 and r.get("price_str"):
-            price_vnd = parse_vnd_price(r.get("price_str"), "VND")
+        native_price = parse_vnd_price(disp_price, ccy)
+        if mkt == "VN" and 0 < native_price < 1000 and r.get("price_str"):
+            native_price = parse_vnd_price(r.get("price_str"), "VND")
+        price_vnd, _, _ = convert_local_price_to_vnd(native_price, mkt)
         sold = parse_int_metric(r.get("sold_count") or r.get("soldCount") or r.get("sales") or r.get("volume") or 0)
-        url = str(r.get("url") or r.get("product_url") or "").strip()
-        if not url and pid:
-            url = f"https://shop.tiktok.com/view/product/{pid}?region=VN"
+        url = raw_url or (f"https://shop.tiktok.com/view/product/{pid}?region={mkt}" if pid else "")
         img = ""
         raw_img = r.get("cover") or r.get("image") or r.get("thumbnail") or r.get("images")
         if isinstance(raw_img, dict):
@@ -508,12 +552,14 @@ class ApifyClient:
         rating = float(r.get("rating") or r.get("star") or 0.0)
         return {
             "platform": "tiktok_shop",
-            "market": "VN",
+            "market": mkt,
             "native_product_id": pid,
             "native_shop_id": sid,
             "shop_name": str(r.get("seller_name") or r.get("shop_name") or r.get("shopName") or ""),
             "is_mall": bool(r.get("is_mall") or r.get("isMall")),
             "title": title,
+            "native_price": native_price,
+            "native_currency": ccy,
             "price_vnd": price_vnd,
             "sold_count": sold,
             "sold_30d": parse_int_metric(r.get("sold_30d") or 0),

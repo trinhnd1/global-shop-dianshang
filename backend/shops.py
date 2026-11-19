@@ -5,11 +5,12 @@ from urllib.parse import parse_qs, urlparse
 import uuid
 
 from . import settings
+from .markets import detect_market_from_url, format_platform_market_label, parse_marketplace_spec, shopee_domain_for_market
 from .products import INDUSTRIES, INDUSTRY_ICONS
 from .responses import ApiError, json_object, now, safe_id_str, text
 
 SHOP_PLATFORMS = {
-    "tiktok_shop": {"label": "TikTok Shop", "icon": "🛒", "default_fee_pct": 11.5},
+    "tiktok_shop": {"label": "TikTokShop", "icon": "🛒", "default_fee_pct": 11.5},
     "shopee": {"label": "Shopee", "icon": "🛍", "default_fee_pct": 12.5},
     "facebook_fanpage": {"label": "Facebook Fanpage", "icon": "📘", "default_fee_pct": 0.0},
     "tiktok_channel": {"label": "Kênh TikTok (Giỏ hàng)", "icon": "🎵", "default_fee_pct": 11.5},
@@ -37,26 +38,27 @@ PLATFORM_ALIASES = {
 
 
 def normalize_shop_platform(raw_plat: str) -> str:
-    p = (raw_plat or "shopee").strip().lower()
-    p = PLATFORM_ALIASES.get(p, p)
-    return p if p in SHOP_PLATFORMS else "shopee"
+    b_plat, _, _ = parse_marketplace_spec(raw_plat or "shopee")
+    return b_plat if b_plat in SHOP_PLATFORMS else "shopee"
 
 
-def parse_shop_target(raw: str, default_platform: str = "shopee") -> tuple[str, str, str]:
+def parse_shop_target(raw: str, default_platform: str = "shopee_vn", default_market: str = "VN") -> tuple[str, str, str, str]:
     s = (raw or "").strip()
     low = s.lower()
-    norm_def = normalize_shop_platform(default_platform)
+    norm_def, def_mkt, _ = parse_marketplace_spec(default_platform, default_market)
 
     if "shopee." in low:
+        mkt = detect_market_from_url(s) or def_mkt
         m = re.search(r"shopee\.[^/]+/(?:shop/)?([^/?#]+)", s, re.IGNORECASE)
         handle = m.group(1) if m else s
-        return "shopee", handle, s
+        return "shopee", mkt, handle, s
 
     if "tiktok.com" in low or "tiktokshop" in low:
+        mkt = detect_market_from_url(s) or def_mkt
         m = re.search(r"tiktok\.com/@?([^/?#]+)", s, re.IGNORECASE)
         handle = m.group(1) if m else s
         plat = "tiktok_channel" if norm_def == "tiktok_channel" else "tiktok_shop"
-        return plat, handle.lstrip("@"), s
+        return plat, mkt, handle.lstrip("@"), s
 
     if any(dom in low for dom in ("facebook.com", "fb.com", "fb.watch")):
         parsed = urlparse(s if "://" in s else f"https://{s}")
@@ -67,27 +69,29 @@ def parse_shop_target(raw: str, default_platform: str = "shopee") -> tuple[str, 
             segs = [seg for seg in (parsed.path or "").split("/") if seg and seg.lower() not in ("pages", "pg", "p", "profile.php")]
             handle = segs[-1] if segs else s
         url = s if "://" in s else f"https://{s}"
-        return "facebook_fanpage", handle, url
+        return "facebook_fanpage", def_mkt, handle, url
 
     if "lazada." in low:
+        mkt = detect_market_from_url(s) or def_mkt
         m = re.search(r"lazada\.[^/]+/shop/([^/?#]+)", s, re.IGNORECASE)
         handle = m.group(1) if m else s
-        return "lazada", handle, s
+        return "lazada", mkt, handle, s
 
     if "instagram.com" in low:
         m = re.search(r"instagram\.com/([^/?#]+)", s, re.IGNORECASE)
         handle = m.group(1) if m else s
-        return "instagram", handle.lstrip("@"), s
+        return "instagram", def_mkt, handle.lstrip("@"), s
 
     if s.startswith(("http://", "https://")):
         parsed = urlparse(s)
-        return "website", parsed.netloc or s, s
+        return "website", def_mkt, parsed.netloc or s, s
 
     clean_handle = s.lstrip("@").strip()
     url = ""
     if clean_handle:
         if norm_def == "shopee":
-            url = f"https://shopee.vn/{clean_handle}"
+            dom = shopee_domain_for_market(def_mkt)
+            url = f"https://{dom}/{clean_handle}"
         elif norm_def in ("tiktok_shop", "tiktok_channel"):
             url = f"https://www.tiktok.com/@{clean_handle}"
         elif norm_def == "facebook_fanpage":
@@ -96,7 +100,7 @@ def parse_shop_target(raw: str, default_platform: str = "shopee") -> tuple[str, 
             url = f"https://www.instagram.com/{clean_handle}"
         elif norm_def == "lazada":
             url = f"https://www.lazada.vn/shop/{clean_handle}"
-    return norm_def, clean_handle, url
+    return norm_def, def_mkt, clean_handle, url
 
 
 def _parse_tags(raw_tags) -> list[str]:
@@ -132,7 +136,8 @@ class ShopsService:
         if role not in ("own_shop", "competitor_shop"):
             raise ValueError("Vai trò shop phải là own_shop (Shop của tôi) hoặc competitor_shop (Shop đối thủ)")
 
-        plat_in = normalize_shop_platform(str(body.get("platform") or (existing["platform"] if existing else "shopee")))
+        raw_plat_str = str(body.get("platform") or (f"{existing['platform']}_{existing['market'].lower()}" if existing and existing["platform"] in ("shopee", "tiktok_shop") else (existing["platform"] if existing else "shopee_vn")))
+        plat_in, mkt_in, _ = parse_marketplace_spec(raw_plat_str, body.get("market") or (existing["market"] if existing else "VN"))
         raw_target = str(
             body.get("shop_url")
             if body.get("shop_url") is not None
@@ -140,12 +145,15 @@ class ShopsService:
         ).strip()
 
         if raw_target:
-            plat, handle, url = parse_shop_target(raw_target, plat_in)
-            # Respect explicit platform override if user intentionally set tiktok_channel vs tiktok_shop
+            plat, mkt, handle, url = parse_shop_target(raw_target, raw_plat_str, mkt_in)
             if body.get("platform") and normalize_shop_platform(str(body.get("platform"))) == "tiktok_channel" and "tiktok" in plat:
                 plat = "tiktok_channel"
+            # If user explicitly picked a country channel (e.g. tiktok_shop_ph) and URL didn't override domain, preserve mkt_in
+            if not detect_market_from_url(raw_target):
+                mkt = mkt_in
         else:
             plat = plat_in
+            mkt = mkt_in
             handle = str(body.get("handle") or (existing["handle"] if existing else "")).strip().lstrip("@")
             url = str(existing["shop_url"] if existing else "")
 
@@ -194,13 +202,14 @@ class ShopsService:
                 conn.execute(
                     """
                     UPDATE shops
-                    SET role=?, platform=?, native_shop_id=?, handle=?, shop_name=?, shop_url=?, industry=?,
+                    SET role=?, platform=?, market=?, native_shop_id=?, handle=?, shop_name=?, shop_url=?, industry=?,
                         niche_tags_json=?, campaign_ids_json=?, status=?, platform_fee_pct=?, note=?, updated_at=?
                     WHERE shop_id=?
                     """,
                     (
                         role,
                         plat,
+                        mkt,
                         native_sid,
                         handle,
                         shop_name,
@@ -221,12 +230,13 @@ class ShopsService:
                     INSERT INTO shops
                     (shop_id, role, platform, market, native_shop_id, handle, shop_name, shop_url, industry,
                      niche_tags_json, campaign_ids_json, status, platform_fee_pct, stats_json, note, created_at, updated_at)
-                    VALUES (?, ?, ?, 'VN', ?, ?, ?, ?, ?, ?, ?, ?, ?, '{}', ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '{}', ?, ?, ?)
                     """,
                     (
                         sid,
                         role,
                         plat,
+                        mkt,
                         native_sid,
                         handle,
                         shop_name,
@@ -260,9 +270,15 @@ class ShopsService:
             clauses.append("role=?")
             params.append(role)
         if platform:
-            norm_p = normalize_shop_platform(platform)
-            clauses.append("platform=?")
-            params.append(norm_p)
+            p_low = platform.strip().lower()
+            if any(p_low.endswith(f"_{m}") for m in ("vn", "ph", "sg", "my", "th")):
+                b_plat, b_mkt, _ = parse_marketplace_spec(p_low)
+                clauses.append("platform=? AND market=?")
+                params.extend([b_plat, b_mkt])
+            else:
+                norm_p = normalize_shop_platform(platform)
+                clauses.append("platform=?")
+                params.append(norm_p)
         where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
 
         with self.connect() as conn:
@@ -374,7 +390,8 @@ class ShopsService:
     ) -> dict:
         """Find & evaluate products sold by a Shopee or TikTok Shop."""
         q = text(shop_query, "shop_query", 240, required=True)
-        plat, handle, url = parse_shop_target(q, platform.lower().strip())
+        plat, mkt, handle, url = parse_shop_target(q, platform.lower().strip())
+        ch_code = f"{plat}_{mkt.lower()}" if plat in ("shopee", "tiktok_shop") else plat
         lim = max(4, min(40, int(limit)))
 
         cfg = settings.read_settings(self.connect, self.secrets)
@@ -388,26 +405,26 @@ class ShopsService:
         if plat == "shopee":
             if apify_toks and self.apify:
                 try:
-                    slug, items = self.apify.scrape_shopee_shop(apify_toks, url or handle, limit=lim, max_charge_usd=max_chg)
+                    slug, items = self.apify.scrape_shopee_shop(apify_toks, url or handle, limit=lim, max_charge_usd=max_chg, market=mkt)
                     source_used = f"apify:{slug}"
                 except Exception:
                     items = []
                 if not items:
                     try:
-                        slug, items = self.apify.search_shopee(apify_toks, handle, limit=lim, max_charge_usd=max_chg)
+                        slug, items = self.apify.search_shopee(apify_toks, handle, limit=lim, max_charge_usd=max_chg, market=mkt)
                         source_used = f"apify:{slug}"
                     except Exception:
                         items = []
         else:
             if apify_toks and self.apify:
                 try:
-                    slug, items = self.apify.search_tiktok_shop(apify_toks, handle, limit=lim, max_charge_usd=max_chg)
+                    slug, items = self.apify.search_tiktok_shop(apify_toks, handle, limit=lim, max_charge_usd=max_chg, market=mkt)
                     source_used = f"apify:{slug}"
                 except Exception:
                     items = []
             if not items and treg_tok and self.treg:
                 try:
-                    ep, items, _ = self.treg.search_tiktok_shop(treg_tok, handle, limit=lim)
+                    ep, items, _ = self.treg.search_tiktok_shop(treg_tok, handle, limit=lim, market=mkt)
                     source_used = f"treg:{ep}"
                 except Exception:
                     items = []
@@ -447,7 +464,8 @@ class ShopsService:
         if save_competitor_shop:
             saved_shop = self.create_or_update_shop({
                 "role": "competitor_shop",
-                "platform": plat,
+                "platform": ch_code,
+                "market": mkt,
                 "handle": handle,
                 "shop_name": detected_name,
                 "shop_url": url,
@@ -537,7 +555,10 @@ class ShopsService:
     @staticmethod
     def _format_shop(r, assigned_products_count: int) -> dict:
         plat = r["platform"]
+        mkt = r["market"] or "VN"
         pmeta = SHOP_PLATFORMS.get(plat, {"label": plat.upper(), "icon": "🏬", "default_fee_pct": 12.0})
+        ch_code = f"{plat}_{mkt.lower()}" if plat in ("shopee", "tiktok_shop") else plat
+        plat_lbl = format_platform_market_label(plat, mkt) if plat in ("shopee", "tiktok_shop", "tiktok_channel", "lazada") else pmeta["label"]
         ind = r["industry"] if r["industry"] in INDUSTRIES else "gia_dung"
         camp_ids = json.loads(r["campaign_ids_json"] or "[]") if "campaign_ids_json" in r.keys() else []
         st = r["status"] if r["status"] in SHOP_STATUSES else "active"
@@ -546,9 +567,10 @@ class ShopsService:
             "role": r["role"],
             "role_label": "Shop của tôi" if r["role"] == "own_shop" else "Shop đối thủ theo dõi",
             "platform": plat,
-            "platform_label": pmeta["label"],
+            "channel_code": ch_code,
+            "platform_label": plat_lbl,
             "platform_icon": pmeta["icon"],
-            "market": r["market"],
+            "market": mkt,
             "native_shop_id": r["native_shop_id"],
             "handle": r["handle"],
             "shop_name": r["shop_name"],

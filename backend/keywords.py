@@ -6,6 +6,7 @@ import urllib.request
 import uuid
 
 from . import settings
+from .markets import SEA_MARKETS, format_platform_market_label, parse_marketplace_spec, shopee_domain_for_market
 from .responses import ApiError, json_object, now, text
 
 
@@ -18,16 +19,17 @@ class KeywordResearchService:
         self.treg = treg
         self.jev = jev
 
-    def fetch_shopee_suggestions(self, keyword: str) -> list[str]:
-        """Query public Shopee VN search autocomplete hints + curated modifier suffixes."""
+    def fetch_shopee_suggestions(self, keyword: str, market: str = "VN") -> list[str]:
+        """Query public Shopee search autocomplete hints + curated modifier suffixes."""
         kw = keyword.strip()
         if not kw:
             return []
+        dom = shopee_domain_for_market(market)
         suggestions: list[str] = []
         try:
-            qs = urllib.parse.urlencode({"prefix": kw, "limit": 10, " country": "vn"})
+            qs = urllib.parse.urlencode({"prefix": kw, "limit": 10})
             req = urllib.request.Request(
-                f"https://shopee.vn/api/v4/search/search_hint?{qs}",
+                f"https://{dom}/api/v4/search/search_hint?{qs}",
                 headers={"User-Agent": "Mozilla/5.0", "Accept": "application/json"},
             )
             with urllib.request.urlopen(req, timeout=4) as resp:
@@ -38,8 +40,12 @@ class KeywordResearchService:
                         suggestions.append(s)
         except Exception:
             pass
-        # Deterministic high-intent buyer modifiers in Vietnamese e-commerce
-        for mod in ("cao cấp", "mini", "đa năng", "chính hãng", "thông minh", "giá rẻ", "combo"):
+        modifiers = (
+            ("cao cấp", "mini", "đa năng", "chính hãng", "thông minh", "giá rẻ", "combo")
+            if (market or "VN").upper() == "VN"
+            else ("mini", "portable", "multifunction", "heavy duty", "organizer", "pro", "set")
+        )
+        for mod in modifiers:
             cand = f"{kw} {mod}"
             if cand not in suggestions and len(suggestions) < 12:
                 suggestions.append(cand)
@@ -48,17 +54,17 @@ class KeywordResearchService:
     def research_keyword(
         self,
         keyword: str,
-        platform: str = "shopee",
+        platform: str = "shopee_vn",
         limit: int = 20,
         score_jev: bool = True,
         save_top_to_vault: bool = True,
         shopee_filters: dict | None = None,
+        market: str | None = None,
     ) -> dict:
         kw = text(keyword, "keyword", 120, required=True)
-        plat = platform.lower().strip()
-        if plat not in ("shopee", "tiktok", "tiktok_shop"):
-            raise ValueError("Nền tảng tra cứu từ khoá phải là shopee hoặc tiktok")
-        norm_plat = "tiktok_shop" if plat in ("tiktok", "tiktok_shop") else "shopee"
+        norm_plat, mkt, channel_code = parse_marketplace_spec(platform, market)
+        if norm_plat not in ("shopee", "tiktok_shop"):
+            raise ValueError("Nền tảng tra cứu từ khoá phải thuộc hệ Shopee (VN/PH/SG/MY/TH) hoặc TikTokShop (VN/PH/SG/MY/TH)")
         lim = max(5, min(40, int(limit)))
 
         cfg = settings.read_settings(self.connect, self.secrets)
@@ -69,12 +75,13 @@ class KeywordResearchService:
         items: list[dict] = []
         source_used = "none"
         applied_shopee_filters = (
-            self.apify.normalize_shopee_filters(shopee_filters)
+            self.apify.normalize_shopee_filters(shopee_filters, market=mkt)
             if (norm_plat == "shopee" and self.apify and hasattr(self.apify, "normalize_shopee_filters"))
             else {}
         )
 
         if norm_plat == "shopee":
+            dom = shopee_domain_for_market(mkt)
             if apify_toks and self.apify:
                 try:
                     slug, items = self.apify.search_shopee(
@@ -83,30 +90,32 @@ class KeywordResearchService:
                         limit=lim,
                         max_charge_usd=max(0.08, max_chg),
                         filters=shopee_filters,
+                        market=mkt,
                     )
                     source_used = f"apify:{slug}"
                 except Exception:
                     items = []
             if not items and treg_tok and self.treg:
                 try:
-                    serp_q = f"site:shopee.vn {kw}"
-                    if applied_shopee_filters.get("shipped_from") == "Nước ngoài":
-                        serp_q += ' "Nước ngoài"'
+                    ov_lbl = SEA_MARKETS[mkt]["shopee_overseas_label"]
+                    serp_q = f"site:{dom} {kw}"
+                    if applied_shopee_filters.get("shipped_from") == ov_lbl:
+                        serp_q += f' "{ov_lbl}"'
                     res = self.treg.call(treg_tok, "treg.google.serp.organic", {"q": serp_q, "num": lim})
                     for idx, r in enumerate(self.treg._extract_list(res)[:lim], start=1):
                         u = str(r.get("link") or r.get("url") or "")
                         snip = str(r.get("snippet") or "")
-                        is_ov = "nước ngoài" in snip.lower() or applied_shopee_filters.get("shipped_from") == "Nước ngoài"
+                        is_ov = ov_lbl.lower() in snip.lower() or applied_shopee_filters.get("shipped_from") == ov_lbl
                         items.append({
                             "platform": "shopee",
-                            "market": "VN",
+                            "market": mkt,
                             "native_product_id": f"serp_{idx}_{ abs(hash(u)) % 10000000 }",
                             "native_shop_id": "",
-                            "shop_name": "Shopee Seller",
-                            "shop_location": "Nước ngoài" if is_ov else "",
+                            "shop_name": f"Shopee {mkt} Seller",
+                            "shop_location": ov_lbl if is_ov else "",
                             "is_overseas": is_ov,
                             "is_mall": "mall" in str(r.get("title") or "").lower(),
-                            "title": str(r.get("title") or "").replace(" | Shopee Việt Nam", "").strip(),
+                            "title": str(r.get("title") or "").split("| Shopee")[0].strip(),
                             "price_vnd": 0.0,
                             "sold_count": 0,
                             "gmv_vnd": 0.0,
@@ -114,24 +123,24 @@ class KeywordResearchService:
                             "url": u,
                             "image_url": "",
                         })
-                    source_used = "treg:google_serp_shopee"
+                    source_used = f"treg:google_serp_shopee_{mkt.lower()}"
                 except Exception:
                     pass
         else:
             if apify_toks and self.apify:
                 try:
-                    slug, items = self.apify.search_tiktok_shop(apify_toks, kw, limit=lim, max_charge_usd=max_chg)
+                    slug, items = self.apify.search_tiktok_shop(apify_toks, kw, limit=lim, max_charge_usd=max_chg, market=mkt)
                     source_used = f"apify:{slug}"
                 except Exception:
                     items = []
             if not items and treg_tok and self.treg:
                 try:
-                    ep, items, _ = self.treg.search_tiktok_shop(treg_tok, kw, limit=lim)
+                    ep, items, _ = self.treg.search_tiktok_shop(treg_tok, kw, limit=lim, market=mkt)
                     source_used = f"treg:{ep}"
                 except Exception:
                     pass
 
-        suggestions = self.fetch_shopee_suggestions(kw)
+        suggestions = self.fetch_shopee_suggestions(kw, market=mkt)
         prices = [float(x["price_vnd"]) for x in items if float(x.get("price_vnd") or 0) > 0]
         total_sold = sum(int(x.get("sold_count") or 0) for x in items)
         total_gmv = sum(float(x.get("gmv_vnd") or 0.0) for x in items)
@@ -155,6 +164,9 @@ class KeywordResearchService:
         summary = {
             "keyword": kw,
             "platform": norm_plat,
+            "market": mkt,
+            "channel_code": channel_code,
+            "channel_label": format_platform_market_label(norm_plat, mkt),
             "source_used": source_used,
             "shopee_filters": applied_shopee_filters,
             "total_products": total_products_est,
@@ -191,7 +203,7 @@ class KeywordResearchService:
         if save_top_to_vault and items:
             for it in items:
                 if it.get("title"):
-                    p = self.products.upsert_product(it, source=f"keyword:{norm_plat}:{kw}")
+                    p = self.products.upsert_product(it, source=f"keyword:{channel_code}:{kw}")
                     saved_ids.append(p["id"])
 
         rid = f"kwr_{uuid.uuid4().hex[:10]}"
@@ -202,11 +214,12 @@ class KeywordResearchService:
                 (research_id, platform, market, keyword, total_products, sampled_count, total_sold_sample,
                  avg_price_vnd, min_price_vnd, max_price_vnd, mall_share_pct, jev_opportunity_score,
                  suggestions_json, items_json, summary_json, created_at)
-                VALUES (?, ?, 'VN', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     rid,
                     norm_plat,
+                    mkt,
                     kw,
                     total_products_est,
                     len(items),
@@ -223,15 +236,19 @@ class KeywordResearchService:
                 ),
             )
 
+        ch_label = format_platform_market_label(norm_plat, mkt)
         return {
             "research_id": rid,
             "keyword": kw,
             "platform": norm_plat,
+            "market": mkt,
+            "channel_code": channel_code,
+            "channel_label": ch_label,
             "summary_stats": summary,
             "suggestions": suggestions,
             "items": items,
             "saved_product_ids": saved_ids,
-            "summary": f"Từ khoá '{kw}' ({norm_plat}): {total_products_est} SP, mẫu {len(items)} SP, tổng bán {total_sold}",
+            "summary": f"Từ khoá '{kw}' ({ch_label}): {total_products_est} SP, mẫu {len(items)} SP, tổng bán {total_sold}",
         }
 
     def list_history(self, limit: int = 30) -> list[dict]:
@@ -244,6 +261,8 @@ class KeywordResearchService:
             {
                 "research_id": r["research_id"],
                 "platform": r["platform"],
+                "market": r["market"] or "VN",
+                "channel_label": format_platform_market_label(r["platform"], r["market"] or "VN"),
                 "keyword": r["keyword"],
                 "total_products": r["total_products"],
                 "sampled_count": r["sampled_count"],
@@ -279,16 +298,18 @@ class KeywordResearchService:
         if path == "/api/keywords/suggest" and method == "POST":
             body = json_object(read_json, env)
             kw = text(body.get("keyword"), "keyword", 120, required=True)
-            return "200 OK", {"keyword": kw, "suggestions": self.fetch_shopee_suggestions(kw)}
+            _, mkt, _ = parse_marketplace_spec(str(body.get("platform") or "shopee_vn"), body.get("market"))
+            return "200 OK", {"keyword": kw, "market": mkt, "suggestions": self.fetch_shopee_suggestions(kw, market=mkt)}
         if path == "/api/keywords/research" and method == "POST":
             body = json_object(read_json, env)
             return "200 OK", self.research_keyword(
                 keyword=text(body.get("keyword"), "keyword", 120, required=True),
-                platform=str(body.get("platform") or "shopee"),
+                platform=str(body.get("platform") or "shopee_vn"),
                 limit=int(body.get("limit") or 20),
                 score_jev=bool(body.get("score_jev", True)),
                 save_top_to_vault=bool(body.get("save_top_to_vault", True)),
                 shopee_filters=body.get("shopee_filters") if isinstance(body.get("shopee_filters"), dict) else None,
+                market=str(body.get("market") or "") or None,
             )
         if path.startswith("/api/keywords/history/") and method == "GET":
             rid = path.strip("/").split("/")[3]

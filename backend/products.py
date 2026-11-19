@@ -7,6 +7,7 @@ import re
 from urllib.parse import parse_qs
 
 from . import settings
+from .markets import SEA_MARKETS, format_platform_market_label, parse_marketplace_spec
 from .responses import ApiError, Raw, canonicalize_commerce_url, json_object, now, safe_csv_cell, safe_id_str, text
 from .seller_economics import evaluate_seller_economics
 
@@ -216,8 +217,8 @@ class ProductsService:
     def upsert_product(self, item: dict, source: str = "manual") -> dict:
         url = canonicalize_commerce_url(str(item.get("url") or item.get("link_goc") or ""))
         u_plat, u_shop, u_pid = parse_ids_from_url(url)
-        platform = str(item.get("platform") or item.get("kenh") or u_plat or "shopee").lower().strip()
-        market = str(item.get("market") or "VN").upper().strip()
+        raw_plat = str(item.get("platform") or item.get("kenh") or u_plat or "shopee").strip()
+        platform, market, _ = parse_marketplace_spec(raw_plat, item.get("market"), url=url)
         native_pid = safe_id_str(item.get("native_product_id") or u_pid)
         native_sid = safe_id_str(item.get("native_shop_id") or u_shop)
         title = str(item.get("title") or item.get("ten_sp") or "").strip()
@@ -225,6 +226,8 @@ class ProductsService:
             raise ValueError("Tên sản phẩm không được để trống")
 
         price_vnd = max(0.0, float(item.get("price_vnd") or item.get("gia_vnd") or 0.0))
+        native_price = float(item.get("native_price") or (price_vnd if market == "VN" else 0.0))
+        native_currency = str(item.get("native_currency") or SEA_MARKETS.get(market, SEA_MARKETS["VN"])["currency"])
         cost_vnd = max(0.0, float(item.get("cost_vnd") or item.get("gia_von_vnd") or 0.0))
         sold_count = max(0, int(item.get("sold_count") or item.get("da_ban") or 0))
         sold_30d = max(0, int(item.get("sold_30d") or 0))
@@ -277,6 +280,8 @@ class ProductsService:
                 rec.update({
                     "title": title or rec.get("title", ""),
                     "shop_name": item.get("shop_name") or rec.get("shop_name", ""),
+                    "native_price": native_price if native_price > 0 else rec.get("native_price", eff_price),
+                    "native_currency": native_currency or rec.get("native_currency", "VND"),
                     "is_mall": bool(item.get("is_mall") or rec.get("is_mall", False)),
                     "is_preferred": bool(item.get("is_preferred") or rec.get("is_preferred", False)),
                     "shop_location": str(item.get("shop_location") or rec.get("shop_location") or "").strip(),
@@ -334,6 +339,8 @@ class ProductsService:
                 rec = {
                     "title": title,
                     "shop_name": str(item.get("shop_name") or ""),
+                    "native_price": native_price,
+                    "native_currency": native_currency,
                     "is_mall": bool(item.get("is_mall")),
                     "is_preferred": bool(item.get("is_preferred")),
                     "shop_location": str(item.get("shop_location") or "").strip(),
@@ -430,11 +437,12 @@ class ProductsService:
         npid = prod["native_product_id"]
         url = prod["url"]
 
+        mkt_kw = {"market": prod["market"]} if prod.get("market") and prod["market"] != "VN" else {}
         if plat == "tiktok_shop":
             # STRICT PRIORITY #1: Apify Store API
             if apify_toks and self.apify and (url or npid):
                 try:
-                    fetched = self.apify.scrape_tiktok_shop_detail(apify_toks, url or npid)
+                    fetched = self.apify.scrape_tiktok_shop_detail(apify_toks, url or npid, **mkt_kw)
                 except Exception:
                     fetched = None
             # STRICT PRIORITY #2: Treg.to Backup ONLY if Apify returned empty or missing price
@@ -449,7 +457,7 @@ class ProductsService:
             # STRICT PRIORITY #1: Apify Store API
             if apify_toks and self.apify and url:
                 try:
-                    fetched = self.apify.scrape_shopee_product(apify_toks, url)
+                    fetched = self.apify.scrape_shopee_product(apify_toks, url, **mkt_kw)
                 except Exception:
                     fetched = None
             # STRICT PRIORITY #2: Treg.to Backup
@@ -613,8 +621,15 @@ class ProductsService:
             clauses.append("industry = ?")
             params.append(industry)
         if platform:
-            clauses.append("platform = ?")
-            params.append(platform)
+            p_low = platform.strip().lower()
+            has_mkt_suffix = any(p_low.endswith(f"_{m}") for m in ("vn", "ph", "sg", "my", "th"))
+            if has_mkt_suffix:
+                b_plat, b_mkt, _ = parse_marketplace_spec(p_low)
+                clauses.append("platform = ? AND market = ?")
+                params.extend([b_plat, b_mkt])
+            else:
+                clauses.append("platform = ?")
+                params.append(p_low)
         if status:
             clauses.append("status = ?")
             params.append(status)
@@ -761,10 +776,17 @@ class ProductsService:
     def _format_row(r) -> dict:
         rec = json.loads(r["record"] or "{}")
         ind = r["industry"] if r["industry"] in INDUSTRIES else "khac"
+        mkt = r["market"] or "VN"
+        plat = r["platform"]
+        ch_code = f"{plat}_{mkt.lower()}" if plat in ("shopee", "tiktok_shop") else plat
         return {
             "id": r["id"],
-            "platform": r["platform"],
-            "market": r["market"],
+            "platform": plat,
+            "market": mkt,
+            "channel_code": ch_code,
+            "platform_market_label": format_platform_market_label(plat, mkt),
+            "native_price": rec.get("native_price", r["price_vnd"]),
+            "native_currency": rec.get("native_currency") or SEA_MARKETS.get(mkt, SEA_MARKETS["VN"])["currency"],
             "native_product_id": r["native_product_id"],
             "native_shop_id": r["native_shop_id"],
             "url": r["canonical_url"],

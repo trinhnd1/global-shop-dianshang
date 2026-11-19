@@ -4,6 +4,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+from ..markets import SEA_MARKETS, convert_local_price_to_vnd, normalize_market_code
 from ..responses import safe_id_str
 from .apify import parse_int_metric, parse_vnd_price
 
@@ -189,10 +190,19 @@ class TregClient:
                 return raw
         return ""
 
-    def search_tiktok_shop(self, token: str, query: str, limit: int = 12, max_cost_usd: float = 0.03) -> tuple[str, list[dict], float | None]:
+    def search_tiktok_shop(
+        self,
+        token: str,
+        query: str,
+        limit: int = 12,
+        max_cost_usd: float = 0.03,
+        market: str = "VN",
+    ) -> tuple[str, list[dict], float | None]:
+        mkt = normalize_market_code(market, "VN")
+        ccy = SEA_MARKETS[mkt]["currency"]
         endpoints = [
-            ("scrapecreators.x.v1-tiktok-shop-search", {"query": query, "region": "VN"}, "GET"),
-            ("justoneapi.x.tiktok-shop-search-products-v1", {"keyword": query, "country": "VN"}, "GET"),
+            ("scrapecreators.x.v1-tiktok-shop-search", {"query": query, "region": mkt}, "GET"),
+            ("justoneapi.x.tiktok-shop-search-products-v1", {"keyword": query, "country": mkt}, "GET"),
         ]
         last_err = None
         for ep, params, mth in endpoints:
@@ -203,7 +213,13 @@ class TregClient:
                     out = []
                     for r in rows[:limit]:
                         pid = safe_id_str(r.get("product_id") or r.get("id"))
-                        p = self._parse_tiktok_price_obj(r.get("product_price_info") or r.get("price") or r.get("sale_price_format"))
+                        if mkt == "VN":
+                            native_p = self._parse_tiktok_price_obj(r.get("product_price_info") or r.get("price") or r.get("sale_price_format"))
+                            p = native_p
+                        else:
+                            raw_p = r.get("sale_price_format") or r.get("price") or (r.get("product_price_info") or {}).get("sale_price_format") or 0
+                            native_p = parse_vnd_price(raw_p, ccy)
+                            p, _, _ = convert_local_price_to_vnd(native_p, mkt)
                         sold_info = r.get("sold_info") if isinstance(r.get("sold_info"), dict) else (r.get("sales") if isinstance(r.get("sales"), dict) else {})
                         sold = parse_int_metric(
                             r.get("sold_count")
@@ -216,17 +232,19 @@ class TregClient:
                         rating_val = r.get("product_rating") if r.get("product_rating") is not None else (r.get("rating") or 0.0)
                         out.append({
                             "platform": "tiktok_shop",
-                            "market": "VN",
+                            "market": mkt,
                             "native_product_id": pid,
                             "native_shop_id": shop_id,
                             "shop_name": shop_name,
                             "is_mall": bool(r.get("is_mall") or seller_obj.get("is_mall")),
                             "title": str(r.get("title") or r.get("name") or "").strip(),
+                            "native_price": native_p,
+                            "native_currency": ccy,
                             "price_vnd": p,
                             "sold_count": sold,
                             "gmv_vnd": round(p * sold, 0),
                             "rating": float(rating_val or 0.0) if isinstance(rating_val, (int, float, str)) and str(rating_val).replace(".", "", 1).isdigit() else 0.0,
-                            "url": str(r.get("url") or (f"https://shop.tiktok.com/view/product/{pid}?region=VN" if pid else "")),
+                            "url": str(r.get("url") or (f"https://shop.tiktok.com/view/product/{pid}?region={mkt}" if pid else "")),
                             "image_url": self._parse_tiktok_img(r),
                         })
                     return ep, out, res.get("_cost_usd")
