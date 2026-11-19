@@ -1,0 +1,643 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Global Shop Dianshang — Nghiên cứu Sản phẩm, Nguồn hàng TQ &amp; Vận hành Shop</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <strong>🏬 Global Shop Dianshang <span id="topVer">v1.0.1</span></strong>
+    <button class="btn btn-sm" data-action="toggle-menu">☰ Menu</button>
+  </header>
+
+  <div class="app">
+    <aside class="side" id="sidebar">
+      <div class="brand">
+        <h1>🏬 Global Shop Dianshang</h1>
+        <div class="sub">Nghiên cứu SP Bán chạy · Từ khoá · Nguồn TQ · Kho Shop (<span id="sideVer">v1.0.1</span>)</div>
+      </div>
+
+      <div class="nav-sec">Phần 1 · Nghiên cứu &amp; Theo dõi</div>
+      <button class="nav-btn active" data-tab="hunt" data-route="/san-sp"><span>🔎 Săn SP Bán chạy</span></button>
+      <button class="nav-btn" data-tab="keywords" data-route="/tu-khoa"><span>🔑 Tra cứu Từ khoá Shopee/TT</span></button>
+      <button class="nav-btn" data-tab="watches" data-route="/theo-doi"><span>🔭 Theo dõi Từ khoá · SP · Shop</span><span class="badge green" id="cntWatches">0</span></button>
+      <button class="nav-btn" data-tab="shopspy" data-route="/soi-shop"><span>🏪 Quét SP theo Shop &amp; Creator</span></button>
+
+      <div class="nav-sec">Phần 2 · Kho SP, Nguồn TQ &amp; Shop</div>
+      <button class="nav-btn" data-tab="results" data-route="/kho"><span>📦 Kho &amp; Phân loại Sản phẩm</span><span class="badge blue" id="cntProducts">0</span></button>
+      <button class="nav-btn" data-tab="sourcing" data-route="/nguon-hang-tq"><span>🇨🇳 Nguồn 1688 · PDD · Taobao</span></button>
+      <button class="nav-btn" data-tab="shops" data-route="/kho-shop"><span>🏬 Kho Shop (Shop mình &amp; Đối thủ)</span><span class="badge gold" id="cntShops">0</span></button>
+
+      <div class="nav-sec">Phần 3 · Soi Đối thủ &amp; Video AI</div>
+      <button class="nav-btn" data-tab="spy" data-route="/soi-san-pham"><span>🕵️ Soi Link SP &amp; Fanpage Ads</span></button>
+      <button class="nav-btn" data-tab="videojev" data-route="/video-jev"><span>🎬 Đánh giá Video Jev AI</span></button>
+      <button class="nav-btn" data-tab="videoclone" data-route="/clone-video"><span>⚡ Clone Video 15s cho Shop</span></button>
+
+      <div class="nav-sec">Phần 4 · Chiến dịch, Doanh số &amp; Hệ thống</div>
+      <button class="nav-btn" data-tab="campaigns" data-route="/chien-dich"><span>🚀 Chiến dịch Ngành hàng</span></button>
+      <button class="nav-btn" data-tab="analytics" data-route="/doanh-so"><span>💰 Lượt bán, Doanh số &amp; Lãi ròng</span></button>
+      <button class="nav-btn" data-tab="history" data-route="/nhat-ky"><span>🧾 Nhật ký GS-XXXX &amp; Jobs</span></button>
+      <button class="nav-btn" data-tab="chat" data-route="/tro-ly"><span>💬 Trợ lý Bán hàng &amp; Ghim</span></button>
+      <button class="nav-btn" data-tab="settings" data-route="/caidat"><span>⚙️ Kết nối, API &amp; Telegram</span></button>
+    </aside>
+
+    <main class="main">
+      <!-- Global Top KPI Strip -->
+      <div class="kpi-grid" id="overviewStrip">
+        <div class="kpi"><div class="lbl">Sản phẩm trong Kho</div><div class="val" id="kpiVault">0</div></div>
+        <div class="kpi"><div class="lbl">Đang Theo dõi (Từ khoá/SP/Shop)</div><div class="val gold" id="kpiWatches">0</div></div>
+        <div class="kpi"><div class="lbl">Kho Shop &amp; Nguồn TQ</div><div class="val" id="kpiShopsSrc">0 / 0</div></div>
+        <div class="kpi"><div class="lbl">Doanh số Đơn bán / Lãi ròng</div><div class="val green" id="kpiSalesProfit">0đ</div></div>
+      </div>
+
+      <!-- VIEW 1.1: SĂN SẢN PHẨM BÁN CHẠY -->
+      <section class="view active" id="view-hunt">
+        <div class="page-head">
+          <div>
+            <h2>🔎 Phần 1.1 · Săn Sản phẩm Tiềm năng để Nhập Bán</h2>
+            <p>Quét sản phẩm đang có sức mua thực tế trên Shopee, TikTok Shop, Lazada, Facebook Ads &amp; Google Trends — chấm 6 trụ cột Nhà bán bằng Jev AI.</p>
+          </div>
+        </div>
+        <div class="grid2">
+          <div class="card">
+            <h3>Khởi chạy phiên Săn Sản phẩm Bán chạy</h3>
+            <div class="field">
+              <label>Từ khoá hoặc Ngách sản phẩm (mỗi dòng hoặc phẩy 1 từ khoá)</label>
+              <textarea id="huntKeywords" rows="3" placeholder="VD: máy xay tỏi ớt, kệ nhà tắm thông minh, đèn ngủ cảm biến"></textarea>
+            </div>
+            <div class="grid2">
+              <div class="field">
+                <label>Số SP mỗi sàn</label>
+                <input type="number" id="huntLimit" value="8" min="3" max="30" />
+              </div>
+              <div class="field">
+                <label>Trần ngân sách phiên (USD)</label>
+                <input type="number" id="huntBudget" value="0.30" step="0.05" />
+              </div>
+            </div>
+            <div class="row" style="margin-bottom:10px">
+              <label><input type="checkbox" class="hunt-ch" value="shopee" checked /> Shopee VN</label>
+              <label><input type="checkbox" class="hunt-ch" value="tiktok_shop" checked /> TikTok Shop</label>
+              <label><input type="checkbox" class="hunt-ch" value="lazada" /> Lazada VN</label>
+              <label><input type="checkbox" class="hunt-ch" value="facebook_ads" /> Facebook Ads</label>
+              <label><input type="checkbox" id="huntAutoJev" checked /> Tự chấm điểm Jev Seller</label>
+            </div>
+            <div class="row">
+              <button class="btn" data-action="hunt-estimate">💲 Ước tính chi phí</button>
+              <button class="btn btn-pri" data-action="hunt-start">🚀 Bắt đầu Săn Sản phẩm</button>
+              <button class="btn btn-danger" data-action="hunt-stop">🛑 Dừng</button>
+            </div>
+            <div id="huntEstimateBox" style="margin-top:8px;color:var(--muted);font-size:12.5px"></div>
+          </div>
+
+          <div class="card">
+            <h3>📈 Khám phá Xu hướng Google Trends VN</h3>
+            <div class="row" style="margin-bottom:10px">
+              <input type="text" id="gtKeyword" placeholder="Nhập từ khoá gốc (VD: quạt tích điện, máy sưởi mini)" style="flex:1" />
+              <button class="btn btn-blue" data-action="gt-search">Tra xu hướng</button>
+            </div>
+            <pre class="codebox" id="huntLogsBox">Sẵn sàng quét sản phẩm tiềm năng...</pre>
+          </div>
+        </div>
+      </section>
+
+      <!-- VIEW 1.2: TRA CỨU TỪ KHOÁ SHOPEE & TIKTOK -->
+      <section class="view" id="view-keywords">
+        <div class="page-head">
+          <div>
+            <h2>🔑 Phần 1.2 · Công cụ Tra cứu Từ khoá Shopee &amp; TikTok Shop</h2>
+            <p>Đo dung lượng sản phẩm của từ khoá, tổng lượt bán trang đầu, dải giá bán lẻ, tỷ lệ Mall áp đảo &amp; chấm điểm cơ hội lọt top bằng Jev AI.</p>
+          </div>
+        </div>
+        <div class="card">
+          <div class="grid3">
+            <div class="field">
+              <label>Từ khoá cần phân tích</label>
+              <input type="text" id="kwInput" placeholder="VD: hộp đựng giày trong suốt, kệ gia vị xoay" />
+            </div>
+            <div class="field">
+              <label>Sàn thương mại điện tử</label>
+              <select id="kwPlatform">
+                <option value="shopee">Shopee Việt Nam</option>
+                <option value="tiktok_shop">TikTok Shop VN</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>Số lượng mẫu phân tích sâu</label>
+              <input type="number" id="kwLimit" value="20" min="5" max="40" />
+            </div>
+          </div>
+          <div class="row">
+            <button class="btn" data-action="kw-suggest">💡 Gợi ý từ khoá mở rộng</button>
+            <button class="btn btn-pri" data-action="kw-research">🔍 Phân tích Từ khoá &amp; Chấm Jev</button>
+            <button class="btn btn-gold" data-action="kw-watch-create">🔭 Đưa vào Theo dõi Từ khoá định kỳ</button>
+            <label><input type="checkbox" id="kwSaveVault" checked /> Tự lưu Top 10 SP vào Kho</label>
+          </div>
+          <div class="chips" id="kwSuggestChips" style="margin-top:10px"></div>
+        </div>
+        <div id="kwResultBox"></div>
+        <div class="card">
+          <h3>Lịch sử Tra cứu Từ khoá gần đây</h3>
+          <div id="kwHistoryBox"></div>
+        </div>
+      </section>
+
+      <!-- VIEW 1.3: THEO DÕI ĐỊNH KỲ TỪ KHOÁ · SẢN PHẨM · SHOP -->
+      <section class="view" id="view-watches">
+        <div class="page-head">
+          <div>
+            <h2>🔭 Phần 1.3 · Theo dõi Định kỳ: Từ khoá · Sản phẩm · Shop Đối thủ</h2>
+            <p>Mỗi lần kiểm tra sẽ tự động so sánh với kỳ trước: phát hiện có bao nhiêu <strong>Sản phẩm Mới xuất hiện</strong>, SP tăng vọt lượt bán và biến động giá.</p>
+          </div>
+        </div>
+        <div class="card">
+          <h3>+ Thêm Mục Theo dõi Mới (Shopee / TikTok Shop)</h3>
+          <div class="grid3">
+            <div class="field">
+              <label>Loại theo dõi</label>
+              <select id="wtType">
+                <option value="keyword">🔑 Theo dõi Từ khoá (đếm tổng SP &amp; phát hiện SP mới)</option>
+                <option value="product">📦 Theo dõi Sản phẩm (giá bán &amp; tốc độ tăng lượt mua)</option>
+                <option value="shop">🏪 Theo dõi Shop đối thủ (phát hiện SP mới shop vừa đăng)</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>Nền tảng</label>
+              <select id="wtPlatform">
+                <option value="shopee">Shopee VN</option>
+                <option value="tiktok_shop">TikTok Shop VN</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>Chu kỳ kiểm tra tự động (giờ)</label>
+              <input type="number" id="wtInterval" value="12" min="1" max="168" />
+            </div>
+          </div>
+          <div class="grid2">
+            <div class="field">
+              <label>Từ khoá / URL Sản phẩm / URL hoặc Username Shop</label>
+              <input type="text" id="wtTarget" placeholder="VD: máy xay sinh tố cầm tay HOẶC https://shopee.vn/..." />
+            </div>
+            <div class="field">
+              <label>Tên gợi nhớ</label>
+              <input type="text" id="wtTitle" placeholder="Để trống sẽ tự lấy theo mục tiêu" />
+            </div>
+          </div>
+          <div class="row">
+            <button class="btn btn-pri" data-action="watch-create">➕ Tạo Theo dõi &amp; Chụp Mốc Gốc Ngay</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>Danh sách Đang Theo dõi (Bấm "Check &amp; So sánh" để tìm SP mới)</h3>
+          <div id="watchesListBox"></div>
+        </div>
+
+        <div class="card">
+          <h3>📊 Kết quả Đối chiếu (Diff) các lần Check gần nhất</h3>
+          <div id="watchRunsDiffBox"></div>
+        </div>
+      </section>
+
+      <!-- VIEW 1.4: QUÉT SẢN PHẨM THEO SHOP & CÔNG CỤ CREATOR TIKTOK -->
+      <section class="view" id="view-shopspy">
+        <div class="page-head">
+          <div>
+            <h2>🏪 Phần 1.4 · Tìm &amp; Đánh giá Sản phẩm theo Shop + Công cụ Creator TikTok</h2>
+            <p>Quét danh mục hàng của một Shop trên Shopee / TikTok để tìm sản phẩm chủ lực (Hero) đem về doanh số chính, kết hợp tra cứu Creator TikTok.</p>
+          </div>
+        </div>
+        <div class="grid2">
+          <div class="card">
+            <h3>🏪 Tìm &amp; Đánh giá Sản phẩm theo Shop (Shopee / TikTok)</h3>
+            <div class="field">
+              <label>Link Shop hoặc Username Shop đối thủ</label>
+              <input type="text" id="scanShopQuery" placeholder="VD: https://shopee.vn/locknlockvn hoặc tên shop" />
+            </div>
+            <div class="grid2">
+              <div class="field">
+                <label>Sàn</label>
+                <select id="scanShopPlat">
+                  <option value="shopee">Shopee VN</option>
+                  <option value="tiktok_shop">TikTok Shop VN</option>
+                </select>
+              </div>
+              <div class="field">
+                <label>Chấm Jev tự động cho Top N SP đầu</label>
+                <input type="number" id="scanShopJevN" value="3" min="0" max="6" />
+              </div>
+            </div>
+            <button class="btn btn-pri" data-action="shop-scan-run">🔎 Quét Danh mục SP của Shop &amp; Lưu Kho</button>
+            <div id="shopScanResultBox" style="margin-top:12px"></div>
+          </div>
+
+          <div class="card">
+            <h3>🎥 Công cụ Tra cứu Creator TikTok (Tìm SP Hot &amp; Lưu KOC cho Shop)</h3>
+            <div class="field">
+              <label>Từ khoá ngành hàng hoặc @handle Creator</label>
+              <input type="text" id="creatorQuery" placeholder="VD: review gia dụng thông minh hoặc @handle" />
+            </div>
+            <button class="btn btn-blue" data-action="creator-search">🔍 Tìm Creator &amp; Video Bán hàng</button>
+            <div id="creatorsListBox" style="margin-top:12px"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- VIEW 2.1: KHO SẢN PHẨM & PHÂN LOẠI -->
+      <section class="view" id="view-results">
+        <div class="page-head">
+          <div>
+            <h2>📦 Phần 2.1 · Kho Sản phẩm Tiềm năng &amp; Phân loại Bán hàng</h2>
+            <p>Đánh giá Lượt mua / Lượt bán, Doanh số GMV, Giá vốn nhập hàng TQ &amp; Biên lợi nhuận ròng cho Nhà bán.</p>
+          </div>
+          <div class="row">
+            <button class="btn btn-sm" data-action="open-add-product">➕ Thêm SP thủ công</button>
+            <button class="btn btn-sm btn-gold" data-action="compare-selected">⚖️ So sánh SP đã chọn (2–5)</button>
+            <a class="btn btn-sm btn-blue" href="/api/products/export.csv" target="_blank">📥 Xuất CSV Kho SP</a>
+          </div>
+        </div>
+
+        <div class="chips" id="bucketChips"></div>
+        <div class="row" style="margin-bottom:12px">
+          <select id="filterIndustry" style="max-width:210px"><option value="">-- Tất cả 13 Ngành hàng --</option></select>
+          <select id="filterPlatform" style="max-width:170px">
+            <option value="">-- Mọi Sàn --</option>
+            <option value="shopee">Shopee</option>
+            <option value="tiktok_shop">TikTok Shop</option>
+            <option value="lazada">Lazada</option>
+            <option value="1688">1688</option>
+            <option value="pinduoduo">Pinduoduo</option>
+            <option value="taobao">Taobao</option>
+          </select>
+          <select id="filterSort" style="max-width:190px">
+            <option value="updated">Mới cập nhật</option>
+            <option value="gmv">Doanh số GMV cao → thấp</option>
+            <option value="sold">Lượt bán cao → thấp</option>
+            <option value="jev">Điểm Jev AI cao → thấp</option>
+          </select>
+          <input type="text" id="filterSearch" placeholder="Tìm tên SP hoặc mã ID 19 số..." style="max-width:260px" />
+          <button class="btn btn-sm" data-action="reload-products">Lọc</button>
+        </div>
+
+        <div class="cards-grid" id="productsGrid"></div>
+      </section>
+
+      <!-- VIEW 2.2: NGUỒN HÀNG TRUNG QUỐC (1688 · PINDUODUO · TAOBAO) -->
+      <section class="view" id="view-sourcing">
+        <div class="page-head">
+          <div>
+            <h2>🇨🇳 Phần 2.2 · Nguồn hàng Điện thương Trung Quốc (1688 · Pinduoduo · Taobao · Douyin)</h2>
+            <p>Tìm xưởng &amp; báo giá sỉ nội địa Trung Quốc (tự động hỗ trợ chuyển từ khoá tiếng Việt sang tiếng Trung), tính Giá vốn về tay VNĐ &amp; ghép vào Kho SP.</p>
+          </div>
+        </div>
+        <div class="grid2">
+          <div class="card">
+            <h3>Tìm Nguồn hàng Sỉ / Bóc tách Link 1688 · Pinduoduo · Taobao</h3>
+            <div class="field">
+              <label>Từ khoá (Tiếng Việt hoặc Tiếng Trung 中文) hoặc Link sản phẩm TQ</label>
+              <input type="text" id="srcQuery" placeholder="VD: máy xay tỏi ớt HOẶC 迷你电动捣蒜器 HOẶC link 1688/taobao/yangkeduo" />
+            </div>
+            <div class="grid3">
+              <div class="field">
+                <label>Sàn Nội địa TQ</label>
+                <select id="srcPlatform">
+                  <option value="1688">1688.com (Giá sỉ xưởng)</option>
+                  <option value="pinduoduo">Pinduoduo 拼多多 (Giá rẻ/Hot trend)</option>
+                  <option value="taobao">Taobao / Tmall 淘宝</option>
+                  <option value="douyin">Douyin Shop 抖音电商</option>
+                </select>
+              </div>
+              <div class="field">
+                <label>Cân nặng ước tính (kg)</label>
+                <input type="number" id="srcWeight" value="0.4" step="0.1" />
+              </div>
+              <div class="field">
+                <label>Ghép vào ID SP trong Kho (tuỳ chọn)</label>
+                <input type="number" id="srcLinkPid" placeholder="VD: 1" />
+              </div>
+            </div>
+            <button class="btn btn-pri" data-action="sourcing-search">🇨🇳 Tìm Nguồn Hàng &amp; Tính Giá Vốn Về Tay</button>
+          </div>
+
+          <div class="card">
+            <h3>🧮 Máy tính Giá vốn Nhập hàng (CNY → VND) &amp; Biên Lợi nhuận Bán lẻ</h3>
+            <div class="grid3">
+              <div class="field"><label>Giá xưởng (¥ CNY)</label><input type="number" id="calcCny" value="12.5" step="0.5" /></div>
+              <div class="field"><label>Ship nội địa TQ (¥)</label><input type="number" id="calcDomCny" value="2.0" step="0.5" /></div>
+              <div class="field"><label>Cân nặng (kg)</label><input type="number" id="calcWeight" value="0.4" step="0.1" /></div>
+            </div>
+            <div class="grid2">
+              <div class="field"><label>Giá dự kiến bán tại VN (VNĐ)</label><input type="number" id="calcSellVnd" value="159000" step="1000" /></div>
+              <div class="field"><label>Sàn đăng bán</label><select id="calcPlat"><option value="shopee">Shopee VN</option><option value="tiktok_shop">TikTok Shop VN</option></select></div>
+            </div>
+            <button class="btn btn-gold" data-action="sourcing-calc">📐 Tính Giá vốn Về kho &amp; Lãi ròng/đơn</button>
+            <div id="sourcingCalcBox" style="margin-top:10px"></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>Kho Báo giá Nguồn hàng 1688 · Pinduoduo · Taobao đã lưu</h3>
+          <div id="sourcingListBox"></div>
+        </div>
+      </section>
+
+      <!-- VIEW 2.3: KHO SHOP -->
+      <section class="view" id="view-shops">
+        <div class="page-head">
+          <div>
+            <h2>🏬 Phần 2.3 · Kho Shop (Quản lý Shop Của Mình &amp; Shop Đối thủ Mẫu)</h2>
+            <p>Thay thế Kho Nick Cá nhân bằng Kho Shop: quản lý các gian hàng Shopee / TikTok Shop / Lazada bạn đang vận hành và các shop đối thủ chuẩn ngành.</p>
+          </div>
+        </div>
+        <div class="card">
+          <h3>+ Thêm Shop vào Kho Shop</h3>
+          <div class="grid3">
+            <div class="field">
+              <label>Phân loại Shop</label>
+              <select id="shRole">
+                <option value="own_shop">🏬 Shop vận hành của mình</option>
+                <option value="competitor_shop">🎯 Shop đối thủ mẫu</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>Sàn TMĐT</label>
+              <select id="shPlatform">
+                <option value="shopee">Shopee VN</option>
+                <option value="tiktok_shop">TikTok Shop VN</option>
+                <option value="lazada">Lazada VN</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>Phí sàn mặc định (%)</label>
+              <input type="number" id="shFee" value="12.5" step="0.5" />
+            </div>
+          </div>
+          <div class="grid2">
+            <div class="field"><label>Tên hiển thị của Shop</label><input type="text" id="shName" placeholder="VD: Gia Dụng Thông Minh Peng Official" /></div>
+            <div class="field"><label>Link Shop hoặc @username</label><input type="text" id="shUrl" placeholder="https://shopee.vn/..." /></div>
+          </div>
+          <button class="btn btn-pri" data-action="shop-save">💾 Lưu vào Kho Shop</button>
+        </div>
+        <div class="cards-grid" id="shopsGridBox"></div>
+      </section>
+
+      <!-- VIEW 3.1: SOI SẢN PHẨM & FANPAGE -->
+      <section class="view" id="view-spy">
+        <div class="page-head">
+          <div>
+            <h2>🕵️ Phần 3.1 · Soi Link Sản phẩm Đa sàn &amp; Soi Fanpage / Facebook Ads</h2>
+            <p>Bóc tách thông số sản phẩm từ link bất kỳ (Shopee, TikTok, Lazada, 1688, Taobao, Pinduoduo) và soi các mặt hàng đối thủ đang vít Ads trên Facebook.</p>
+          </div>
+        </div>
+        <div class="grid2">
+          <div class="card">
+            <h3>🔗 Soi Link Sản phẩm &amp; Phủ sóng Video</h3>
+            <div class="field">
+              <label>URL Sản phẩm (Shopee / TikTok Shop / 1688 / Taobao / Pinduoduo)</label>
+              <input type="text" id="spyProdUrl" placeholder="https://shopee.vn/..." />
+            </div>
+            <button class="btn btn-pri" data-action="spy-product">🔍 Soi Sản phẩm &amp; Đưa vào Kho</button>
+            <div id="spyProdBox" style="margin-top:12px"></div>
+          </div>
+          <div class="card">
+            <h3>📢 Soi Fanpage &amp; Thư viện Quảng cáo Facebook</h3>
+            <div class="field">
+              <label>Tên Fanpage hoặc Từ khoá sản phẩm chạy Ads</label>
+              <input type="text" id="spyFanpageQuery" placeholder="VD: gia dụng nội địa trung, đèn năng lượng mặt trời" />
+            </div>
+            <button class="btn btn-blue" data-action="spy-fanpage">📡 Quét Ads &amp; Thu thập Link Sàn</button>
+            <div id="spyFanpageBox" style="margin-top:12px"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- VIEW 3.2: ĐÁNH GIÁ VIDEO JEV AI -->
+      <section class="view" id="view-videojev">
+        <div class="page-head">
+          <div>
+            <h2>🎬 Phần 3.2 · Đánh giá Video Bán hàng bằng Jev AI (4 Khung hình FFmpeg + Hook · Body · CTA)</h2>
+            <p>Chấm điểm sức hút 3 giây đầu, khả năng demo chứng minh sản phẩm và tỷ lệ đáng nhân bản cho Shop.</p>
+          </div>
+        </div>
+        <div class="card">
+          <div class="grid2">
+            <div class="field"><label>URL Video TikTok / Reels</label><input type="text" id="vidUrl" placeholder="https://www.tiktok.com/@.../video/..." /></div>
+            <div class="field"><label>Hoặc mô tả / lời thoại kịch bản (tuỳ chọn)</label><input type="text" id="vidCaption" placeholder="Lời thoại hoặc caption video..." /></div>
+          </div>
+          <button class="btn btn-pri" data-action="video-eval">🎬 Phân tích &amp; Chấm điểm Video Jev AI</button>
+          <div id="videoEvalResultBox" style="margin-top:12px"></div>
+        </div>
+        <div class="card">
+          <h3>⭐ Danh sách Video Mẫu Đã Đánh giá</h3>
+          <div id="videoWatchlistBox"></div>
+        </div>
+      </section>
+
+      <!-- VIEW 3.3: CLONE VIDEO 15S -->
+      <section class="view" id="view-videoclone">
+        <div class="page-head">
+          <div>
+            <h2>⚡ Phần 3.3 · Clone Video 15s cho Shop (Nano Banana 2.1 + Gemini Omni 1.2 Flash)</h2>
+            <p>Cắt phân đoạn &lt;=15s và xuất bộ Prompt Ảnh/Video 4K 9:16 khoá đồng nhất giọng đọc tiếng Việt để sản xuất video đăng Shopee Video &amp; TikTok Shop.</p>
+          </div>
+        </div>
+        <div class="card">
+          <div class="grid3">
+            <div class="field"><label>URL Video mẫu cần nhân bản</label><input type="text" id="vcUrl" placeholder="https://www.tiktok.com/..." /></div>
+            <div class="field"><label>Tên sản phẩm của Shop bạn</label><input type="text" id="vcProdName" placeholder="VD: Máy xay tỏi ớt không dây Inox 304" /></div>
+            <div class="field">
+              <label>Chế độ nhân bản</label>
+              <select id="vcMode">
+                <option value="product_swap">Đổi sang Sản phẩm của Shop mình</option>
+                <option value="exact_clone">Giữ nguyên bố cục sản phẩm gốc</option>
+              </select>
+            </div>
+          </div>
+          <button class="btn btn-pri" data-action="video-clone">⚡ Tạo Phân cảnh &amp; Prompt Clone 15s</button>
+        </div>
+        <div id="videoClonesBox"></div>
+      </section>
+
+      <!-- VIEW 4.1: CHIẾN DỊCH NGÀNH HÀNG -->
+      <section class="view" id="view-campaigns">
+        <div class="page-head">
+          <div>
+            <h2>🚀 Phần 4.1 · Chiến dịch Bán hàng theo Ngành hàng / Đợt Nhập hàng</h2>
+            <p>Quản trị phễu 5 bước: Chọn mẫu → Chốt xưởng TQ → Nhập test → Đăng sàn &amp; Quay Video → Scale tồn kho Win, kèm Báo cáo 08:00 sáng qua Telegram.</p>
+          </div>
+        </div>
+        <div class="card">
+          <h3>+ Tạo Chiến dịch Ngành hàng Mới</h3>
+          <div class="grid3">
+            <div class="field"><label>Tên Chiến dịch</label><input type="text" id="cmpName" placeholder="VD: Chiến dịch Gia dụng Nhà bếp Q4" /></div>
+            <div class="field"><label>Ngành hàng trọng tâm</label><select id="cmpIndustry"></select></div>
+            <div class="field"><label>Mục tiêu Doanh số (VNĐ)</label><input type="number" id="cmpTargetRev" value="100000000" step="5000000" /></div>
+          </div>
+          <button class="btn btn-pri" data-action="campaign-create">🚀 Khởi tạo Chiến dịch Ngành hàng</button>
+        </div>
+        <div id="campaignsListBox"></div>
+      </section>
+
+      <!-- VIEW 4.2: DOANH SỐ & LỢI NHUẬN NHÀ BÁN -->
+      <section class="view" id="view-analytics">
+        <div class="page-head">
+          <div>
+            <h2>💰 Phần 4.2 · Phân tích Lượt bán, Doanh số &amp; Lợi nhuận Ròng Nhà bán</h2>
+            <p>Đối soát đơn bán thực tế từ Shopee Seller / TikTok Shop Seller, trừ Giá vốn nhập hàng (COGS), Phí sàn &amp; Chi phí Ads để tính Lãi ròng.</p>
+          </div>
+        </div>
+        <div id="salesSummaryBox"></div>
+        <div class="grid2">
+          <div class="card">
+            <h3>📥 Nhập Báo cáo Đơn hàng CSV (Shopee / TikTok Seller)</h3>
+            <div class="field"><label>Sàn</label><select id="csvPlat"><option value="shopee">Shopee Seller</option><option value="tiktok_shop">TikTok Shop Seller</option></select></div>
+            <div class="field"><label>Dán nội dung CSV (order_id, product_name, quantity, gross_revenue, cogs_vnd, status)</label><textarea id="csvText" rows="4" placeholder="order_id,product_name,quantity,gross_revenue,cogs_vnd,status&#10;SP261101,Máy xay đa năng,2,318000,115000,completed"></textarea></div>
+            <button class="btn btn-pri" data-action="sales-import-csv">📥 Nhập &amp; Đối soát Đơn hàng</button>
+          </div>
+          <div class="card">
+            <h3>💸 Ghi nhận Chi phí Nhập hàng / Quảng cáo Ads</h3>
+            <div class="grid2">
+              <div class="field"><label>Loại chi phí</label><select id="expType"><option value="ads">Quảng cáo Shopee/TikTok Ads</option><option value="sourcing">Nhập lô hàng mẫu</option><option value="koc">Booking KOC / Quay dựng</option></select></div>
+              <div class="field"><label>Số tiền (VNĐ)</label><input type="number" id="expAmount" value="500000" step="50000" /></div>
+            </div>
+            <div class="field"><label>Ghi chú</label><input type="text" id="expNote" placeholder="VD: Chạy Shopee Search Ads từ khoá kệ nhà tắm" /></div>
+            <button class="btn btn-gold" data-action="sales-add-expense">➕ Lưu Chi phí</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- VIEW 4.3: NHẬT KÝ CÔNG VIỆC GS-XXXX -->
+      <section class="view" id="view-history">
+        <div class="page-head">
+          <div>
+            <h2>🧾 Nhật ký Công việc Thống nhất (GS-XXXX) &amp; Quản lý Tiến trình</h2>
+            <p>Mọi tiến trình săn hàng, tra từ khoá, đối chiếu theo dõi và nguồn hàng đều gắn mã định danh GS-XXXX và đẩy thông báo về Telegram.</p>
+          </div>
+          <a class="btn btn-sm btn-blue" href="/api/history-logs/export.csv" target="_blank">📥 Xuất CSV Nhật ký</a>
+        </div>
+        <div class="card">
+          <div id="historyLogsBox"></div>
+        </div>
+      </section>
+
+      <!-- VIEW 4.4: TRỢ LÝ BÁN HÀNG & GHIM -->
+      <section class="view" id="view-chat">
+        <div class="page-head">
+          <div>
+            <h2>💬 Trợ lý Tư vấn Bán hàng, Tối ưu SEO &amp; Ghim Đối thủ</h2>
+            <p>Hỗ trợ lên ý tưởng combo khác biệt hóa, đặt tiêu đề chuẩn SEO Shopee/TikTok và lưu ghim link xưởng/shop mẫu.</p>
+          </div>
+        </div>
+        <div class="grid2">
+          <div class="card">
+            <h3>Trợ lý Nhà bán AI</h3>
+            <div id="chatMessagesBox" style="max-height:300px;overflow-y:auto;margin-bottom:10px"></div>
+            <div class="row">
+              <input type="text" id="chatInput" placeholder="Hỏi cách đặt tên chuẩn SEO, làm combo, hoặc kịch bản video..." style="flex:1" />
+              <button class="btn btn-pri" data-action="chat-send">Gửi</button>
+            </div>
+          </div>
+          <div class="card">
+            <h3>📌 Ghim Link Shop mẫu / Xưởng uy tín</h3>
+            <div class="field"><label>Tiêu đề</label><input type="text" id="pinTitle" placeholder="VD: Xưởng nhựa gia dụng Nghĩa Ô uy tín" /></div>
+            <div class="field"><label>URL</label><input type="text" id="pinUrl" placeholder="https://..." /></div>
+            <button class="btn btn-blue" data-action="pin-add">📌 Lưu Ghim</button>
+            <div id="pinsListBox" style="margin-top:12px"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- VIEW 4.5: CÀI ĐẶT KẾT NỐI, API & TELEGRAM -->
+      <section class="view" id="view-settings">
+        <div class="page-head">
+          <div>
+            <h2>⚙️ Cài đặt Kết nối Trình duyệt, API Keys, Tỷ giá CNY &amp; Telegram Bot</h2>
+            <p>Toàn bộ khoá bí mật được mã hoá an toàn trong <strong>macOS Login Keychain</strong> (<code>com.peng.global-shop-dianshang</code>) — không bao giờ lưu thô trong SQLite hay Git.</p>
+          </div>
+        </div>
+
+        <div class="grid2">
+          <div class="card">
+            <h3>🌐 Trình duyệt Độc lập (Dedicated Chrome CDP 127.0.0.1:9349)</h3>
+            <p style="color:var(--muted);font-size:12.5px">Tách biệt hoàn toàn với Chrome cá nhân &amp; dự án cũ để đăng nhập Shopee, TikTok Seller, Kalodata, 1688/Taobao.</p>
+            <div class="row">
+              <button class="btn btn-sm btn-pri" data-action="open-browser" data-portal="shopee">Mở Shopee Seller</button>
+              <button class="btn btn-sm btn-blue" data-action="open-browser" data-portal="tiktok_seller">Mở TikTok Seller</button>
+              <button class="btn btn-sm" data-action="open-browser" data-portal="kalodata">Mở Kalodata</button>
+              <button class="btn btn-sm btn-gold" data-action="open-browser" data-portal="china_1688_taobao">Mở 1688 / Taobao</button>
+            </div>
+            <div id="browserHubBox" style="margin-top:10px;font-size:12.5px;color:var(--muted)"></div>
+          </div>
+
+          <div class="card">
+            <h3>🤖 Telegram Bot (@tc_global1_shop_bot · Chat ID Allowlist)</h3>
+            <div class="grid2">
+              <div class="field"><label>Bot Token (lưu Keychain)</label><input type="password" id="setTgToken" placeholder="••••••••" /></div>
+              <div class="field"><label>Chat ID / Allowed User IDs</label><input type="text" id="setTgChatId" placeholder="5608975895" /></div>
+            </div>
+            <div class="row">
+              <button class="btn btn-sm" data-action="tg-check">Kiểm tra Bot</button>
+              <button class="btn btn-sm btn-pri" data-action="tg-test">📨 Gửi tin nhắn Test qua Telegram</button>
+            </div>
+            <div id="tgStatusBox" style="margin-top:8px;font-size:12.5px;color:var(--muted)"></div>
+          </div>
+        </div>
+
+        <div class="grid2">
+          <div class="card">
+            <h3>🔑 Đa Key Apify (#1 Priority) + Treg.to (#2) + TypeSafe Jev AI</h3>
+            <div class="row" style="margin-bottom:8px">
+              <input type="text" id="newApifyLabel" placeholder="Nhãn Apify Key" style="max-width:170px" />
+              <input type="password" id="newApifyToken" placeholder="apify_api_..." style="flex:1" />
+              <button class="btn btn-sm btn-pri" data-action="apify-add">Thêm Key</button>
+              <button class="btn btn-sm" data-action="apify-check">Kiểm tra Hạn mức</button>
+            </div>
+            <div id="apifyKeysBox" style="margin-bottom:12px"></div>
+
+            <div class="grid2">
+              <div class="field"><label>Treg.to API Key</label><input type="password" id="setTregKey" /></div>
+              <div class="field"><label>TypeSafe Jev API Key (jev-1.14.0)</label><input type="password" id="setJevKey" /></div>
+            </div>
+            <div class="row">
+              <button class="btn btn-sm" data-action="treg-check">Kiểm tra Treg</button>
+              <button class="btn btn-sm" data-action="jev-check">Kiểm tra Jev AI</button>
+            </div>
+          </div>
+
+          <div class="card">
+            <h3>🇨🇳 Thông số Tỷ giá Nhập hàng TQ &amp; Phí Sàn Mặc định</h3>
+            <div class="grid3">
+              <div class="field"><label>Tỷ giá 1 CNY (VNĐ)</label><input type="number" id="setCnyRate" value="3650" /></div>
+              <div class="field"><label>Cước TQ→VN / kg (VNĐ)</label><input type="number" id="setShipKg" value="28000" /></div>
+              <div class="field"><label>Đóng gói / đơn (VNĐ)</label><input type="number" id="setPackVnd" value="3500" /></div>
+            </div>
+            <div class="grid3">
+              <div class="field"><label>Phí sàn Shopee (%)</label><input type="number" id="setShopeeFee" value="12.5" step="0.5" /></div>
+              <div class="field"><label>Phí TikTok Shop (%)</label><input type="number" id="setTiktokFee" value="11.5" step="0.5" /></div>
+              <div class="field"><label>Tỷ lệ hoàn dự phòng (%)</label><input type="number" id="setReturnPct" value="6.0" step="0.5" /></div>
+            </div>
+            <button class="btn btn-pri" data-action="settings-save">💾 Lưu Toàn bộ Cấu hình</button>
+            <div id="mcpStatusBox" style="margin-top:12px;font-size:12px;color:var(--muted)"></div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- Modal: Chi tiết Dossier / Thêm SP / So sánh -->
+  <div class="modal-backdrop" id="mainModalBackdrop">
+    <div class="modal">
+      <div class="row" style="justify-content:space-between;margin-bottom:10px">
+        <h3 id="modalTitle" style="margin:0">Chi tiết</h3>
+        <button class="btn btn-sm" data-action="close-modal">✕ Đóng</button>
+      </div>
+      <div id="modalBody"></div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+  <script src="/static/app.js"></script>
+</body>
+</html>
