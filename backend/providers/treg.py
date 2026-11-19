@@ -142,6 +142,53 @@ class TregClient:
 
     # --- TikTok Shop & Videos Failover ---------------------------------------
 
+    @staticmethod
+    def _parse_tiktok_price_obj(p_obj) -> float:
+        if p_obj is None:
+            return 0.0
+        if isinstance(p_obj, dict):
+            for k in (
+                "sale_price_format",
+                "real_price",
+                "sale_price_decimal",
+                "price_str",
+                "formatted_price",
+                "origin_price_format",
+                "sale_price",
+                "price",
+            ):
+                val = p_obj.get(k)
+                if val is not None and str(val).strip() not in ("", "0", "1"):
+                    parsed = parse_vnd_price(val, "VND")
+                    if parsed >= 1000:
+                        return parsed
+            return 0.0
+        return parse_vnd_price(p_obj, "VND")
+
+    @staticmethod
+    def _parse_tiktok_img(r: dict) -> str:
+        for k in ("image", "cover", "thumbnail", "main_image", "images"):
+            raw = r.get(k)
+            if isinstance(raw, dict):
+                ulist = raw.get("url_list") or raw.get("thumb_url_list") or []
+                if isinstance(ulist, list) and ulist and str(ulist[0]).startswith("http"):
+                    return str(ulist[0])
+                if isinstance(raw.get("url"), str) and raw["url"].startswith("http"):
+                    return raw["url"]
+            elif isinstance(raw, list) and raw:
+                f0 = raw[0]
+                if isinstance(f0, dict):
+                    ulist = f0.get("url_list") or f0.get("thumb_url_list") or []
+                    if isinstance(ulist, list) and ulist and str(ulist[0]).startswith("http"):
+                        return str(ulist[0])
+                    if isinstance(f0.get("url"), str) and f0["url"].startswith("http"):
+                        return f0["url"]
+                elif isinstance(f0, str) and f0.startswith("http"):
+                    return f0
+            elif isinstance(raw, str) and raw.startswith("http"):
+                return raw
+        return ""
+
     def search_tiktok_shop(self, token: str, query: str, limit: int = 12, max_cost_usd: float = 0.03) -> tuple[str, list[dict], float | None]:
         endpoints = [
             ("scrapecreators.x.v1-tiktok-shop-search", {"query": query, "region": "VN"}, "GET"),
@@ -156,22 +203,31 @@ class TregClient:
                     out = []
                     for r in rows[:limit]:
                         pid = safe_id_str(r.get("product_id") or r.get("id"))
-                        p = parse_vnd_price(r.get("sale_price_format") or r.get("price") or 0, "VND")
-                        sold = parse_int_metric(r.get("sold_count") or r.get("sales") or 0)
+                        p = self._parse_tiktok_price_obj(r.get("product_price_info") or r.get("price") or r.get("sale_price_format"))
+                        sold_info = r.get("sold_info") if isinstance(r.get("sold_info"), dict) else (r.get("sales") if isinstance(r.get("sales"), dict) else {})
+                        sold = parse_int_metric(
+                            r.get("sold_count")
+                            if r.get("sold_count") is not None
+                            else (sold_info.get("sold_count") or r.get("sales_count") or r.get("volume") or 0)
+                        )
+                        seller_obj = r.get("seller") if isinstance(r.get("seller"), dict) else {}
+                        shop_name = str(r.get("seller_name") or r.get("shop_name") or seller_obj.get("name") or "")
+                        shop_id = safe_id_str(r.get("seller_id") or r.get("shop_id") or seller_obj.get("seller_id"))
+                        rating_val = r.get("product_rating") if r.get("product_rating") is not None else (r.get("rating") or 0.0)
                         out.append({
                             "platform": "tiktok_shop",
                             "market": "VN",
                             "native_product_id": pid,
-                            "native_shop_id": safe_id_str(r.get("seller_id") or r.get("shop_id")),
-                            "shop_name": str(r.get("seller_name") or r.get("shop_name") or ""),
-                            "is_mall": bool(r.get("is_mall")),
+                            "native_shop_id": shop_id,
+                            "shop_name": shop_name,
+                            "is_mall": bool(r.get("is_mall") or seller_obj.get("is_mall")),
                             "title": str(r.get("title") or r.get("name") or "").strip(),
                             "price_vnd": p,
                             "sold_count": sold,
                             "gmv_vnd": round(p * sold, 0),
-                            "rating": float(r.get("rating") or 0.0),
+                            "rating": float(rating_val or 0.0) if isinstance(rating_val, (int, float, str)) and str(rating_val).replace(".", "", 1).isdigit() else 0.0,
                             "url": str(r.get("url") or (f"https://shop.tiktok.com/view/product/{pid}?region=VN" if pid else "")),
-                            "image_url": str(r.get("cover") or r.get("image") or ""),
+                            "image_url": self._parse_tiktok_img(r),
                         })
                     return ep, out, res.get("_cost_usd")
             except Exception as exc:
@@ -179,6 +235,81 @@ class TregClient:
         if last_err:
             raise last_err
         return "treg", [], 0.0
+
+    def fetch_tiktok_shop_product_detail(self, token: str, product_id: str, region: str = "VN", max_cost_usd: float = 0.008) -> dict | None:
+        pid = safe_id_str(product_id)
+        if not pid:
+            return None
+        res = None
+        for ep in ("tikhub.x.tiktok-shop-web-fetch-product-detail-v3", "tikhub.x.tiktok-shop-web-fetch-product-detail"):
+            try:
+                res = self.call(token, ep, {"product_id": pid, "region": region}, method="GET", max_cost_usd=max_cost_usd, timeout=24)
+                break
+            except Exception:
+                continue
+        if not res:
+            return None
+        outer = (res.get("data") or {}).get("data") if isinstance(res.get("data"), dict) else {}
+        if not isinstance(outer, dict):
+            outer = {}
+        p_data = outer.get("product_data") if isinstance(outer.get("product_data"), dict) else {}
+        p_cfg = p_data.get("page_config") if isinstance(p_data.get("page_config"), dict) else {}
+        inner = outer.get("data") if isinstance(outer.get("data"), dict) else {}
+        comps = p_cfg.get("components_map") if isinstance(p_cfg.get("components_map"), list) else (inner.get("components_map") if isinstance(inner.get("components_map"), list) else [])
+
+        title = ""
+        price_vnd = 0.0
+        sold_count = 0
+        rating = 0.0
+        shop_name = ""
+        shop_id = ""
+        image_url = ""
+        for comp in comps:
+            cd = comp.get("component_data") if isinstance(comp, dict) else None
+            if not isinstance(cd, dict):
+                continue
+            p_info = cd.get("product_info") if isinstance(cd.get("product_info"), dict) else cd
+            if p_info.get("title") or p_info.get("product_title") or p_info.get("name"):
+                title = str(p_info.get("title") or p_info.get("product_title") or p_info.get("name") or title).strip()
+            if price_vnd <= 0 and p_info.get("price"):
+                price_vnd = self._parse_tiktok_price_obj(p_info.get("price"))
+            if price_vnd <= 0 and isinstance(p_info.get("skus"), list):
+                sku_ps = [self._parse_tiktok_price_obj(sk.get("price")) for sk in p_info["skus"] if isinstance(sk, dict) and sk.get("price")]
+                sku_ps = [x for x in sku_ps if x > 0]
+                if sku_ps:
+                    price_vnd = min(sku_ps)
+            if sold_count <= 0 and p_info.get("sold_count") is not None:
+                sold_count = parse_int_metric(p_info.get("sold_count"))
+            if rating <= 0:
+                rc = p_info.get("rating") or (p_info.get("review") or {}).get("product_rating")
+                if rc:
+                    try:
+                        rating = round(float(rc), 2)
+                    except Exception:
+                        pass
+            seller_obj = p_info.get("seller") if isinstance(p_info.get("seller"), dict) else (cd.get("seller_info") if isinstance(cd.get("seller_info"), dict) else {})
+            if seller_obj:
+                shop_name = shop_name or str(seller_obj.get("name") or seller_obj.get("shop_name") or "")
+                shop_id = shop_id or safe_id_str(seller_obj.get("seller_id") or "")
+            if not image_url:
+                image_url = self._parse_tiktok_img(p_info)
+        if not title and price_vnd <= 0 and sold_count <= 0:
+            return None
+        return {
+            "platform": "tiktok_shop",
+            "market": region,
+            "native_product_id": pid,
+            "native_shop_id": shop_id,
+            "shop_name": shop_name,
+            "title": title,
+            "price_vnd": price_vnd,
+            "sold_count": sold_count,
+            "gmv_vnd": round(price_vnd * sold_count, 0),
+            "rating": rating,
+            "image_url": image_url,
+            "url": f"https://shop.tiktok.com/view/product/{pid}?region={region}",
+            "_cost_usd": res.get("_cost_usd"),
+        }
 
     def search_china_sourcing(
         self,

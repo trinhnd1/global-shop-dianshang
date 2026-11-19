@@ -51,7 +51,7 @@ class KeywordResearchService:
         platform: str = "shopee",
         limit: int = 20,
         score_jev: bool = True,
-        save_top_to_vault: bool = False,
+        save_top_to_vault: bool = True,
     ) -> dict:
         kw = text(keyword, "keyword", 120, required=True)
         plat = platform.lower().strip()
@@ -161,7 +161,7 @@ class KeywordResearchService:
 
         saved_ids = []
         if save_top_to_vault and items:
-            for it in items[:10]:
+            for it in items:
                 if it.get("title"):
                     p = self.products.upsert_product(it, source=f"keyword:{norm_plat}:{kw}")
                     saved_ids.append(p["id"])

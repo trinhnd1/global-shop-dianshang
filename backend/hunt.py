@@ -127,6 +127,18 @@ class HuntAndCreatorsService:
                                 discovered_ids.append(saved["id"])
                     ctx.log(f"✓ Kênh {ch} ('{term}'): thu thập {len(found_rows)} mẫu")
 
+            enriched = 0
+            for pid in discovered_ids[:8]:
+                ctx.check_cancelled()
+                p_cur = self.products.get_product(pid)
+                if p_cur and float(p_cur.get("price_vnd") or 0) <= 0 and int(p_cur.get("sold_count") or 0) <= 0:
+                    try:
+                        p_after = self.products.enrich_product(pid)
+                        if p_after and (p_after.get("price_vnd", 0) > 0 or p_after.get("sold_count", 0) > 0):
+                            enriched += 1
+                    except Exception:
+                        pass
+
             scored = 0
             if est["auto_score_jev"] and discovered_ids:
                 for pid in discovered_ids[:8]:
@@ -137,7 +149,7 @@ class HuntAndCreatorsService:
                     except Exception as exc:
                         ctx.log(f"⚠️ Chấm Jev SP #{pid}: {exc}")
                         break
-            summary = f"Săn hoàn tất: lưu/cập nhật {len(discovered_ids)} SP vào Kho, đã chấm Jev {scored} SP"
+            summary = f"Săn hoàn tất: lưu/cập nhật {len(discovered_ids)} SP vào Kho (Chờ đánh giá), làm giàu {enriched} SP, chấm Jev {scored} SP"
             ctx.log(f"🏁 {summary}")
             return {"discovered_count": len(discovered_ids), "scored_jev_count": scored, "product_ids": discovered_ids, "summary": summary}
 

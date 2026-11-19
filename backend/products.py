@@ -1,4 +1,5 @@
-"""Product Vault, Seller Classification, 13-Industry Taxonomy, Sales/GMV Analytics, Comparator & Exports."""
+"""Product Vault, Seller Classification, 13-Industry Taxonomy, Enrichment, Comparator & Exports."""
+import ast
 import csv
 import io
 import json
@@ -11,8 +12,8 @@ from .seller_economics import evaluate_seller_economics
 
 BUCKETS = {
     "cho_danh_gia": "Chờ đánh giá",
-    "viral": "Đang bùng nổ (Viral)",
     "moi_noi": "Mới nổi · Ít cạnh tranh",
+    "viral": "Đang viral / Bán chạy",
     "ben_vung": "Bán bền vững",
     "da_co_nguon_tq": "Đã có nguồn nhập TQ",
     "dang_nhap_ban": "Đang nhập / Test bán",
@@ -20,35 +21,70 @@ BUCKETS = {
     "da_loai": "Đã loại",
 }
 
+BUCKET_ICONS = {
+    "all": "🗂",
+    "cho_danh_gia": "📝",
+    "moi_noi": "🆕",
+    "viral": "🔥",
+    "ben_vung": "🌱",
+    "da_co_nguon_tq": "🇨🇳",
+    "dang_nhap_ban": "🚀",
+    "chua_cham": "⏳",
+    "da_loai": "⛔",
+}
+
+STATUSES = {
+    "quan_tam": "⭐ Quan tâm",
+    "nhap_test": "🧪 Nhập test",
+    "dang_ban": "✅ Đang bán",
+    "bo_qua": "⛔ Bỏ qua",
+}
+
 INDUSTRIES = {
+    "lam_vuon": "Làm vườn & Cây cảnh",
     "gia_dung": "Gia dụng & Tiện ích",
     "nha_cua": "Nhà cửa & Đời sống",
     "lam_dep": "Làm đẹp & Mỹ phẩm",
     "suc_khoe": "Sức khoẻ & Massage",
     "thoi_trang": "Thời trang & Phụ kiện",
-    "cong_nghe": "Phụ kiện Công nghệ",
+    "cong_nghe": "Công nghệ & Điện tử",
     "me_be": "Mẹ & Bé",
-    "lam_vuon": "Làm vườn & Hạt giống",
     "thu_cung": "Thú cưng",
-    "do_an": "Đồ ăn & Thực phẩm",
+    "do_an": "Thực phẩm & Ăn vặt",
     "the_thao": "Thể thao & Dã ngoại",
     "oto_xemay": "Ô tô & Xe máy",
     "khac": "Ngành khác",
 }
 
+INDUSTRY_ICONS = {
+    "lam_vuon": "🌱",
+    "gia_dung": "🏠",
+    "nha_cua": "🛋",
+    "lam_dep": "💄",
+    "suc_khoe": "💊",
+    "thoi_trang": "👗",
+    "cong_nghe": "📱",
+    "me_be": "🍼",
+    "thu_cung": "🐾",
+    "do_an": "🍜",
+    "the_thao": "🏃",
+    "oto_xemay": "🚗",
+    "khac": "📦",
+}
+
 INDUSTRY_KEYWORDS: list[tuple[str, tuple[str, ...]]] = [
     ("lam_vuon", ("hạt giống", "cây trồng", "phân bón", "làm vườn", "chậu cây", "tưới cây", "rau")),
     ("thu_cung", ("chó", "mèo", "thú cưng", "cát vệ sinh", "pate mèo", "chuồng")),
-    ("me_be", ("cho bé", "trẻ em", "bỉm", "sữa", "đồ chơi cho bé", "mẹ và bé", "sơ sinh")),
+    ("me_be", ("cho bé", "trẻ em", "bỉm", "sữa", "đồ chơi cho bé", "mẹ và bé", "sơ sinh", "wonlex")),
     ("oto_xemay", ("ô tô", "xe hơi", "xe máy", "mũ bảo hiểm", "camera hành trình", "rửa xe")),
-    ("cong_nghe", ("tai nghe", "sạc dự phòng", "cáp sạc", "ốp lưng", "bluetooth", "chuột không dây", "bàn phím", "điện thoại")),
+    ("cong_nghe", ("đồng hồ thông minh", "smartwatch", "tai nghe", "sạc dự phòng", "cáp sạc", "ốp lưng", "bluetooth", "chuột không dây", "bàn phím", "điện thoại")),
     ("lam_dep", ("son", "kem dưỡng", "serum", "tẩy trang", "chống nắng", "mặt nạ", "trang điểm", "tóc")),
     ("suc_khoe", ("massage", "cổ vai gáy", "ngải cứu", "đai lưng", "nhiệt kế", "sức khỏe", "ngủ ngon")),
     ("thoi_trang", ("áo", "quần", "váy", "đầm", "túi xách", "giày", "dép", "kính mát", "vớ", "tất")),
-    ("the_thao", ("ập gym", "yoga", "cầu lông", "chạy bộ", "dã ngoại", "cắm trại", "bình nước thể thao")),
+    ("the_thao", ("tập gym", "yoga", "cầu lông", "chạy bộ", "dã ngoại", "cắm trại", "bình nước thể thao")),
     ("do_an", ("ăn vặt", "bánh", "kẹo", "trà", "cà phê", "hạt dinh dưỡng", "khô gà", "gia vị")),
     ("nha_cua", ("đèn ngủ", "trang trí", "rèm", "thảm", "tủ vải", "hộp đựng", "giường", "chăn ga")),
-    ("gia_dung", ("nồi", "máy xay", "nhà bếp", "nhà tắm", "kệ", "cây lau nhà", "hút bụi", "móc treo", "ly giữ nhiệt", "dao")),
+    ("gia_dung", ("nồi", "máy xay", "nhà bếp", "nhà tắm", "kệ", "cây lau nhà", "hút bụi", "móc treo", "ly giữ nhiệt", "dao", "quạt")),
 ]
 
 
@@ -60,8 +96,34 @@ def infer_industry(title: str) -> str:
     return "khac"
 
 
+def clean_image_url(raw_img) -> str:
+    if not raw_img:
+        return ""
+    if isinstance(raw_img, dict):
+        ulist = raw_img.get("url_list") or raw_img.get("thumb_url_list") or []
+        if isinstance(ulist, list) and ulist and str(ulist[0]).startswith("http"):
+            return str(ulist[0])
+        return str(raw_img.get("url") or "") if str(raw_img.get("url") or "").startswith("http") else ""
+    s = str(raw_img).strip()
+    if s.startswith("http://") or s.startswith("https://"):
+        return s
+    if s.startswith("//"):
+        return "https:" + s
+    if s.startswith("{") and "url_list" in s:
+        try:
+            parsed = ast.literal_eval(s)
+            if isinstance(parsed, dict):
+                ulist = parsed.get("url_list") or parsed.get("thumb_url_list") or []
+                if isinstance(ulist, list) and ulist and str(ulist[0]).startswith("http"):
+                    return str(ulist[0])
+        except Exception:
+            m = re.search(r"https?://[^\s'\",\]}]+", s)
+            if m:
+                return m.group(0)
+    return ""
+
+
 def parse_ids_from_url(url: str) -> tuple[str, str, str]:
-    """Return (platform, shop_id, product_id) from Shopee / TikTok / Lazada / 1688 / Taobao / PDD URLs."""
     u = (url or "").strip()
     low = u.lower()
     m = re.search(r"shopee\.[^/]+/.*?-i\.(\d+)\.(\d+)", low)
@@ -89,16 +151,67 @@ def parse_ids_from_url(url: str) -> tuple[str, str, str]:
 
 
 class ProductsService:
-    def __init__(self, connect, secrets, jev_client=None, jobs=None, ledger=None):
+    def __init__(self, connect, secrets, jev_client=None, jobs=None, ledger=None, apify=None, treg=None):
         self.connect = connect
         self.secrets = secrets
         self.jev = jev_client
         self.jobs = jobs
         self.ledger = ledger
+        self.apify = apify
+        self.treg = treg
+        self.campaigns_service = None
+        self.repair_and_backfill_vault()
+
+    def repair_and_backfill_vault(self):
+        """Restore any auto-hidden products (status=='') to cho_danh_gia, clean dict-string image_urls & backfill unsaved scans."""
+        ts = now()
+        with self.connect() as conn:
+            rows = conn.execute("SELECT * FROM products").fetchall()
+            for r in rows:
+                rec = json.loads(r["record"] or "{}")
+                changed = False
+                bucket = r["bucket"]
+                # Products never manually rejected by user (status != 'bo_qua') must NOT be hidden in da_loai
+                if bucket == "da_loai" and r["status"] != "bo_qua":
+                    bucket = "cho_danh_gia"
+                    changed = True
+                raw_im = rec.get("image_url") or ""
+                clean_im = clean_image_url(raw_im)
+                if clean_im != raw_im:
+                    rec["image_url"] = clean_im
+                    changed = True
+                new_ind = infer_industry(rec.get("title") or "")
+                ind = r["industry"]
+                if ind == "khac" and new_ind != "khac":
+                    ind = new_ind
+                    changed = True
+                if changed:
+                    conn.execute(
+                        "UPDATE products SET bucket=?, industry=?, record=?, updated_at=? WHERE id=?",
+                        (bucket, ind, json.dumps(rec, ensure_ascii=False), ts, r["id"]),
+                    )
+
+            kw_rows = conn.execute("SELECT platform, keyword, items_json FROM keyword_researches").fetchall()
+            scan_rows = conn.execute("SELECT platform, shop_name, items_json FROM shop_product_scans").fetchall()
+
+        for kr in kw_rows:
+            for it in json.loads(kr["items_json"] or "[]"):
+                if isinstance(it, dict) and it.get("title"):
+                    try:
+                        self.upsert_product(it, source=f"keyword:{kr['platform']}:{kr['keyword']}")
+                    except Exception:
+                        pass
+        for sr in scan_rows:
+            for it in json.loads(sr["items_json"] or "[]"):
+                if isinstance(it, dict) and it.get("title"):
+                    try:
+                        self.upsert_product(it, source=f"shop_scan:{sr['platform']}:{sr['shop_name']}")
+                    except Exception:
+                        pass
 
     def count_all(self) -> int:
         with self.connect() as conn:
-            return int(conn.execute("SELECT COUNT(*) FROM products").fetchone()[0])
+            return int(conn.execute("SELECT COUNT(*) FROM products WHERE bucket != 'da_loai'").fetchone()[0])
 
     def upsert_product(self, item: dict, source: str = "manual") -> dict:
         url = canonicalize_commerce_url(str(item.get("url") or item.get("link_goc") or ""))
@@ -117,6 +230,7 @@ class ProductsService:
         sold_30d = max(0, int(item.get("sold_30d") or 0))
         gmv_vnd = max(0.0, float(item.get("gmv_vnd") or (price_vnd * sold_count)))
         rating = float(item.get("rating") or 0.0)
+        image_url = clean_image_url(item.get("image_url"))
         industry = str(item.get("industry") or "").strip()
         if industry not in INDUSTRIES or industry == "khac":
             industry = infer_industry(title)
@@ -164,7 +278,7 @@ class ProductsService:
                     "title": title or rec.get("title", ""),
                     "shop_name": item.get("shop_name") or rec.get("shop_name", ""),
                     "is_mall": bool(item.get("is_mall") or rec.get("is_mall", False)),
-                    "image_url": item.get("image_url") or rec.get("image_url", ""),
+                    "image_url": image_url or clean_image_url(rec.get("image_url", "")),
                     "rating": rating if rating > 0 else rec.get("rating", 0.0),
                     "sold_30d": sold_30d if sold_30d > 0 else rec.get("sold_30d", 0),
                     "delta_sold_last": delta_sold,
@@ -174,6 +288,8 @@ class ProductsService:
                 })
                 if item.get("assigned_shop_id") is not None:
                     rec["assigned_shop_id"] = str(item.get("assigned_shop_id") or "")
+                if item.get("assigned_campaign_id") is not None:
+                    rec["assigned_campaign_id"] = str(item.get("assigned_campaign_id") or "")
                 if item.get("note") is not None:
                     rec["note"] = str(item.get("note") or "")[:1000]
 
@@ -205,19 +321,20 @@ class ProductsService:
                 )
             else:
                 bucket = str(item.get("bucket") or ("da_co_nguon_tq" if cost_vnd > 0 else "cho_danh_gia"))
-                if bucket not in BUCKETS:
+                if bucket not in BUCKETS or bucket == "da_loai":
                     bucket = "cho_danh_gia"
                 rec = {
                     "title": title,
                     "shop_name": str(item.get("shop_name") or ""),
                     "is_mall": bool(item.get("is_mall")),
-                    "image_url": str(item.get("image_url") or ""),
+                    "image_url": image_url,
                     "rating": round(rating, 2),
                     "sold_30d": sold_30d,
                     "delta_sold_last": 0,
                     "sources": [source] if source else [],
                     "sightings": 1,
                     "assigned_shop_id": str(item.get("assigned_shop_id") or ""),
+                    "assigned_campaign_id": str(item.get("assigned_campaign_id") or ""),
                     "sourcing_summary": item.get("sourcing_summary") or None,
                     "jev_detail": None,
                     "note": str(item.get("note") or "")[:1000],
@@ -271,24 +388,89 @@ class ProductsService:
 
     @staticmethod
     def auto_bucket_from_seller_metrics(score_10: float | None, sold_count: int, cost_vnd: float, is_mall: bool) -> str:
+        """Suggest bucket WITHOUT ever hiding products into da_loai automatically."""
         if score_10 is None:
-            return "da_co_nguon_tq" if cost_vnd > 0 else "chua_cham"
-        if score_10 < 5.0:
-            return "da_loai"
+            return "da_co_nguon_tq" if cost_vnd > 0 else "cho_danh_gia"
         if cost_vnd > 0 and score_10 >= 6.8:
             return "da_co_nguon_tq"
         if score_10 >= 7.5 and sold_count >= 300:
             return "viral"
-        if score_10 >= 6.8 and sold_count < 300 and not is_mall:
+        if score_10 >= 6.8 and sold_count > 0 and sold_count < 300 and not is_mall:
             return "moi_noi"
         if score_10 >= 6.5 and sold_count >= 100:
             return "ben_vung"
         return "cho_danh_gia"
 
+    def enrich_product(self, product_id: int) -> dict:
+        """Fetch live price, sold_count, shop_name & clean image_url via Apify (#1) -> Treg (#2)."""
+        prod = self.get_product(product_id)
+        if not prod:
+            raise ApiError("404 Not Found", "Không tìm thấy sản phẩm")
+        cfg = settings.read_settings(self.connect, self.secrets)
+        apify_toks = settings.apify_tokens(cfg)
+        treg_tok = (cfg["providers"].get("treg_key") or "").strip()
+
+        fetched = None
+        plat = prod["platform"]
+        npid = prod["native_product_id"]
+        url = prod["url"]
+
+        if plat == "tiktok_shop":
+            if treg_tok and self.treg and npid:
+                try:
+                    fetched = self.treg.fetch_tiktok_shop_product_detail(treg_tok, npid, region=prod["market"])
+                except Exception:
+                    fetched = None
+            if (not fetched or float(fetched.get("price_vnd") or 0) <= 0) and apify_toks and self.apify and (url or npid):
+                try:
+                    fetched = self.apify.scrape_tiktok_shop_detail(apify_toks, url or npid)
+                except Exception:
+                    pass
+        elif plat == "shopee" and apify_toks and self.apify and url:
+            try:
+                fetched = self.apify.scrape_shopee_product(apify_toks, url)
+            except Exception:
+                fetched = None
+
+        if fetched and (fetched.get("price_vnd") or fetched.get("sold_count") or fetched.get("image_url")):
+            return self.upsert_product({**prod, **{k: v for k, v in fetched.items() if v}}, source="enrich_detail")
+        return prod
+
+    def enrich_batch(self, product_ids: list[int] | None = None, limit: int = 12) -> dict:
+        if product_ids:
+            targets = [int(x) for x in product_ids[:limit]]
+        else:
+            with self.connect() as conn:
+                rows = conn.execute(
+                    "SELECT id FROM products WHERE bucket != 'da_loai' AND (price_vnd <= 0 OR sold_count <= 0) ORDER BY id DESC LIMIT ?",
+                    (limit,),
+                ).fetchall()
+            targets = [int(r["id"]) for r in rows]
+
+        updated = 0
+        for pid in targets:
+            try:
+                res = self.enrich_product(pid)
+                if res and (res.get("price_vnd", 0) > 0 or res.get("sold_count", 0) > 0):
+                    updated += 1
+            except Exception:
+                continue
+        return {
+            "checked_count": len(targets),
+            "enriched_count": updated,
+            "summary": f"Đã làm giàu dữ liệu Giá & Lượt bán cho {updated}/{len(targets)} sản phẩm",
+        }
+
     def score_product_jev(self, product_id: int) -> dict:
         prod = self.get_product(product_id)
         if not prod:
             raise ApiError("404 Not Found", "Không tìm thấy sản phẩm")
+        # Enrich first if price and sold_count are both 0 so Jev has real market metrics!
+        if float(prod.get("price_vnd") or 0) <= 0 and int(prod.get("sold_count") or 0) <= 0:
+            try:
+                prod = self.enrich_product(product_id) or prod
+            except Exception:
+                pass
         if not self.jev:
             raise ApiError("503 Service Unavailable", "Chưa khởi tạo Jev Client")
         cfg = settings.read_settings(self.connect, self.secrets)
@@ -309,7 +491,7 @@ class ProductsService:
             rec["jev_detail"] = res
             new_ind = res.get("industry") if res.get("industry") in INDUSTRIES else row["industry"]
             new_bucket = row["bucket"]
-            if new_bucket in ("cho_danh_gia", "chua_cham"):
+            if new_bucket in ("cho_danh_gia", "chua_cham") and row["status"] != "bo_qua":
                 new_bucket = self.auto_bucket_from_seller_metrics(
                     res["overall_10"], int(row["sold_count"] or 0), float(row["cost_vnd"] or 0.0), bool(rec.get("is_mall"))
                 )
@@ -330,10 +512,17 @@ class ProductsService:
             if bucket not in BUCKETS:
                 raise ValueError("Nhóm phân loại không hợp lệ")
             status = str(patch.get("status") if patch.get("status") is not None else row["status"])
-            if status == "dang_nhap":
-                bucket = "dang_nhap_ban"
-            elif status == "bo_qua":
-                bucket = "da_loai"
+            if "status" in patch:
+                if status in ("nhap_test", "dang_nhap"):
+                    status = "nhap_test"
+                    bucket = "dang_nhap_ban"
+                elif status == "bo_qua":
+                    bucket = "da_loai"
+                elif status in ("quan_tam", "dang_ban") and bucket == "da_loai":
+                    bucket = "cho_danh_gia"
+            if "bucket" in patch and patch["bucket"] != "da_loai" and status == "bo_qua":
+                status = ""
+
             industry = str(patch.get("industry") if patch.get("industry") is not None else row["industry"])
             if industry not in INDUSTRIES:
                 industry = row["industry"]
@@ -341,6 +530,8 @@ class ProductsService:
             cost_vnd = float(patch.get("cost_vnd") if patch.get("cost_vnd") is not None else row["cost_vnd"])
             if "assigned_shop_id" in patch:
                 rec["assigned_shop_id"] = str(patch.get("assigned_shop_id") or "")
+            if "assigned_campaign_id" in patch:
+                rec["assigned_campaign_id"] = str(patch.get("assigned_campaign_id") or "")
             if "note" in patch:
                 rec["note"] = str(patch.get("note") or "")[:1000]
             if "title" in patch and str(patch["title"]).strip():
@@ -353,6 +544,14 @@ class ProductsService:
                 "UPDATE products SET bucket=?, status=?, industry=?, price_vnd=?, cost_vnd=?, record=?, updated_at=? WHERE id=?",
                 (bucket, status, industry, price_vnd, cost_vnd, json.dumps(rec, ensure_ascii=False), now(), product_id),
             )
+
+        if "assigned_campaign_id" in patch and self.campaigns_service is not None:
+            cid = str(patch.get("assigned_campaign_id") or "")
+            if cid:
+                try:
+                    self.campaigns_service.set_campaign_product_stage(cid, product_id, "chon_mau")
+                except Exception:
+                    pass
         return self.get_product(product_id)
 
     def delete_product(self, product_id: int) -> dict:
@@ -366,13 +565,17 @@ class ProductsService:
         industry: str = "",
         platform: str = "",
         shop_id: str = "",
+        campaign_id: str = "",
+        status: str = "",
         q: str = "",
         sort_by: str = "updated",
-        limit: int = 200,
+        limit: int = 300,
     ) -> dict:
         clauses = []
         params: list = []
-        if bucket and bucket != "all":
+        if bucket == "chua_cham":
+            clauses.append("jev_score IS NULL AND bucket != 'da_loai'")
+        elif bucket and bucket != "all":
             clauses.append("bucket = ?")
             params.append(bucket)
         elif bucket == "all":
@@ -383,6 +586,9 @@ class ProductsService:
         if platform:
             clauses.append("platform = ?")
             params.append(platform)
+        if status:
+            clauses.append("status = ?")
+            params.append(status)
         if q:
             clauses.append("(record LIKE ? OR native_product_id LIKE ?)")
             params.extend([f"%{q}%", f"%{q}%"])
@@ -392,6 +598,7 @@ class ProductsService:
             "sold": "sold_count DESC, gmv_vnd DESC",
             "jev": "COALESCE(jev_score, -1) DESC, sold_count DESC",
             "price_asc": "price_vnd ASC",
+            "price_desc": "price_vnd DESC",
             "updated": "updated_at DESC, id DESC",
         }.get(sort_by, "updated_at DESC, id DESC")
 
@@ -403,26 +610,46 @@ class ProductsService:
                 r[0]: int(r[1])
                 for r in conn.execute("SELECT bucket, COUNT(*) FROM products GROUP BY bucket").fetchall()
             }
+            unscored_cnt = int(conn.execute("SELECT COUNT(*) FROM products WHERE jev_score IS NULL AND bucket != 'da_loai'").fetchone()[0])
+            bucket_counts["chua_cham"] = unscored_cnt
+            all_non_rejected = int(conn.execute("SELECT COUNT(*) FROM products WHERE bucket != 'da_loai'").fetchone()[0])
+            bucket_counts["all"] = all_non_rejected
             industry_counts = {
                 r[0]: int(r[1])
                 for r in conn.execute("SELECT industry, COUNT(*) FROM products WHERE bucket != 'da_loai' GROUP BY industry").fetchall()
             }
 
         items = [self._format_row(r) for r in rows]
-        if shop_id:
+        if shop_id == "__unassigned__":
+            items = [x for x in items if not x.get("assigned_shop_id")]
+        elif shop_id:
             items = [x for x in items if x.get("assigned_shop_id") == shop_id]
+        if campaign_id:
+            items = [x for x in items if x.get("assigned_campaign_id") == campaign_id]
         return {
             "products": items,
             "bucket_counts": bucket_counts,
             "industry_counts": industry_counts,
             "buckets": BUCKETS,
+            "bucket_icons": BUCKET_ICONS,
             "industries": INDUSTRIES,
+            "industry_icons": INDUSTRY_ICONS,
+            "statuses": STATUSES,
         }
 
     def get_product(self, product_id: int) -> dict | None:
         with self.connect() as conn:
             r = conn.execute("SELECT * FROM products WHERE id=?", (product_id,)).fetchone()
         return self._format_row(r) if r else None
+
+    def get_products_by_ids(self, ids: list[int]) -> list[dict]:
+        clean = [int(x) for x in ids if str(x).isdigit()]
+        if not clean:
+            return []
+        placeholders = ",".join("?" for _ in clean)
+        with self.connect() as conn:
+            rows = conn.execute(f"SELECT * FROM products WHERE id IN ({placeholders}) ORDER BY id DESC", tuple(clean)).fetchall()
+        return [self._format_row(r) for r in rows]
 
     def get_dossier(self, product_id: int) -> dict:
         prod = self.get_product(product_id)
@@ -475,7 +702,7 @@ class ProductsService:
         buf.write("\ufeff")
         w = csv.writer(buf, lineterminator="\r\n")
         w.writerow([
-            "ID", "Sàn", "Mã SP Gốc", "Tên Sản phẩm", "Ngành hàng", "Phân loại",
+            "ID", "Sàn", "Mã SP Gốc", "Tên Sản phẩm", "Ngành hàng", "Phân loại", "Trạng thái",
             "Giá bán (VND)", "Giá vốn về tay (VND)", "Lãi ròng/đơn (VND)", "Biên ròng (%)",
             "Tổng đã bán", "Doanh số ước tính (VND)", "Điểm Jev (10)", "Shop gốc", "URL",
         ])
@@ -488,6 +715,7 @@ class ProductsService:
                 safe_csv_cell(p["title"]),
                 INDUSTRIES.get(p["industry"], p["industry"]),
                 BUCKETS.get(p["bucket"], p["bucket"]),
+                STATUSES.get(p["status"], p["status"]),
                 p["price_vnd"],
                 p["cost_vnd"],
                 ec.get("net_profit_per_order_vnd", 0),
@@ -503,6 +731,7 @@ class ProductsService:
     @staticmethod
     def _format_row(r) -> dict:
         rec = json.loads(r["record"] or "{}")
+        ind = r["industry"] if r["industry"] in INDUSTRIES else "khac"
         return {
             "id": r["id"],
             "platform": r["platform"],
@@ -512,13 +741,16 @@ class ProductsService:
             "url": r["canonical_url"],
             "bucket": r["bucket"],
             "bucket_label": BUCKETS.get(r["bucket"], r["bucket"]),
+            "bucket_icon": BUCKET_ICONS.get(r["bucket"], "📦"),
             "status": r["status"],
-            "industry": r["industry"],
-            "industry_label": INDUSTRIES.get(r["industry"], r["industry"]),
+            "status_label": STATUSES.get(r["status"], ""),
+            "industry": ind,
+            "industry_label": INDUSTRIES.get(ind, ind),
+            "industry_icon": INDUSTRY_ICONS.get(ind, "📦"),
             "title": rec.get("title", ""),
             "shop_name": rec.get("shop_name", ""),
             "is_mall": bool(rec.get("is_mall")),
-            "image_url": rec.get("image_url", ""),
+            "image_url": clean_image_url(rec.get("image_url", "")),
             "rating": rec.get("rating", 0.0),
             "price_vnd": r["price_vnd"],
             "cost_vnd": r["cost_vnd"],
@@ -531,6 +763,7 @@ class ProductsService:
             "economics": rec.get("economics") or {},
             "sourcing_summary": rec.get("sourcing_summary"),
             "assigned_shop_id": rec.get("assigned_shop_id", ""),
+            "assigned_campaign_id": rec.get("assigned_campaign_id", ""),
             "sources": rec.get("sources") or [],
             "sightings": rec.get("sightings", 1),
             "note": rec.get("note", ""),
@@ -546,6 +779,8 @@ class ProductsService:
                 industry=(qs.get("industry") or [""])[0],
                 platform=(qs.get("platform") or [""])[0],
                 shop_id=(qs.get("shop_id") or [""])[0],
+                campaign_id=(qs.get("campaign_id") or [""])[0],
+                status=(qs.get("status") or [""])[0],
                 q=(qs.get("q") or [""])[0],
                 sort_by=(qs.get("sort") or ["updated"])[0],
             )
@@ -556,6 +791,21 @@ class ProductsService:
                 return "200 OK", {"saved_count": len(saved), "products": saved, "summary": f"Đã lưu {len(saved)} sản phẩm vào Kho"}
             saved_one = self.upsert_product(body, source=str(body.get("source") or "manual"))
             return "200 OK", {"product": saved_one, "summary": f"Đã lưu SP: {saved_one['title'][:60]}"}
+        if path == "/api/products/enrich-batch" and method == "POST":
+            body = json_object(read_json, env)
+            ids = [int(x) for x in (body.get("ids") or []) if str(x).isdigit()] or None
+            return "200 OK", self.enrich_batch(product_ids=ids, limit=int(body.get("limit") or 12))
+        if path == "/api/products/score-unscored" and method == "POST":
+            with self.connect() as conn:
+                rows = conn.execute("SELECT id FROM products WHERE jev_score IS NULL AND bucket != 'da_loai' ORDER BY id DESC LIMIT 10").fetchall()
+            scored = 0
+            for r in rows:
+                try:
+                    self.score_product_jev(int(r["id"]))
+                    scored += 1
+                except Exception:
+                    break
+            return "200 OK", {"scored_count": scored, "summary": f"Đã chấm điểm Jev cho {scored} sản phẩm chưa chấm"}
         if path == "/api/products/export.csv" and method == "GET":
             data = self.export_csv()
             return "200 OK", Raw(
@@ -575,7 +825,7 @@ class ProductsService:
             return "200 OK", evaluate_seller_economics(body, defaults=cfg["sourcing"])
         if path == "/api/products/bulk" and method == "POST":
             body = json_object(read_json, env)
-            ids = [int(x) for x in (body.get("ids") or [])][:100]
+            ids = [int(x) for x in (body.get("ids") or [])][:150]
             action = text(body.get("action"), "action", 40, required=True)
             updated = 0
             for pid in ids:
@@ -583,12 +833,22 @@ class ProductsService:
                     self.delete_product(pid)
                 elif action == "score_jev":
                     self.score_product_jev(pid)
+                elif action == "enrich":
+                    self.enrich_product(pid)
                 elif action == "set_bucket":
                     self.update_product(pid, {"bucket": body.get("bucket")})
+                elif action == "set_status":
+                    self.update_product(pid, {"status": body.get("status")})
                 elif action == "set_industry":
                     self.update_product(pid, {"industry": body.get("industry")})
+                elif action == "auto_industry":
+                    p = self.get_product(pid)
+                    if p:
+                        self.update_product(pid, {"industry": infer_industry(p["title"])})
                 elif action == "assign_shop":
                     self.update_product(pid, {"assigned_shop_id": body.get("shop_id")})
+                elif action == "assign_campaign":
+                    self.update_product(pid, {"assigned_campaign_id": body.get("campaign_id")})
                 updated += 1
             return "200 OK", {"updated": updated, "action": action, "summary": f"Đã xử lý hàng loạt {updated} SP ({action})"}
 
@@ -605,4 +865,7 @@ class ProductsService:
                 if len(parts) == 4 and parts[3] == "score-jev" and method == "POST":
                     scored = self.score_product_jev(pid)
                     return "200 OK", {"product": scored, "summary": f"Jev chấm {scored['title'][:50]}: {scored['jev_score']}/10"}
+                if len(parts) == 4 and parts[3] == "enrich" and method == "POST":
+                    enriched = self.enrich_product(pid)
+                    return "200 OK", {"product": enriched, "summary": f"Đã cập nhật SP #{pid}: Giá {enriched['price_vnd']:,.0f}đ · Đã bán {enriched['sold_count']}"}
         return None

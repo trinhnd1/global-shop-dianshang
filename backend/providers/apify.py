@@ -178,8 +178,8 @@ class ApifyClient:
                     if exc.code == 400 and "max-total-charge-usd-below-minimum" in body_txt:
                         m = re.search(r"minimum of \$([0-9.]+)", body_txt)
                         if m:
-                            req_min = float(m.group(1)) + 0.0005
-                            if req_min <= max(base_charge * 2.2, 0.08):
+                            req_min = float(m.group(1)) + 0.001
+                            if req_min <= max(base_charge * 4.5, 0.25):
                                 cur_charge = req_min
                                 continue
                     if exc.code == 402 and "remaining usage of $" in body_txt:
@@ -220,16 +220,16 @@ class ApifyClient:
 
     # --- Shopee VN Search / Product / Shop -----------------------------------
 
-    def search_shopee(self, tokens: list[str], query: str, limit: int = 12, max_charge_usd: float = 0.06) -> tuple[str, list[dict]]:
+    def search_shopee(self, tokens: list[str], query: str, limit: int = 12, max_charge_usd: float = 0.08) -> tuple[str, list[dict]]:
         lim = max(1, min(40, int(limit)))
         search_url = f"https://shopee.vn/search?keyword={urllib.parse.quote(query)}"
         candidates = [
-            ("xtracto~shopee-search", {"keyword": query, "country": "VN", "maxItems": lim}),
             ("lergassy~shopee-scraper", {"search": query, "country": "vn", "maxItems": lim}),
+            ("xtracto~shopee-search", {"keyword": query, "country": "VN", "maxItems": lim}),
             ("gio21~shopee-scraper", {"startUrls": [{"url": search_url}], "maxItems": lim}),
         ]
         slug, rows = self._run_actor_ring(tokens, candidates, max_charge_usd=max_charge_usd)
-        return slug, [self.normalize_shopee_item(r) for r in rows[:lim]]
+        return slug, [self.normalize_shopee_item(r) for r in rows[:lim] if isinstance(r, dict)]
 
     def scrape_shopee_shop(self, tokens: list[str], shop_url_or_name: str, limit: int = 20, max_charge_usd: float = 0.06) -> tuple[str, list[dict]]:
         lim = max(1, min(50, int(limit)))
@@ -325,9 +325,17 @@ class ApifyClient:
             url = f"https://shop.tiktok.com/view/product/{pid}?region=VN"
         img = ""
         raw_img = r.get("cover") or r.get("image") or r.get("thumbnail") or r.get("images")
-        if isinstance(raw_img, list) and raw_img:
-            img = str(raw_img[0] if isinstance(raw_img[0], str) else raw_img[0].get("url", ""))
-        elif isinstance(raw_img, str):
+        if isinstance(raw_img, dict):
+            ulist = raw_img.get("url_list") or raw_img.get("thumb_url_list") or []
+            img = str(ulist[0] if isinstance(ulist, list) and ulist else (raw_img.get("url") or ""))
+        elif isinstance(raw_img, list) and raw_img:
+            first_im = raw_img[0]
+            if isinstance(first_im, dict):
+                ulist = first_im.get("url_list") or first_im.get("thumb_url_list") or []
+                img = str(ulist[0] if isinstance(ulist, list) and ulist else (first_im.get("url") or ""))
+            else:
+                img = str(first_im)
+        elif isinstance(raw_img, str) and raw_img.startswith("http"):
             img = raw_img
         rating = float(r.get("rating") or r.get("star") or 0.0)
         return {

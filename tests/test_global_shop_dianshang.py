@@ -114,8 +114,8 @@ class GlobalShopDianshangE2ETest(unittest.TestCase):
     def test_01_security_version_masking_and_tailscale_guards(self):
         st, health = self.req("GET", "/api/health")
         self.assertEqual(st, 200)
-        self.assertEqual(health["version"], "1.0.1")
-        self.assertEqual(__version__, "1.0.1")
+        self.assertEqual(health["version"], "1.0.2")
+        self.assertEqual(__version__, "1.0.2")
 
         # Tailscale MagicDNS & CGNAT allowed
         st_ts, _ = self.req("GET", "/api/health", headers={"Host": "nguyens-mac-mini.tail213fd3.ts.net:8999"})
@@ -285,7 +285,44 @@ class GlobalShopDianshangE2ETest(unittest.TestCase):
         self.assertEqual(clone_res["clone"]["segments"][0]["image_prompt_json"]["engine"], "Nano Banana 2.1")
         self.assertEqual(clone_res["clone"]["segments"][0]["video_prompt_json"]["engine"], "Gemini Omni 1.2 Flash")
 
-        # Activity History Logs GS-0001+
+        # Activity History Logs GS-0001+ & Full Job Detail Hydration
+        def _sample_job(ctx):
+            ctx.log("Bước 1: Đã quét 2 sản phẩm thử nghiệm")
+            return {"discovered_count": 1, "product_ids": [pid], "summary": "Hoàn tất job mẫu"}
+
+        j_started = self.api.jobs.start_job("hunt", "Job Săn Mẫu Kiểm Thử", _sample_job, estimated_cost_usd=0.01, budget_limit_usd=0.2)
+        import time
+        for _ in range(20):
+            j_cur = self.api.jobs.get_job(j_started["id"])
+            if j_cur and j_cur["status"] == "completed":
+                break
+            time.sleep(0.05)
+
+        st_jd, job_hist = self.req("GET", f"/api/history-logs/job_{j_started['id']}")
+        self.assertEqual(st_jd, 200)
+        self.assertTrue(any("Bước 1" in line for line in job_hist["step_logs"]))
+        self.assertEqual(len(job_hist["resolved_results"]["products"]), 1)
+        self.assertEqual(job_hist["resolved_results"]["products"][0]["id"], pid)
+
+        # Verify low Jev score NEVER hides newly fetched products into da_loai automatically
+        class LowScoreJev(FakeJev):
+            def score_seller_product(self, api_key: str, product: dict, model: str = "", base_url: str = "") -> dict:
+                res = super().score_seller_product(api_key, product, model, base_url)
+                res["overall_10"] = 3.6
+                return res
+
+        self.api.products.jev = LowScoreJev()
+        _, p_low = self.req("POST", "/api/products", {"title": "Đồng hồ thông minh test hiển thị", "platform": "tiktok_shop", "price_vnd": 0, "sold_count": 0})
+        low_id = p_low["product"]["id"]
+        _, p_low_scored = self.req("POST", f"/api/products/{low_id}/score-jev", {})
+        self.assertEqual(p_low_scored["product"]["bucket"], "cho_danh_gia")
+        _, all_kho = self.req("GET", "/api/products?bucket=all")
+        self.assertTrue(any(x["id"] == low_id for x in all_kho["products"]))
+
+        # Explicit user rejection moves to da_loai
+        _, p_rej = self.req("PATCH", f"/api/products/{low_id}", {"status": "bo_qua"})
+        self.assertEqual(p_rej["bucket"], "da_loai")
+
         _, hist = self.req("GET", "/api/history-logs")
         self.assertTrue(len(hist["logs"]) >= 5)
         self.assertTrue(hist["logs"][0]["gs_code"].startswith("GS-"))

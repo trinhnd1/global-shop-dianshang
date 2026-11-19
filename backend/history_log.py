@@ -1,4 +1,4 @@
-"""Unified Activity & Job History Log with monotonic GS-XXXX codes, secret scrubbing, CSV export & Telegram sync."""
+"""Unified Activity & Job History Log with monotonic GS-XXXX codes, full Job hydration, resolved results, CSV export & Telegram sync."""
 import csv
 import io
 import json
@@ -16,6 +16,21 @@ INLINE_SECRET_RE = re.compile(
 )
 LOCAL_PATH_RE = re.compile(r"/Users/[^\s\"',]+")
 
+MODULE_LABELS = {
+    "hunt": "🎯 Săn SP Bán chạy",
+    "keywords": "🔑 Tra cứu Từ khoá",
+    "watches": "🔭 Theo dõi Từ khoá/SP/Shop",
+    "shops": "🏪 Kho Shop & Quét Shop",
+    "products": "📦 Kho & Phân loại SP",
+    "china_sourcing": "🇨🇳 Nguồn 1688/PDD/Taobao",
+    "spy": "🕵️ Soi SP & Fanpage",
+    "videos": "🎬 Đánh giá & Clone Video",
+    "campaigns": "🚀 Chiến dịch & Doanh số",
+    "settings": "⚙️ Cài đặt & Kết nối",
+    "mcp": "🔌 Cổng MCP Agent",
+    "job": "⏱ Tiến trình nền",
+}
+
 
 def format_gs_code(seq_no: int | None) -> str:
     if not seq_no:
@@ -31,12 +46,12 @@ def scrub_for_history(obj, depth: int = 0):
     if isinstance(obj, str):
         s = INLINE_SECRET_RE.sub("[REDACTED_SECRET]", obj)
         s = LOCAL_PATH_RE.sub("[LOCAL_PATH]", s)
-        return s[:1200] if len(s) > 1200 else s
+        return s[:1500] if len(s) > 1500 else s
     if isinstance(obj, list):
-        return [scrub_for_history(x, depth + 1) for x in obj[:30]]
+        return [scrub_for_history(x, depth + 1) for x in obj[:40]]
     if isinstance(obj, dict):
         out = {}
-        for k, v in list(obj.items())[:45]:
+        for k, v in list(obj.items())[:50]:
             ks = str(k)
             if SENSITIVE_KEY_RE.search(ks):
                 out[ks] = "[REDACTED]"
@@ -49,8 +64,8 @@ def scrub_for_history(obj, depth: int = 0):
 def classify_http_module(path: str) -> tuple[str, str] | None:
     if path.startswith("/api/settings") or path.startswith("/api/providers/") or path.startswith("/api/connections/"):
         return ("settings", "Cập nhật cấu hình / kết nối")
-    if path.startswith("/api/hunt/"):
-        return ("hunt", "Săn sản phẩm bán chạy")
+    if path.startswith("/api/hunt/") or path.startswith("/api/creators/"):
+        return ("hunt", "Săn sản phẩm / Tìm Creator")
     if path.startswith("/api/keywords/"):
         return ("keywords", "Tra cứu từ khoá Shopee / TikTok")
     if path.startswith("/api/watches"):
@@ -76,6 +91,8 @@ class HistoryLogService:
     def __init__(self, connect):
         self.connect = connect
         self.telegram_sink = None
+        self.jobs_service = None
+        self.products_service = None
 
     def _next_seq(self, conn) -> int:
         conn.execute("UPDATE history_log_sequence SET last_seq = last_seq + 1 WHERE id = 1")
@@ -122,7 +139,6 @@ class HistoryLogService:
                     ),
                 )
             else:
-                # Ensure unique lid if rapid synchronous calls happen in same second
                 base_lid = lid
                 suffix = 1
                 while conn.execute("SELECT 1 FROM activity_history_logs WHERE log_id = ?", (lid,)).fetchone():
@@ -167,22 +183,26 @@ class HistoryLogService:
             status="running",
             cost_usd=est_usd,
             summary=f"Đang chạy tiến trình ({kind})",
-            payload=meta,
+            payload={"kind": kind, "title": title, "job_id": job_id, **meta},
             log_id=f"job_{job_id}",
             notify_telegram=True,
         )
         return ev.get("gs_code", "")
 
     def sync_job_finished(self, job_id: str, status: str, duration_ms: int, actual_usd: float, summary: str, payload: dict):
+        with self.connect() as conn:
+            row = conn.execute("SELECT module, title FROM activity_history_logs WHERE log_id=?", (f"job_{job_id}",)).fetchone()
+        mod = (row["module"] if row else None) or payload.get("kind") or "hunt"
+        ttl = (row["title"] if row else None) or payload.get("title") or summary or f"Tiến trình {job_id}"
         self.record_event(
-            module=payload.get("kind") or "job",
+            module=mod,
             action_type="job_run",
-            title=payload.get("title") or summary or f"Tiến trình {job_id}",
+            title=ttl,
             status=status,
             duration_ms=duration_ms,
             cost_usd=actual_usd,
             summary=summary,
-            payload=payload,
+            payload={"job_id": job_id, **payload},
             log_id=f"job_{job_id}",
             notify_telegram=True,
         )
@@ -203,13 +223,15 @@ class HistoryLogService:
             "/api/providers/telegram/test",
             "/api/providers/telegram/check",
             "/api/hunt/estimate",
+            "/api/keywords/suggest",
+            "/api/sourcing/calc",
+            "/api/products/economics-calc",
             "/api/chat/send",
         ):
             return
         cls = classify_http_module(path)
         if cls is None:
             return
-        # Avoid duplicate log row if endpoint already spawned a JobManager job
         if isinstance(res_body, dict) and (str(res_body.get("id", "")).startswith("job_") or res_body.get("job_id")):
             return
         module, label = cls
@@ -231,19 +253,33 @@ class HistoryLogService:
             notify_telegram=True,
         )
 
-    def list_logs(self, module: str = "", status: str = "", q: str = "", limit: int = 80) -> list[dict]:
+    def list_logs(
+        self,
+        module: str = "",
+        status: str = "",
+        q: str = "",
+        date_from: str = "",
+        date_to: str = "",
+        limit: int = 100,
+    ) -> list[dict]:
         clauses = []
         params: list = []
-        if module:
+        if module and module != "all":
             clauses.append("module = ?")
             params.append(module)
-        if status:
+        if status and status != "all":
             clauses.append("status = ?")
             params.append(status)
+        if date_from:
+            clauses.append("substr(created_at, 1, 10) >= ?")
+            params.append(date_from[:10])
+        if date_to:
+            clauses.append("substr(created_at, 1, 10) <= ?")
+            params.append(date_to[:10])
         if q:
-            clauses.append("(title LIKE ? OR summary LIKE ? OR CAST(seq_no AS TEXT) LIKE ?)")
-            q_clean = q.upper().replace("GS-", "").lstrip("0") or q
-            params.extend([f"%{q}%", f"%{q}%", f"%{q_clean}%"])
+            clauses.append("(title LIKE ? OR summary LIKE ? OR payload_json LIKE ? OR CAST(seq_no AS TEXT) = ?)")
+            q_clean = q.upper().replace("GS-", "").replace("#", "").lstrip("0") or q
+            params.extend([f"%{q}%", f"%{q}%", f"%{q}%", q_clean])
         where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
         params.append(min(250, max(1, int(limit))))
         with self.connect() as conn:
@@ -251,7 +287,27 @@ class HistoryLogService:
                 f"SELECT * FROM activity_history_logs {where} ORDER BY seq_no DESC LIMIT ?",
                 tuple(params),
             ).fetchall()
-        return [self._format_row(r, include_payload=False) for r in rows]
+        return [self._format_row(r, include_detail=False) for r in rows]
+
+    def summary_kpis(self) -> dict:
+        with self.connect() as conn:
+            r = conn.execute(
+                """
+                SELECT COUNT(*) AS total,
+                       SUM(CASE WHEN status='completed' THEN 1 ELSE 0 END) AS completed,
+                       SUM(CASE WHEN status='running' THEN 1 ELSE 0 END) AS running,
+                       SUM(CASE WHEN status='failed' THEN 1 ELSE 0 END) AS failed,
+                       COALESCE(SUM(cost_usd), 0.0) AS total_cost_usd
+                FROM activity_history_logs
+                """
+            ).fetchone()
+        return {
+            "total": int(r["total"] or 0),
+            "completed": int(r["completed"] or 0),
+            "running": int(r["running"] or 0),
+            "failed": int(r["failed"] or 0),
+            "total_cost_usd": round(float(r["total_cost_usd"] or 0.0), 5),
+        }
 
     def get_log(self, id_or_gs: str) -> dict | None:
         raw = (id_or_gs or "").strip()
@@ -260,11 +316,111 @@ class HistoryLogService:
         with self.connect() as conn:
             if raw.upper().startswith("GS-") and raw[3:].isdigit():
                 row = conn.execute("SELECT * FROM activity_history_logs WHERE seq_no = ?", (int(raw[3:]),)).fetchone()
-            elif raw.isdigit():
-                row = conn.execute("SELECT * FROM activity_history_logs WHERE seq_no = ?", (int(raw),)).fetchone()
+            elif raw.lstrip("#").isdigit():
+                row = conn.execute("SELECT * FROM activity_history_logs WHERE seq_no = ?", (int(raw.lstrip("#")),)).fetchone()
             else:
                 row = conn.execute("SELECT * FROM activity_history_logs WHERE log_id = ?", (raw,)).fetchone()
-        return self._format_row(row, include_payload=True) if row else None
+        return self._format_row(row, include_detail=True) if row else None
+
+    def _hydrate_job_and_results(self, row, payload: dict) -> dict:
+        lid = str(row["log_id"] or "")
+        step_logs: list[str] = []
+        error_text = ""
+        job_detail = None
+
+        job_id = payload.get("job_id") or (lid[4:] if lid.startswith("job_") else "")
+        if job_id and self.jobs_service is not None:
+            job_detail = self.jobs_service.get_job(str(job_id))
+            if job_detail:
+                step_logs = list(job_detail.get("logs") or [])
+                error_text = str(job_detail.get("error") or "")
+
+        resp = payload.get("response") if isinstance(payload.get("response"), dict) else {}
+        job_res = payload.get("result") if isinstance(payload.get("result"), dict) else ((job_detail or {}).get("meta", {}).get("result") or {})
+        if not error_text and str(row["status"]) == "failed":
+            error_text = str(resp.get("detail") or row["summary"] or "")
+
+        # Collect touched/discovered product IDs to hydrate live product cards/rows
+        pids: list[int] = []
+        for cand_list in (
+            job_res.get("product_ids"),
+            resp.get("saved_product_ids"),
+            (payload.get("request") or {}).get("ids") if isinstance(payload.get("request"), dict) else None,
+        ):
+            if isinstance(cand_list, list):
+                for x in cand_list:
+                    if str(x).isdigit() and int(x) not in pids:
+                        pids.append(int(x))
+        if isinstance(resp.get("product"), dict) and resp["product"].get("id"):
+            pid_one = int(resp["product"]["id"])
+            if pid_one not in pids:
+                pids.append(pid_one)
+        if isinstance(resp.get("products"), list):
+            for p in resp["products"]:
+                if isinstance(p, dict) and p.get("id") and int(p["id"]) not in pids:
+                    pids.append(int(p["id"]))
+
+        hydrated_products = self.products_service.get_products_by_ids(pids) if (pids and self.products_service) else []
+        # Fallback to inline items if not in pids
+        if not hydrated_products and isinstance(resp.get("items"), list) and resp.get("keyword"):
+            hydrated_products = [x for x in resp["items"] if isinstance(x, dict) and x.get("title")]
+        if not hydrated_products and isinstance(resp.get("items"), list) and resp.get("shop_name"):
+            hydrated_products = [x for x in resp["items"] if isinstance(x, dict) and x.get("title")]
+
+        china_items = resp.get("items") if (row["module"] == "china_sourcing" and isinstance(resp.get("items"), list)) else []
+        creators = resp.get("creators") if isinstance(resp.get("creators"), list) else []
+        watch_diff = resp.get("diff") if isinstance(resp.get("diff"), dict) else None
+
+        kpis = []
+        if job_detail:
+            kpis.append({"label": "Trạng thái Job", "value": job_detail["status"]})
+            kpis.append({"label": "Ngân sách / Thực chi", "value": f"${job_detail['actual_cost_usd']:.4f} / ${job_detail['budget_limit_usd']:.2f}"})
+        if hydrated_products:
+            kpis.append({"label": "Sản phẩm thu được", "value": f"{len(hydrated_products)} SP"})
+        if job_res.get("scored_jev_count") is not None:
+            kpis.append({"label": "Đã chấm Jev AI", "value": f"{job_res['scored_jev_count']} SP"})
+        if payload.get("channels"):
+            kpis.append({"label": "Kênh quét", "value": ", ".join(payload["channels"])})
+        if watch_diff:
+            kpis.append({"label": "Tổng SP / SP Mới", "value": f"{watch_diff.get('total_count', 0)} SP (+{watch_diff.get('new_items_count', 0)} mới)"})
+
+        jump_target = None
+        if hydrated_products:
+            jump_target = {"tab": "results", "label": f"📦 Mở Kho & Phân loại ({len(hydrated_products)} SP)"}
+        elif china_items:
+            jump_target = {"tab": "sourcing", "label": "🇨🇳 Mở Kho Nguồn hàng TQ"}
+        elif watch_diff:
+            jump_target = {"tab": "watches", "label": "🔭 Mở Theo dõi & Diff"}
+
+        request_summary = payload.get("request") if "request" in payload else {k: v for k, v in payload.items() if k not in ("result", "response")}
+        result_summary = job_res or resp or {"summary": row["summary"]}
+
+        gs_code = format_gs_code(row["seq_no"])
+        bug_report = (
+            f"[{gs_code}] {row['title']}\n"
+            f"Module: {row['module']} | Status: {row['status']} | Duration: {row['duration_ms']}ms | Cost: ${row['cost_usd']}\n"
+            f"Summary: {row['summary']}\n"
+            + (f"Error: {error_text}\n" if error_text else "")
+            + (f"Logs:\n" + "\n".join(step_logs[-15:]) if step_logs else "")
+        )
+
+        return {
+            "step_logs": step_logs,
+            "error_text": error_text,
+            "job": job_detail,
+            "request_summary": request_summary,
+            "result_summary": result_summary,
+            "bug_report_text": bug_report,
+            "resolved_results": {
+                "headline": row["summary"],
+                "kpis": kpis,
+                "products": hydrated_products,
+                "china_items": china_items,
+                "creators": creators,
+                "watch_diff": watch_diff,
+                "jump_target": jump_target,
+            },
+        }
 
     def update_note(self, id_or_gs: str, note: str) -> dict:
         item = self.get_log(id_or_gs)
@@ -297,13 +453,14 @@ class HistoryLogService:
             ])
         return buf.getvalue().encode("utf-8")
 
-    @staticmethod
-    def _format_row(r, include_payload: bool = False) -> dict:
+    def _format_row(self, r, include_detail: bool = False) -> dict:
+        mod = r["module"]
         d = {
             "log_id": r["log_id"],
             "seq_no": r["seq_no"],
             "gs_code": format_gs_code(r["seq_no"]),
-            "module": r["module"],
+            "module": mod,
+            "module_label": MODULE_LABELS.get(mod, mod),
             "action_type": r["action_type"],
             "title": r["title"],
             "status": r["status"],
@@ -315,8 +472,10 @@ class HistoryLogService:
             "created_at": r["created_at"],
             "updated_at": r["updated_at"],
         }
-        if include_payload:
-            d["payload"] = json.loads(r["payload_json"] or "{}")
+        if include_detail:
+            payload = json.loads(r["payload_json"] or "{}")
+            d["payload"] = payload
+            d.update(self._hydrate_job_and_results(r, payload))
         return d
 
     def dispatch(self, path: str, method: str, env, read_json):
@@ -325,7 +484,13 @@ class HistoryLogService:
             mod = (qs.get("module") or [""])[0]
             st = (qs.get("status") or [""])[0]
             q = (qs.get("q") or [""])[0]
-            return "200 OK", {"logs": self.list_logs(module=mod, status=st, q=q)}
+            dfrom = (qs.get("date_from") or [""])[0]
+            dto = (qs.get("date_to") or [""])[0]
+            return "200 OK", {
+                "logs": self.list_logs(module=mod, status=st, q=q, date_from=dfrom, date_to=dto),
+                "kpis": self.summary_kpis(),
+                "modules": MODULE_LABELS,
+            }
         if path == "/api/history-logs/export.csv" and method == "GET":
             data = self.export_csv()
             return "200 OK", Raw(

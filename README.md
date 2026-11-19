@@ -1,4 +1,4 @@
-# Global Shop Dianshang by Peng (`v1.0.1`)
+# Global Shop Dianshang by Peng (`v1.0.2`)
 
 Hệ thống **Nghiên cứu Sản phẩm Tiềm năng để Bán thương mại**, **Theo dõi Từ khoá / Sản phẩm / Shop (Shopee & TikTok Shop)**, **Tìm Nguồn hàng Nội địa Trung Quốc (1688 · Taobao/Tmall · Pinduoduo · Douyin)** và **Quản trị Chiến dịch Ngành hàng & Lợi nhuận Nhà bán** — xây dựng trên nền tảng gọn nhẹ chuẩn Peng (100% Python 3 Standard Library + SQLite WAL + macOS Keychain SecretStore + Vanilla HTML/CSS/JS SPA, hỗ trợ **Loopback** và **Tailscale**).
 

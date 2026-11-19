@@ -125,7 +125,17 @@ class Application:
         self.history_logs.telegram_sink = self.telegram_bot
 
         self.chrome_hub = DedicatedChromeHub(self.root, connect=self.connect)
-        self.products = ProductsService(self.connect, self.secrets, jev_client=self.jev, jobs=self.jobs, ledger=self.ledger)
+        self.products = ProductsService(
+            self.connect,
+            self.secrets,
+            jev_client=self.jev,
+            jobs=self.jobs,
+            ledger=self.ledger,
+            apify=self.apify,
+            treg=self.treg,
+        )
+        self.history_logs.jobs_service = self.jobs
+        self.history_logs.products_service = self.products
         self.keywords = KeywordResearchService(self.connect, self.secrets, self.products, apify=self.apify, treg=self.treg, jev=self.jev)
         self.shops = ShopsService(self.connect, self.secrets, self.products, apify=self.apify, treg=self.treg, jev=self.jev)
         self.watches = WatchesService(
@@ -152,6 +162,7 @@ class Application:
             jev=self.jev,
         )
         self.campaigns = CampaignsAndSalesService(self.connect, self.secrets, self.products, self.shops, telegram_bot=self.telegram_bot)
+        self.products.campaigns_service = self.campaigns
         self.daily_brief_daemon = DailyBriefingDaemon(self.campaigns)
         self.mcp_gateway = McpGatewayService(self, web_port=web_port)
 
