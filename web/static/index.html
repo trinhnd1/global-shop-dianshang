@@ -11,22 +11,23 @@
     <aside class="side" id="sidebar">
       <div class="brand">
         <h1>🏬 Global Shop Dianshang</h1>
-        <div class="sub">Nghiên cứu SP Bán chạy · Từ khoá · Nguồn TQ · Kho Shop (<span id="sideVer">v1.0.2</span>)</div>
+        <div class="sub">Nghiên cứu SP Bán chạy · Từ khoá · Nguồn TQ · Shop của tôi (<span id="sideVer">v1.0.3</span>)</div>
       </div>
 
-      <div class="nav-sec">1 · Nghiên cứu &amp; Theo dõi</div>
+      <div class="nav-sec">1 · Nghiên cứu &amp; Shop của tôi</div>
       <button class="nav-btn active" data-tab="hunt" data-route="/san-sp"><span>🔎 Săn SP Bán chạy</span></button>
       <button class="nav-btn" data-tab="keywords" data-route="/tu-khoa"><span>🔑 Tra cứu Từ khoá Shopee/TT</span></button>
       <button class="nav-btn" data-tab="watches" data-route="/theo-doi"><span>🔭 Theo dõi Từ khoá · SP · Shop</span><em class="ncount" id="cntWatches">0</em></button>
       <button class="nav-btn" data-tab="shopspy" data-route="/soi-shop"><span>🏪 Quét SP theo Shop &amp; Creator</span></button>
+      <button class="nav-btn" data-tab="myshops" data-route="/shop-cua-toi"><span>🏠 Shop của tôi (TT · Shopee · Fanpage)</span><em class="ncount" id="cntMyShops">0</em></button>
 
       <div class="nav-sec">2 · Kho &amp; Phân loại SP</div>
       <div id="navKho"></div>
       <div class="nav-sec sub-sec">2B · Phân loại Ngành hàng</div>
       <div id="navIndustries"></div>
-      <div class="nav-sec sub-sec" style="color:#fcd34d">2C · Nguồn hàng TQ &amp; Kho Shop</div>
+      <div class="nav-sec sub-sec" style="color:#fcd34d">2C · Nguồn hàng TQ &amp; Shop Đối thủ</div>
       <button class="nav-btn" data-tab="sourcing" data-route="/nguon-hang-tq"><span>🇨🇳 Nguồn 1688 · PDD · Taobao</span><em class="ncount" id="cntSourcing">0</em></button>
-      <button class="nav-btn" data-tab="shops" data-route="/kho-shop"><span>🏬 Kho Shop (Shop mình &amp; Đối thủ)</span><em class="ncount" id="cntShops">0</em></button>
+      <button class="nav-btn" data-tab="shops" data-route="/kho-shop"><span>🎯 Kho Shop Đối thủ Mẫu</span><em class="ncount" id="cntShops">0</em></button>
 
       <div class="nav-sec">3 · Soi Đối thủ &amp; Video AI</div>
       <button class="nav-btn" data-tab="spy" data-route="/soi-san-pham"><span>🕵️ Soi Link SP &amp; Fanpage Ads</span></button>
@@ -46,9 +47,10 @@
         <div class="row">
           <button class="btn btn-sm menu-btn" data-action="toggle-menu">☰ Menu</button>
           <span class="badge green" id="topStatusBadge">🟢 Sẵn sàng</span>
-          <span class="badge blue" id="topVerBadge">📦 v1.0.2</span>
+          <span class="badge blue" id="topVerBadge">📦 v1.0.3</span>
         </div>
         <div class="row">
+          <button class="btn btn-sm btn-blue" data-action="jump-myshops">🏠 Shop của tôi (<span id="topMyShopsCnt">0</span>)</button>
           <button class="btn btn-sm" data-action="jump-kho-all">🗂 Kho SP (<span id="topVaultCnt">0</span>)</button>
           <button class="btn btn-sm btn-gold" data-action="jump-history">📜 Nhật ký Công việc</button>
         </div>
@@ -336,7 +338,8 @@
                 <button class="btn btn-sm" data-action="bulk-apply" data-bact="auto_industry">🪄 Tự nhận diện Ngành</button>
 
                 <select id="bulkShopSel" style="width:auto"><option value="">— Gỡ Shop —</option></select>
-                <button class="btn btn-sm btn-blue" data-action="bulk-apply" data-bact="assign_shop">🏬 Gắn Shop</button>
+                <button class="btn btn-sm btn-blue" data-action="bulk-apply" data-bact="assign_shop">🏠 Gắn Shop của tôi</button>
+                <button class="btn btn-sm btn-pri" data-action="bulk-apply" data-bact="auto_assign_shop" title="Tự động khớp sản phẩm vào Shop TikTok / Shopee / Fanpage của tôi theo ngành hàng & tag ngách">🤖 Tự chọn Shop phù hợp</button>
 
                 <button class="btn btn-sm btn-pri" data-action="bulk-apply" data-bact="enrich">🔄 Lấy Giá &amp; Đã bán</button>
                 <button class="btn btn-sm btn-pri" data-action="bulk-apply" data-bact="score_jev">🤖 Chấm Jev lô này</button>
@@ -410,42 +413,148 @@
           </div>
         </section>
 
-        <!-- VIEW 2.3: KHO SHOP -->
+        <!-- VIEW 1.5: SHOP CỦA TÔI (TIKTOK · SHOPEE · FACEBOOK FANPAGE · ĐA KÊNH) -->
+        <section class="view" id="view-myshops">
+          <div class="page-head">
+            <div>
+              <h2>🏠 Shop của tôi — Quản lý Shop TikTok, Shopee, Facebook Fanpage &amp; Đa kênh</h2>
+              <p>Lưu trữ toàn bộ <strong>Gian hàng TikTok Shop, Shopee, Facebook Fanpage, Kênh TikTok vệ tinh, Lazada, Instagram, Website</strong> của bạn — gắn ngành hàng, tag ngách sản phẩm, chiến dịch và tự động phân bổ SP từ Kho về từng Shop.</p>
+            </div>
+            <div class="row">
+              <button class="btn btn-sm btn-pri" data-action="myshop-auto-match">🤖 Tự động phân bổ SP trong Kho vào Shop của tôi</button>
+              <button class="btn btn-sm" data-action="myshop-refresh">↻ Làm mới</button>
+            </div>
+          </div>
+
+          <div class="kpi-grid" id="myShopsKpiStrip"></div>
+
+          <div class="grid2" style="align-items:start">
+            <!-- Left Form: Add / Edit My Shop -->
+            <div class="card" id="myShopFormCard">
+              <h3 id="msFormHeading">➕ Thêm Shop TikTok · Shopee · Facebook Fanpage mới</h3>
+              <input type="hidden" id="msEditId" value="" />
+
+              <div class="field">
+                <label>Link Shop / Link Facebook Fanpage / Kênh hoặc <code>@username</code> (tự nhận diện nền tảng khi dán link)</label>
+                <input type="text" id="msUrl" placeholder="VD: https://www.tiktok.com/@shopcuatoi, https://shopee.vn/shopcuatoi, https://www.facebook.com/fanpagecuatoi" />
+              </div>
+
+              <div class="grid3">
+                <div class="field">
+                  <label>Nền tảng kênh bán</label>
+                  <select id="msPlatform">
+                    <option value="tiktok_shop">🛒 TikTok Shop</option>
+                    <option value="shopee">🛍 Shopee VN</option>
+                    <option value="facebook_fanpage">📘 Facebook Fanpage</option>
+                    <option value="tiktok_channel">🎵 Kênh TikTok (Giỏ hàng)</option>
+                    <option value="lazada">📦 Lazada VN</option>
+                    <option value="instagram">📸 Instagram Shop</option>
+                    <option value="website">🌐 Website / Landing Page</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label>Tên hiển thị của Shop / Fanpage</label>
+                  <input type="text" id="msName" placeholder="VD: Gia Dụng Peng Official" />
+                </div>
+                <div class="field">
+                  <label>Trạng thái vận hành</label>
+                  <select id="msStatus">
+                    <option value="active">🟢 Đang hoạt động</option>
+                    <option value="warming">🟡 Đang nuôi / Setup</option>
+                    <option value="paused">⏸ Tạm nghỉ</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="grid2">
+                <div class="field">
+                  <label>Ngành hàng chủ lực của Shop</label>
+                  <select id="msIndustry"></select>
+                </div>
+                <div class="field">
+                  <label>Phí sàn / Chi phí nền tảng mặc định (%)</label>
+                  <input type="number" id="msFee" value="11.5" min="0" max="60" step="0.5" />
+                </div>
+              </div>
+
+              <div class="field">
+                <label>🏷️ Tag ngách sản phẩm của Shop / Fanpage (cách nhau dấu phẩy — dùng để tự khớp SP trong Kho)</label>
+                <input type="text" id="msNicheTags" placeholder="VD: đồng hồ thông minh, máy xay, kệ nhà tắm, đèn decor" />
+                <div class="chips" id="msSuggestedTags" style="margin-top:6px">
+                  <button type="button" class="chip" data-action="ms-add-tag" data-tag="Gia dụng nhà bếp">+ Gia dụng nhà bếp</button>
+                  <button type="button" class="chip" data-action="ms-add-tag" data-tag="Đồng hồ thông minh">+ Đồng hồ thông minh</button>
+                  <button type="button" class="chip" data-action="ms-add-tag" data-tag="Đèn & Decor">+ Đèn &amp; Decor</button>
+                  <button type="button" class="chip" data-action="ms-add-tag" data-tag="Mỹ phẩm & Chăm sóc da">+ Mỹ phẩm &amp; Chăm sóc da</button>
+                  <button type="button" class="chip" data-action="ms-add-tag" data-tag="Phụ kiện công nghệ">+ Phụ kiện công nghệ</button>
+                  <button type="button" class="chip" data-action="ms-add-tag" data-tag="Đồ mẹ & bé">+ Đồ mẹ &amp; bé</button>
+                  <button type="button" class="chip" data-action="ms-add-tag" data-tag="Làm vườn & Hạt giống">+ Làm vườn &amp; Hạt giống</button>
+                </div>
+              </div>
+
+              <div class="field">
+                <label>🚀 Gắn Shop vào Chiến dịch Ngành hàng (bấm để chọn một hoặc nhiều chiến dịch)</label>
+                <div class="chips" id="msCampaignsPicker"></div>
+              </div>
+
+              <div class="field">
+                <label>📝 Ghi chú vận hành (tệp khách hàng, kho gửi hàng, tài khoản chạy Ads, khung giờ đăng/live...)</label>
+                <textarea id="msNote" rows="2" placeholder="VD: Fanpage chuyên chạy Ads chuyển đổi tệp 25-45 tuổi, kho Hà Nội..."></textarea>
+              </div>
+
+              <div class="row">
+                <button class="btn btn-pri" data-action="myshop-save" id="btnSaveMyShop">💾 Lưu vào Shop của tôi</button>
+                <button class="btn" data-action="myshop-cancel-edit" id="btnCancelMyShopEdit" style="display:none">✕ Huỷ chế độ sửa</button>
+              </div>
+            </div>
+
+            <!-- Right List: My Shops Vault -->
+            <div class="card">
+              <div class="row" style="justify-content:space-between;margin-bottom:10px">
+                <h3 style="margin:0">📋 Danh sách Shop của tôi (<span id="msTotalLbl">0</span> kênh bán)</h3>
+                <input type="text" id="msSearchQ" placeholder="🔍 Tìm tên shop, fanpage, @handle, tag..." style="max-width:240px" />
+              </div>
+              <div class="chips" id="msPlatFilterChips" style="margin-bottom:12px">
+                <button class="chip active" data-action="ms-filter-plat" data-plat="">🗂 Tất cả</button>
+                <button class="chip" data-action="ms-filter-plat" data-plat="tiktok_shop">🛒 TikTok Shop</button>
+                <button class="chip" data-action="ms-filter-plat" data-plat="shopee">🛍 Shopee</button>
+                <button class="chip" data-action="ms-filter-plat" data-plat="facebook_fanpage">📘 Facebook Fanpage</button>
+                <button class="chip" data-action="ms-filter-plat" data-plat="tiktok_channel">🎵 Kênh TikTok</button>
+                <button class="chip" data-action="ms-filter-plat" data-plat="lazada">📦 Lazada</button>
+              </div>
+              <div id="myShopsListBox"></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- VIEW 2.3: KHO SHOP ĐỐI THỦ MẪU -->
         <section class="view" id="view-shops">
           <div class="page-head">
             <div>
-              <h2>🏬 Phần 2.3 · Kho Shop (Quản lý Shop Của Mình &amp; Shop Đối thủ Mẫu)</h2>
-              <p>Quản lý các gian hàng Shopee / TikTok Shop / Lazada bạn đang vận hành và các shop đối thủ chuẩn ngành.</p>
+              <h2>🎯 Phần 2.3 · Kho Shop Đối thủ Mẫu (Benchmark Shopee · TikTok · Fanpage)</h2>
+              <p>Lưu trữ danh sách các Shop / Fanpage đối thủ bán tốt trong ngành để quét sản phẩm chủ lực (Hero) và theo dõi mỗi khi đối thủ lên mẫu mới.</p>
+            </div>
+            <div class="row">
+              <button class="btn btn-sm btn-pri" data-action="jump-myshops">🏠 Chuyển sang quản lý "Shop của tôi"</button>
             </div>
           </div>
           <div class="card">
-            <h3>+ Thêm Shop vào Kho Shop</h3>
+            <h3>+ Thêm Shop / Fanpage Đối thủ vào Kho Theo dõi</h3>
+            <input type="hidden" id="shRole" value="competitor_shop" />
             <div class="grid3">
               <div class="field">
-                <label>Phân loại Shop</label>
-                <select id="shRole">
-                  <option value="own_shop">🏬 Shop vận hành của mình</option>
-                  <option value="competitor_shop">🎯 Shop đối thủ mẫu</option>
-                </select>
-              </div>
-              <div class="field">
-                <label>Sàn TMĐT</label>
+                <label>Nền tảng đối thủ</label>
                 <select id="shPlatform">
-                  <option value="shopee">Shopee VN</option>
-                  <option value="tiktok_shop">TikTok Shop VN</option>
-                  <option value="lazada">Lazada VN</option>
+                  <option value="shopee">🛍 Shopee VN</option>
+                  <option value="tiktok_shop">🛒 TikTok Shop VN</option>
+                  <option value="facebook_fanpage">📘 Facebook Fanpage Đối thủ</option>
+                  <option value="lazada">📦 Lazada VN</option>
                 </select>
               </div>
-              <div class="field">
-                <label>Phí sàn mặc định (%)</label>
-                <input type="number" id="shFee" value="12.5" step="0.5" />
-              </div>
+              <div class="field"><label>Tên Shop / Fanpage đối thủ</label><input type="text" id="shName" placeholder="VD: LocknLock Official / Gia Dụng X" /></div>
+              <div class="field"><label>Link Shop / Fanpage hoặc @username</label><input type="text" id="shUrl" placeholder="https://shopee.vn/... hoặc https://facebook.com/..." /></div>
             </div>
-            <div class="grid2">
-              <div class="field"><label>Tên hiển thị của Shop</label><input type="text" id="shName" placeholder="VD: Gia Dụng Thông Minh Peng Official" /></div>
-              <div class="field"><label>Link Shop hoặc @username</label><input type="text" id="shUrl" placeholder="https://shopee.vn/..." /></div>
-            </div>
-            <button class="btn btn-pri" data-action="shop-save">💾 Lưu vào Kho Shop</button>
+            <div class="field"><label>Ghi chú điểm mạnh của đối thủ</label><input type="text" id="shNote" placeholder="VD: Chuyên đồ bếp inox phân khúc 150k-300k, video review rất nét..." /></div>
+            <button class="btn btn-pri" data-action="shop-save">💾 Lưu Shop Đối thủ Mẫu</button>
           </div>
           <div class="cards-grid" id="shopsGridBox"></div>
         </section>
@@ -693,10 +802,11 @@
               <h3>🌐 Trình duyệt Độc lập (Dedicated Chrome CDP 127.0.0.1:9349)</h3>
               <p style="color:var(--muted);font-size:12.5px">Tách biệt hoàn toàn với Chrome cá nhân &amp; dự án cũ để đăng nhập Shopee, TikTok Seller, Kalodata, 1688/Taobao.</p>
               <div class="row">
-                <button class="btn btn-sm btn-pri" data-action="open-browser" data-portal="shopee">Mở Shopee Seller</button>
-                <button class="btn btn-sm btn-blue" data-action="open-browser" data-portal="tiktok_seller">Mở TikTok Seller</button>
-                <button class="btn btn-sm" data-action="open-browser" data-portal="kalodata">Mở Kalodata</button>
-                <button class="btn btn-sm btn-gold" data-action="open-browser" data-portal="china_1688_taobao">Mở 1688 / Taobao</button>
+                <button class="btn btn-sm btn-pri" data-action="open-browser" data-portal="shopee">🛍 Mở Shopee Seller</button>
+                <button class="btn btn-sm btn-blue" data-action="open-browser" data-portal="tiktok_seller">🛒 Mở TikTok Seller</button>
+                <button class="btn btn-sm btn-blue" data-action="open-browser" data-portal="facebook_fanpage">📘 Mở Facebook Fanpage</button>
+                <button class="btn btn-sm" data-action="open-browser" data-portal="kalodata">📊 Mở Kalodata</button>
+                <button class="btn btn-sm btn-gold" data-action="open-browser" data-portal="china_1688_taobao">🇨🇳 Mở 1688 / Taobao</button>
               </div>
               <div id="browserHubBox" style="margin-top:10px;font-size:12.5px;color:var(--muted)"></div>
             </div>

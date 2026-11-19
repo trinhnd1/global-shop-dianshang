@@ -426,6 +426,13 @@ MIGRATIONS: list[tuple[int, str, list[str]]] = [
             """,
         ],
     ),
+    (
+        2,
+        "v2_my_shops_campaigns_and_channels",
+        [
+            "ALTER TABLE shops ADD COLUMN campaign_ids_json TEXT NOT NULL DEFAULT '[]'",
+        ],
+    ),
 ]
 
 

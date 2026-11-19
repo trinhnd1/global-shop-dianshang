@@ -70,8 +70,8 @@ def classify_http_module(path: str) -> tuple[str, str] | None:
         return ("keywords", "Tra cứu từ khoá Shopee / TikTok")
     if path.startswith("/api/watches"):
         return ("watches", "Theo dõi Từ khoá / SP / Shop")
-    if path.startswith("/api/shops"):
-        return ("shops", "Kho Shop & Quét SP theo Shop")
+    if path.startswith("/api/shops") or path.startswith("/api/my-shops"):
+        return ("shops", "Shop của tôi & Kho Shop")
     if path.startswith("/api/sourcing"):
         return ("china_sourcing", "Nguồn hàng 1688 / Taobao / Pinduoduo")
     if path.startswith("/api/products") or path.startswith("/api/results"):

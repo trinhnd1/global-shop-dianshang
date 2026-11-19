@@ -114,8 +114,9 @@ class GlobalShopDianshangE2ETest(unittest.TestCase):
     def test_01_security_version_masking_and_tailscale_guards(self):
         st, health = self.req("GET", "/api/health")
         self.assertEqual(st, 200)
-        self.assertEqual(health["version"], "1.0.2")
-        self.assertEqual(__version__, "1.0.2")
+        self.assertEqual(health["version"], "1.0.3")
+        self.assertEqual(__version__, "1.0.3")
+        self.assertEqual(health["schema_version"], 2)
 
         # Tailscale MagicDNS & CGNAT allowed
         st_ts, _ = self.req("GET", "/api/health", headers={"Host": "nguyens-mac-mini.tail213fd3.ts.net:8999"})
@@ -243,15 +244,6 @@ class GlobalShopDianshangE2ETest(unittest.TestCase):
         self.assertEqual(st_j, 200)
         self.assertEqual(scored["product"]["jev_score"], 8.15)
 
-        # Kho Shop (Own Shop)
-        _, sh_res = self.req("POST", "/api/shops", {
-            "role": "own_shop",
-            "platform": "shopee",
-            "shop_name": "Peng Home Official",
-            "shop_url": "https://shopee.vn/penghome",
-        })
-        self.assertEqual(sh_res["shop"]["role"], "own_shop")
-
         # Category Campaign + 5-Stage Funnel + Seller CSV Order Attribution
         _, cmp_res = self.req("POST", "/api/campaigns", {
             "name": "Chiến dịch Gia dụng Nhà tắm Q4",
@@ -259,6 +251,51 @@ class GlobalShopDianshangE2ETest(unittest.TestCase):
             "target_revenue_vnd": 80000000,
         })
         cid = cmp_res["campaign"]["campaign_id"]
+
+        # Shop của tôi: Shopee + TikTok Shop + Facebook Fanpage + Edit + Auto-match SP
+        _, sh_res = self.req("POST", "/api/my-shops", {
+            "platform": "shopee",
+            "shop_name": "Peng Home Shopee",
+            "shop_url": "https://shopee.vn/penghome",
+            "industry": "gia_dung",
+            "niche_tags": "kệ nhà tắm, gia dụng nhà bếp",
+            "campaign_ids": [cid],
+        })
+        self.assertEqual(sh_res["shop"]["role"], "own_shop")
+        self.assertEqual(sh_res["shop"]["platform"], "shopee")
+        self.assertEqual(sh_res["shop"]["campaign_ids"], [cid])
+
+        _, tt_res = self.req("POST", "/api/my-shops", {
+            "shop_name": "Peng TikTok Shop",
+            "shop_url": "https://www.tiktok.com/@peng_tiktok_shop",
+            "industry": "cong_nghe",
+            "niche_tags": ["đồng hồ thông minh", "tai nghe"],
+        })
+        self.assertEqual(tt_res["shop"]["platform"], "tiktok_shop")
+        self.assertEqual(tt_res["shop"]["handle"], "peng_tiktok_shop")
+
+        _, fb_res = self.req("POST", "/api/my-shops", {
+            "shop_name": "Fanpage Gia Dụng Thông Minh Peng",
+            "shop_url": "https://www.facebook.com/fanpage.giadung.peng",
+            "industry": "gia_dung",
+            "status": "warming",
+            "note": "Chuyên chạy Ads chuyển đổi",
+        })
+        self.assertEqual(fb_res["shop"]["platform"], "facebook_fanpage")
+        self.assertEqual(fb_res["shop"]["platform_fee_pct"], 0.0)
+        fb_sid = fb_res["shop"]["shop_id"]
+
+        _, fb_upd = self.req("PATCH", f"/api/my-shops/{fb_sid}", {"status": "active", "niche_tags": "đèn decor, kệ dán tường"})
+        self.assertEqual(fb_upd["shop"]["status"], "active")
+        self.assertIn("đèn decor", fb_upd["shop"]["niche_tags"])
+
+        _, my_list = self.req("GET", "/api/my-shops")
+        self.assertEqual(my_list["counts"]["own_count"], 3)
+        self.assertEqual(my_list["counts"]["own_by_platform"]["facebook_fanpage"], 1)
+
+        _, auto_m = self.req("POST", "/api/shops/auto-match-products", {"ids": [pid]})
+        self.assertEqual(auto_m["matched_count"], 1)
+
         _, stg_res = self.req("POST", f"/api/campaigns/{cid}/product-stage", {"product_id": pid, "stage": "nhap_test"})
         self.assertEqual(len(stg_res["campaign"]["products"]), 1)
 

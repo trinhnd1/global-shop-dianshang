@@ -827,6 +827,8 @@ class ProductsService:
             body = json_object(read_json, env)
             ids = [int(x) for x in (body.get("ids") or [])][:150]
             action = text(body.get("action"), "action", 40, required=True)
+            if action == "auto_assign_shop" and getattr(self, "shops_service", None) is not None:
+                return "200 OK", self.shops_service.auto_assign_shop_for_products(product_ids=ids)
             updated = 0
             for pid in ids:
                 if action == "delete":

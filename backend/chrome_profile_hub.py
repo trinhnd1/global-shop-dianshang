@@ -32,6 +32,11 @@ PORTAL_REGISTRY = {
         "default_url": "https://www.1688.com/",
         "allowed_domains": ("1688.com", "taobao.com", "tmall.com", "yangkeduo.com"),
     },
+    "facebook_fanpage": {
+        "title": "Facebook Fanpage & Meta Business Suite",
+        "default_url": "https://business.facebook.com/",
+        "allowed_domains": ("facebook.com", "fb.com", "business.facebook.com"),
+    },
 }
 
 

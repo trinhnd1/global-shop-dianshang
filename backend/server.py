@@ -138,6 +138,7 @@ class Application:
         self.history_logs.products_service = self.products
         self.keywords = KeywordResearchService(self.connect, self.secrets, self.products, apify=self.apify, treg=self.treg, jev=self.jev)
         self.shops = ShopsService(self.connect, self.secrets, self.products, apify=self.apify, treg=self.treg, jev=self.jev)
+        self.products.shops_service = self.shops
         self.watches = WatchesService(
             self.connect,
             self.secrets,
@@ -349,10 +350,13 @@ class Application:
                     "schema_version": current_schema_version(self.db),
                 }
             if path == "/api/overview" and method == "GET":
+                sc = self.shops.summary_counts()
                 return "200 OK", {
                     "vault_products": self.products.count_all(),
                     "watches_count": len(self.watches.list_watches()),
-                    "shops_count": len(self.shops.list_shops()),
+                    "shops_count": sc["total_count"],
+                    "my_shops_count": sc["own_count"],
+                    "competitor_shops_count": sc["competitor_count"],
                     "sourcing_count": len(self.china_sourcing.list_items(limit=200)),
                     "campaigns_count": len(self.campaigns.list_campaigns()),
                     "sales": self.campaigns.sales_summary()["seller_kpis"],

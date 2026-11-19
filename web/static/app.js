@@ -1,4 +1,4 @@
-/* Global Shop Dianshang v1.0.2 — Expanded Kho Sidebar, Full Vault Visibility & Detailed Job History */
+/* Global Shop Dianshang v1.0.3 — My Shops (TikTok · Shopee · Facebook Fanpage), Expanded Kho & Detailed Job History */
 (() => {
   const ROUTE_TO_TAB = {
     "/": "hunt",
@@ -7,6 +7,7 @@
     "/theo-doi": "watches",
     "/soi-shop": "shopspy",
     "/creators": "shopspy",
+    "/shop-cua-toi": "myshops",
     "/kho": "results",
     "/nguon-hang-tq": "sourcing",
     "/kho-shop": "shops",
@@ -67,6 +68,16 @@
     de_lam_video: "Video/Ads",
   };
 
+  const DEFAULT_FEES_BY_PLAT = {
+    tiktok_shop: 11.5,
+    shopee: 12.5,
+    facebook_fanpage: 0,
+    tiktok_channel: 11.5,
+    lazada: 11.0,
+    instagram: 0,
+    website: 0,
+  };
+
   let CURRENT_TAB = "hunt";
   let CURRENT_BUCKET = "all";
   let CURRENT_SUB = "all";
@@ -77,6 +88,8 @@
   let ALL_SHOPS = [];
   let ALL_CAMPAIGNS = [];
   let LAST_HIST_DETAIL = null;
+  let MY_SHOPS_FILTER_PLAT = "";
+  let MY_SHOP_SELECTED_CMPS = new Set();
 
   function esc(val) {
     return String(val ?? "")
@@ -192,14 +205,21 @@
       ALL_SHOPS = shData.shops || [];
       ALL_CAMPAIGNS = cmpData.campaigns || [];
 
+      const ownCnt = ov.my_shops_count ?? ALL_SHOPS.filter((s) => s.role === "own_shop").length;
+      const compCnt = ov.competitor_shops_count ?? ALL_SHOPS.filter((s) => s.role === "competitor_shop").length;
+
       document.getElementById("kpiVault").textContent = ov.vault_products;
       document.getElementById("topVaultCnt").textContent = ov.vault_products;
       document.getElementById("kpiWatches").textContent = ov.watches_count;
-      document.getElementById("kpiShopsSrc").textContent = `${ov.shops_count} shop / ${ov.sourcing_count} mẫu TQ`;
+      document.getElementById("kpiShopsSrc").textContent = `${ownCnt} shop mình / ${ov.sourcing_count} mẫu TQ`;
       const sp = ov.sales || {};
       document.getElementById("kpiSalesProfit").textContent = `${vnd(sp.gross_gmv_vnd)} / Lãi ${vnd(sp.net_profit_vnd)}`;
       document.getElementById("cntWatches").textContent = ov.watches_count;
-      document.getElementById("cntShops").textContent = ov.shops_count;
+      const elCntMyShops = document.getElementById("cntMyShops");
+      if (elCntMyShops) elCntMyShops.textContent = ownCnt;
+      const elTopMyShops = document.getElementById("topMyShopsCnt");
+      if (elTopMyShops) elTopMyShops.textContent = ownCnt;
+      document.getElementById("cntShops").textContent = compCnt;
       document.getElementById("cntSourcing").textContent = ov.sourcing_count;
       if (ov.recent_logs?.length) {
         document.getElementById("cntHistoryLogs").textContent = ov.recent_logs[0].seq_no || ov.recent_logs.length;
@@ -208,6 +228,19 @@
       populateKhoSelectControls();
       renderKhoAndIndustrySidebar();
     } catch (_) {}
+  }
+
+  function renderMyShopCampaignPicker() {
+    const box = document.getElementById("msCampaignsPicker");
+    if (!box) return;
+    if (!ALL_CAMPAIGNS.length) {
+      box.innerHTML = `<span style="font-size:12px;color:var(--muted)">Chưa có chiến dịch nào (tạo ở mục 🚀 Chiến dịch Ngành hàng).</span>`;
+      return;
+    }
+    box.innerHTML = ALL_CAMPAIGNS.map((c) => {
+      const isAct = MY_SHOP_SELECTED_CMPS.has(c.campaign_id) ? " active" : "";
+      return `<button type="button" class="chip${isAct}" data-action="ms-toggle-cmp" data-cid="${esc(c.campaign_id)}">🚀 ${esc(c.name)}</button>`;
+    }).join("");
   }
 
   function populateKhoSelectControls() {
@@ -245,20 +278,28 @@
         .join("");
     }
 
+    const msInd = document.getElementById("msIndustry");
+    if (msInd && !msInd.options.length) {
+      msInd.innerHTML = Object.entries(INDUSTRY_META)
+        .map(([k, inf]) => `<option value="${k}" ${k === "gia_dung" ? "selected" : ""}>${inf.ico} ${esc(inf.name)}</option>`)
+        .join("");
+    }
+    renderMyShopCampaignPicker();
+
     const ownShops = ALL_SHOPS.filter((s) => s.role === "own_shop");
     const fShop = document.getElementById("filterShop");
     if (fShop) {
       const cur = fShop.value;
       fShop.innerHTML =
-        `<option value="">🏬 Tất cả Shop vận hành</option><option value="__unassigned__">⚠️ Chưa gắn Shop</option>` +
-        ownShops.map((s) => `<option value="${esc(s.shop_id)}">🏬 ${esc(s.shop_name)} (${esc(s.platform)})</option>`).join("");
+        `<option value="">🏠 Tất cả Shop của tôi</option><option value="__unassigned__">⚠️ Chưa gắn Shop</option>` +
+        ownShops.map((s) => `<option value="${esc(s.shop_id)}">${esc(s.platform_icon || "🏠")} ${esc(s.shop_name)} (${esc(s.platform_label || s.platform)})</option>`).join("");
       fShop.value = cur;
     }
     const bShop = document.getElementById("bulkShopSel");
     if (bShop) {
       bShop.innerHTML =
         `<option value="">— Gỡ khỏi Shop —</option>` +
-        ownShops.map((s) => `<option value="${esc(s.shop_id)}">🏬 ${esc(s.shop_name)}</option>`).join("");
+        ownShops.map((s) => `<option value="${esc(s.shop_id)}">${esc(s.platform_icon || "🏠")} ${esc(s.shop_name)}</option>`).join("");
     }
 
     const fCmp = document.getElementById("filterCampaign");
@@ -292,6 +333,7 @@
   async function refreshTab(tab) {
     await syncSidebarCountsAndRefs();
     if (tab === "hunt") await loadHuntRecentRuns();
+    else if (tab === "myshops") await loadMyShops();
     else if (tab === "results") await loadProducts();
     else if (tab === "keywords") await loadKeywordHistory();
     else if (tab === "watches") await loadWatches();
@@ -722,9 +764,9 @@
               .map(([k, inf]) => `<option value="${k}" ${p.bucket === k ? "selected" : ""}>${inf.ico} ${esc(inf.name)}</option>`)
               .join("")}
           </select>
-          <select data-inline-pid="${p.id}" data-inline-field="assigned_shop_id" title="Gắn vào Shop vận hành" style="padding:4px 6px;font-size:11.8px">
-            <option value="">🏬 Chưa gắn Shop của mình</option>
-            ${ownShops.map((s) => `<option value="${esc(s.shop_id)}" ${p.assigned_shop_id === s.shop_id ? "selected" : ""}>🏬 ${esc(s.shop_name)}</option>`).join("")}
+          <select data-inline-pid="${p.id}" data-inline-field="assigned_shop_id" title="Gắn vào Shop của tôi" style="padding:4px 6px;font-size:11.8px">
+            <option value="">🏠 Chưa gắn Shop của tôi</option>
+            ${ownShops.map((s) => `<option value="${esc(s.shop_id)}" ${p.assigned_shop_id === s.shop_id ? "selected" : ""}>${esc(s.platform_icon || "🏠")} ${esc(s.shop_name)}</option>`).join("")}
           </select>
           <select data-inline-pid="${p.id}" data-inline-field="assigned_campaign_id" title="Gắn vào Chiến dịch Ngành hàng" style="padding:4px 6px;font-size:11.8px">
             <option value="">🚀 Chưa gắn Chiến dịch</option>
@@ -764,25 +806,141 @@
       : `<div style="color:var(--muted)">Chưa có báo giá nguồn hàng 1688 / Pinduoduo / Taobao.</div>`;
   }
 
+  // --- PART 1.5: SHOP CỦA TÔI (MY SHOPS: TIKTOK · SHOPEE · FACEBOOK FANPAGE) ---
+  function resetMyShopForm() {
+    document.getElementById("msEditId").value = "";
+    document.getElementById("msFormHeading").textContent = "➕ Thêm Shop TikTok · Shopee · Facebook Fanpage mới";
+    document.getElementById("msUrl").value = "";
+    document.getElementById("msPlatform").value = "tiktok_shop";
+    document.getElementById("msName").value = "";
+    document.getElementById("msStatus").value = "active";
+    if (document.getElementById("msIndustry")) document.getElementById("msIndustry").value = "gia_dung";
+    document.getElementById("msFee").value = "11.5";
+    document.getElementById("msNicheTags").value = "";
+    document.getElementById("msNote").value = "";
+    document.getElementById("btnSaveMyShop").textContent = "💾 Lưu vào Shop của tôi";
+    document.getElementById("btnCancelMyShopEdit").style.display = "none";
+    MY_SHOP_SELECTED_CMPS.clear();
+    renderMyShopCampaignPicker();
+  }
+
+  function editMyShop(shop) {
+    document.getElementById("msEditId").value = shop.shop_id;
+    document.getElementById("msFormHeading").textContent = `✏️ Đang sửa: ${shop.shop_name}`;
+    document.getElementById("msUrl").value = shop.shop_url || shop.handle || "";
+    document.getElementById("msPlatform").value = shop.platform || "shopee";
+    document.getElementById("msName").value = shop.shop_name || "";
+    document.getElementById("msStatus").value = shop.status || "active";
+    if (document.getElementById("msIndustry")) document.getElementById("msIndustry").value = shop.industry || "gia_dung";
+    document.getElementById("msFee").value = shop.platform_fee_pct ?? 0;
+    document.getElementById("msNicheTags").value = (shop.niche_tags || []).join(", ");
+    document.getElementById("msNote").value = shop.note || "";
+    document.getElementById("btnSaveMyShop").textContent = "💾 Lưu cập nhật Shop";
+    document.getElementById("btnCancelMyShopEdit").style.display = "inline-flex";
+    MY_SHOP_SELECTED_CMPS = new Set(shop.campaign_ids || []);
+    renderMyShopCampaignPicker();
+    document.getElementById("myShopFormCard")?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }
+
+  async function loadMyShops() {
+    const q = document.getElementById("msSearchQ")?.value || "";
+    const qs = new URLSearchParams({ platform: MY_SHOPS_FILTER_PLAT, q });
+    const data = await api(`/api/my-shops?${qs}`);
+    const shops = data.shops || [];
+    const cnts = data.counts || {};
+    const byPlat = cnts.own_by_platform || {};
+
+    const totalAssigned = ALL_SHOPS
+      .filter((s) => s.role === "own_shop")
+      .reduce((acc, s) => acc + Number(s.assigned_products_count || 0), 0);
+
+    document.getElementById("myShopsKpiStrip").innerHTML = `
+      <div class="kpi"><div class="lbl">🏠 Tổng Shop của tôi</div><div class="val sky">${cnts.own_count || 0}</div></div>
+      <div class="kpi"><div class="lbl">🛒 TikTok Shop &amp; Kênh TT</div><div class="val">${(byPlat.tiktok_shop || 0) + (byPlat.tiktok_channel || 0)}</div></div>
+      <div class="kpi"><div class="lbl">🛍 Gian hàng Shopee</div><div class="val gold">${byPlat.shopee || 0}</div></div>
+      <div class="kpi"><div class="lbl">📘 Facebook Fanpage</div><div class="val green">${byPlat.facebook_fanpage || 0}</div></div>
+      <div class="kpi"><div class="lbl">📦 SP đang gắn vào Shop</div><div class="val green">${totalAssigned}</div></div>
+    `;
+
+    document.getElementById("msTotalLbl").textContent = shops.length;
+
+    // Highlight active platform filter chip
+    document.querySelectorAll("#msPlatFilterChips .chip").forEach((ch) => {
+      ch.classList.toggle("active", (ch.dataset.plat || "") === MY_SHOPS_FILTER_PLAT);
+    });
+
+    const cmpNameMap = Object.fromEntries(ALL_CAMPAIGNS.map((c) => [c.campaign_id, c.name]));
+
+    document.getElementById("myShopsListBox").innerHTML = shops.length
+      ? shops.map((s) => {
+          const stBadgeCls = s.status === "active" ? "green" : s.status === "warming" ? "gold" : "";
+          const tagsHtml = (s.niche_tags || []).length
+            ? `<div class="row" style="gap:4px;margin-top:6px">${s.niche_tags.map((t) => `<span class="badge blue">#${esc(t)}</span>`).join("")}</div>`
+            : "";
+          const cmpsHtml = (s.campaign_ids || []).length
+            ? `<div class="row" style="gap:4px;margin-top:5px">${s.campaign_ids.map((cid) => `<span class="badge gold">🚀 ${esc(cmpNameMap[cid] || cid)}</span>`).join("")}</div>`
+            : "";
+          return `
+            <div style="border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:10px;background:#091120">
+              <div class="row" style="justify-content:space-between">
+                <div class="row" style="gap:6px">
+                  <span class="badge blue" style="font-size:12.5px">${esc(s.platform_icon || "🏠")} ${esc(s.platform_label || s.platform)}</span>
+                  <span class="badge ${stBadgeCls}">${esc(s.status_label || s.status)}</span>
+                  <span class="badge">${esc(s.industry_icon || "📦")} ${esc(s.industry_label)}</span>
+                </div>
+                <span style="font-size:12px;color:#6ee7b7;font-weight:600">📦 ${s.assigned_products_count || 0} SP đã gắn · Phí: ${s.platform_fee_pct}%</span>
+              </div>
+
+              <div style="margin-top:7px;font-size:15px;font-weight:700">${esc(s.shop_name)} ${s.handle ? `<span style="font-size:12px;font-weight:400;color:var(--muted)">(@${esc(s.handle)})</span>` : ""}</div>
+              ${s.shop_url ? `<div style="margin-top:3px"><a href="${esc(s.shop_url)}" target="_blank" style="color:#93c5fd;font-size:12.5px">${esc(s.shop_url)}</a></div>` : ""}
+
+              ${tagsHtml}
+              ${cmpsHtml}
+              ${s.note ? `<div style="margin-top:6px;font-size:12.5px;color:var(--muted)">📝 ${esc(s.note)}</div>` : ""}
+
+              <div class="row" style="margin-top:10px;gap:6px">
+                <button class="btn btn-sm btn-pri" data-action="ms-view-products" data-id="${esc(s.shop_id)}">📦 Xem SP của Shop (${s.assigned_products_count || 0})</button>
+                <button class="btn btn-sm" data-action="ms-edit" data-id="${esc(s.shop_id)}">✏️ Sửa</button>
+                ${
+                  s.platform === "facebook_fanpage"
+                    ? `<button class="btn btn-sm btn-blue" data-action="ms-spy-fanpage" data-name="${esc(s.shop_name)}">📢 Quét Ads Fanpage</button>`
+                    : (s.platform === "shopee" || s.platform === "tiktok_shop") && (s.shop_url || s.handle)
+                      ? `<button class="btn btn-sm btn-blue" data-action="shop-watch-from-vault" data-plat="${esc(s.platform)}" data-url="${esc(s.shop_url || s.handle)}" data-name="${esc(s.shop_name)}">🔭 Theo dõi SP</button>`
+                      : ""
+                }
+                <button class="btn btn-sm btn-danger" data-action="ms-delete" data-id="${esc(s.shop_id)}">🗑 Xoá</button>
+              </div>
+            </div>`;
+        }).join("")
+      : `<div style="padding:18px;text-align:center;color:var(--muted);border:1px dashed var(--border);border-radius:10px">
+          Chưa có <strong>Shop của tôi</strong> nào khớp bộ lọc.<br/>Hãy thêm <strong>TikTok Shop, Shopee hoặc Facebook Fanpage</strong> ở khung bên trái!
+        </div>`;
+  }
+
   async function loadShops() {
-    const data = await api("/api/shops");
-    ALL_SHOPS = data.shops || [];
-    document.getElementById("shopsGridBox").innerHTML = ALL_SHOPS.length
-      ? ALL_SHOPS.map((s) => `
+    const data = await api("/api/shops?role=competitor_shop");
+    const compShops = data.shops || [];
+    document.getElementById("shopsGridBox").innerHTML = compShops.length
+      ? compShops.map((s) => `
           <div class="card">
             <div class="row" style="justify-content:space-between">
-              <span class="badge ${s.role === "own_shop" ? "green" : "gold"}">${esc(s.role_label)}</span>
-              <span class="badge blue">${esc(s.platform.toUpperCase())}</span>
+              <span class="badge gold">🎯 Shop đối thủ mẫu</span>
+              <span class="badge blue">${esc(s.platform_icon || "🏪")} ${esc(s.platform_label || s.platform)}</span>
             </div>
             <h3 style="margin:8px 0 4px">${esc(s.shop_name)}</h3>
-            <div style="font-size:12.5px;color:var(--muted)">Ngành: ${esc(s.industry_label)} · Phí sàn: ${s.platform_fee_pct}% · SP gắn: <strong>${s.assigned_products_count}</strong></div>
+            <div style="font-size:12.5px;color:var(--muted)">Ngành: ${esc(s.industry_icon || "")} ${esc(s.industry_label)} ${s.note ? `· ${esc(s.note)}` : ""}</div>
             ${s.shop_url ? `<div style="margin-top:6px"><a href="${esc(s.shop_url)}" target="_blank" style="color:#93c5fd;font-size:12.5px">${esc(s.shop_url)}</a></div>` : ""}
             <div class="row" style="margin-top:10px">
-              <button class="btn btn-sm btn-blue" data-action="shop-watch-from-vault" data-plat="${esc(s.platform)}" data-url="${esc(s.shop_url || s.handle)}" data-name="${esc(s.shop_name)}">🔭 Theo dõi Shop này</button>
+              ${
+                s.platform === "facebook_fanpage"
+                  ? `<button class="btn btn-sm btn-blue" data-action="ms-spy-fanpage" data-name="${esc(s.shop_name)}">📢 Soi Ads Fanpage</button>`
+                  : `<button class="btn btn-sm btn-pri" data-action="comp-shop-scan" data-plat="${esc(s.platform)}" data-url="${esc(s.shop_url || s.handle)}">🔎 Quét SP của Shop</button>
+                     <button class="btn btn-sm btn-blue" data-action="shop-watch-from-vault" data-plat="${esc(s.platform)}" data-url="${esc(s.shop_url || s.handle)}" data-name="${esc(s.shop_name)}">🔭 Theo dõi</button>`
+              }
               <button class="btn btn-sm btn-danger" data-action="shop-delete" data-id="${esc(s.shop_id)}">Xoá</button>
             </div>
           </div>`).join("")
-      : `<div class="card" style="grid-column:1/-1;color:var(--muted)">Kho Shop chưa có gian hàng nào. Hãy thêm Shop của bạn và các Shop đối thủ mẫu!</div>`;
+      : `<div class="card" style="grid-column:1/-1;color:var(--muted)">Chưa có Shop / Fanpage đối thủ nào. Hãy thêm ở trên hoặc quét từ mục <strong>🏪 Quét SP theo Shop</strong>!</div>`;
   }
 
   // --- PART 3.2 & 3.3: VIDEO JEV & CLONER ------------------------------------
@@ -1087,6 +1245,33 @@
       loadProducts();
     } else if (["histFilterMod", "histFilterStatus"].includes(ev.target.id)) {
       loadHistoryAndJobs();
+    } else if (ev.target.id === "msPlatform") {
+      const p = ev.target.value;
+      if (DEFAULT_FEES_BY_PLAT[p] !== undefined && !document.getElementById("msEditId").value) {
+        document.getElementById("msFee").value = DEFAULT_FEES_BY_PLAT[p];
+      }
+    }
+  });
+
+  document.addEventListener("input", (ev) => {
+    if (ev.target.id === "msUrl") {
+      const v = ev.target.value.trim().toLowerCase();
+      const sel = document.getElementById("msPlatform");
+      let detected = "";
+      if (v.includes("shopee.")) detected = "shopee";
+      else if (v.includes("facebook.com") || v.includes("fb.com") || v.includes("fb.watch")) detected = "facebook_fanpage";
+      else if (v.includes("tiktok.com") || v.includes("tiktokshop")) detected = "tiktok_shop";
+      else if (v.includes("lazada.")) detected = "lazada";
+      else if (v.includes("instagram.com")) detected = "instagram";
+      if (detected && sel && sel.value !== detected) {
+        sel.value = detected;
+        if (!document.getElementById("msEditId").value && DEFAULT_FEES_BY_PLAT[detected] !== undefined) {
+          document.getElementById("msFee").value = DEFAULT_FEES_BY_PLAT[detected];
+        }
+      }
+    } else if (ev.target.id === "msSearchQ") {
+      clearTimeout(ev.target._t);
+      ev.target._t = setTimeout(() => loadMyShops(), 220);
     }
   });
 
@@ -1106,6 +1291,8 @@
         document.getElementById("sidebar")?.classList.toggle("open");
       } else if (act === "close-modal") {
         closeModal();
+      } else if (act === "jump-myshops") {
+        showTab("myshops", "/shop-cua-toi");
       } else if (act === "jump-kho-all") {
         CURRENT_BUCKET = "all";
         CURRENT_SUB = "all";
@@ -1423,15 +1610,92 @@
         toast(res.summary);
         loadSourcing();
         syncSidebarCountsAndRefs();
+      } else if (act === "ms-add-tag") {
+        const inp = document.getElementById("msNicheTags");
+        const cur = inp.value.split(",").map((s) => s.trim()).filter(Boolean);
+        const tag = actEl.dataset.tag;
+        if (tag && !cur.some((x) => x.toLowerCase() === tag.toLowerCase())) {
+          cur.push(tag);
+          inp.value = cur.join(", ");
+        }
+      } else if (act === "ms-toggle-cmp") {
+        const cid = actEl.dataset.cid;
+        if (MY_SHOP_SELECTED_CMPS.has(cid)) MY_SHOP_SELECTED_CMPS.delete(cid);
+        else MY_SHOP_SELECTED_CMPS.add(cid);
+        renderMyShopCampaignPicker();
+      } else if (act === "ms-filter-plat") {
+        MY_SHOPS_FILTER_PLAT = actEl.dataset.plat || "";
+        loadMyShops();
+      } else if (act === "myshop-refresh") {
+        await syncSidebarCountsAndRefs();
+        await loadMyShops();
+      } else if (act === "myshop-cancel-edit") {
+        resetMyShopForm();
+      } else if (act === "myshop-save") {
+        const editId = document.getElementById("msEditId").value.trim();
+        const payload = {
+          role: "own_shop",
+          platform: document.getElementById("msPlatform").value,
+          shop_url: document.getElementById("msUrl").value.trim(),
+          shop_name: document.getElementById("msName").value.trim(),
+          status: document.getElementById("msStatus").value,
+          industry: document.getElementById("msIndustry").value || "gia_dung",
+          platform_fee_pct: Number(document.getElementById("msFee").value || 0),
+          niche_tags: document.getElementById("msNicheTags").value,
+          campaign_ids: [...MY_SHOP_SELECTED_CMPS],
+          note: document.getElementById("msNote").value.trim(),
+        };
+        const res = editId
+          ? await api(`/api/my-shops/${encodeURIComponent(editId)}`, "PATCH", payload)
+          : await api("/api/my-shops", "POST", payload);
+        toast(res.summary || "Đã lưu vào Shop của tôi!");
+        resetMyShopForm();
+        await syncSidebarCountsAndRefs();
+        await loadMyShops();
+      } else if (act === "ms-edit") {
+        const sh = ALL_SHOPS.find((x) => x.shop_id === actEl.dataset.id);
+        if (sh) editMyShop(sh);
+        else {
+          const d = await api(`/api/my-shops/${encodeURIComponent(actEl.dataset.id)}`);
+          if (d.shop) editMyShop(d.shop);
+        }
+      } else if (act === "ms-delete") {
+        await api(`/api/my-shops/${encodeURIComponent(actEl.dataset.id)}`, "DELETE");
+        if (document.getElementById("msEditId").value === actEl.dataset.id) resetMyShopForm();
+        toast("Đã xoá Shop khỏi danh sách!");
+        await syncSidebarCountsAndRefs();
+        await loadMyShops();
+      } else if (act === "ms-view-products") {
+        CURRENT_BUCKET = "all";
+        CURRENT_SUB = "all";
+        await syncSidebarCountsAndRefs();
+        const fShop = document.getElementById("filterShop");
+        if (fShop) fShop.value = actEl.dataset.id;
+        showTab("results", "/kho");
+      } else if (act === "ms-spy-fanpage") {
+        document.getElementById("spyFanpageQuery").value = actEl.dataset.name || "";
+        showTab("spy", "/soi-san-pham");
+      } else if (act === "myshop-auto-match") {
+        const res = await api("/api/shops/auto-match-products", "POST", {});
+        toast(res.summary);
+        await syncSidebarCountsAndRefs();
+        await loadMyShops();
+      } else if (act === "comp-shop-scan") {
+        document.getElementById("scanShopQuery").value = actEl.dataset.url || "";
+        document.getElementById("scanShopPlat").value = actEl.dataset.plat === "tiktok_shop" ? "tiktok_shop" : "shopee";
+        showTab("shopspy", "/soi-shop");
       } else if (act === "shop-save") {
         const res = await api("/api/shops", "POST", {
-          role: document.getElementById("shRole").value,
+          role: document.getElementById("shRole")?.value || "competitor_shop",
           platform: document.getElementById("shPlatform").value,
-          platform_fee_pct: Number(document.getElementById("shFee").value || 12.5),
           shop_name: document.getElementById("shName").value.trim(),
           shop_url: document.getElementById("shUrl").value.trim(),
+          note: document.getElementById("shNote")?.value?.trim() || "",
         });
         toast(res.summary);
+        document.getElementById("shName").value = "";
+        document.getElementById("shUrl").value = "";
+        if (document.getElementById("shNote")) document.getElementById("shNote").value = "";
         loadShops();
         syncSidebarCountsAndRefs();
       } else if (act === "shop-watch-from-vault") {
@@ -1448,6 +1712,7 @@
       } else if (act === "shop-delete") {
         await api(`/api/shops/${actEl.dataset.id}`, "DELETE");
         loadShops();
+        syncSidebarCountsAndRefs();
       } else if (act === "spy-product") {
         toast("Đang soi link sản phẩm...");
         const res = await api("/api/spy/product", "POST", { url: document.getElementById("spyProdUrl").value.trim() });

@@ -3,7 +3,7 @@ from pathlib import Path
 import subprocess
 
 PRODUCT_NAME = "Global Shop Dianshang"
-__version__ = "1.0.2"
+__version__ = "1.0.3"
 BASELINE_TAG = "v1.0.1"
 
 _BUILD_CACHE: dict | None = None
