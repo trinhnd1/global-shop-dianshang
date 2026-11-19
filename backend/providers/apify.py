@@ -492,3 +492,235 @@ class ApifyClient:
             ("khadinakbar~google-trends-scraper", {"keywords": [keyword], "geo": geo}),
         ]
         return self._run_actor_ring(tokens, candidates, max_charge_usd=max_charge_usd)
+
+    def explore_google_trends(
+        self,
+        tokens: list[str],
+        seed_terms: list[str],
+        geo: str = "VN",
+        time_range: str = "today 3-m",
+        category: str = "",
+        max_keywords: int = 16,
+        max_charge_usd: float = 0.05,
+    ) -> dict:
+        """Explore Google Trends interest timeline, Rising/Breakout queries & Top related queries via Apify (#1 Priority)."""
+        seeds = []
+        for s in seed_terms or []:
+            cleaned = str(s or "").strip().lstrip("#").strip()
+            if cleaned and cleaned.lower() not in {x.lower() for x in seeds}:
+                seeds.append(cleaned[:120])
+        if not seeds:
+            raise ApifyError("Vui lòng nhập ít nhất 1 từ khoá gốc để quét Google Trends", status=400)
+        seeds = seeds[:5]
+        cc = (geo or "VN").strip().upper()
+        tr_map = {
+            "7d": "now 7-d",
+            "30d": "today 1-m",
+            "90d": "today 3-m",
+            "12m": "",
+            "now 7-d": "now 7-d",
+            "today 1-m": "today 1-m",
+            "today 3-m": "today 3-m",
+            "today 12-m": "",
+        }
+        apify_tr = tr_map.get(str(time_range or "today 3-m").strip(), "today 3-m")
+        cat_clean = str(category or "").strip()
+
+        p1: dict = {"searchTerms": seeds, "geo": cc, "viewedFrom": cc.lower(), "timeRange": apify_tr, "maxItems": max(1, len(seeds))}
+        if cat_clean and cat_clean != "0":
+            p1["category"] = cat_clean
+        p2: dict = {
+            "keywords": seeds,
+            "geo": cc,
+            "timeframe": apify_tr or "today 12-m",
+            "category": int(cat_clean) if cat_clean.isdigit() else 0,
+            "dataTypes": ["interest_over_time", "related_queries"],
+            "maxResults": 100,
+        }
+        slug, raw_items = self._run_actor_ring(tokens, [("apify~google-trends-scraper", p1), ("khadinakbar~google-trends-scraper", p2)], max_charge_usd=max_charge_usd, timeout_sec=58)
+
+        seed_summaries: list[dict] = []
+        kw_map: dict[str, dict] = {}
+
+        def _upsert_kw(term_txt: str, kind: str, seed_parent: str, growth_label: str = "", growth_pct: float | None = None, interest_score: float | None = None):
+            t_clean = str(term_txt or "").strip()
+            if not t_clean:
+                return
+            k_low = t_clean.lower()
+            rank_order = {"rising": 3, "seed": 2, "top": 1}
+            ex = kw_map.get(k_low)
+            if ex:
+                if rank_order.get(kind, 0) > rank_order.get(ex["kind"], 0):
+                    ex["kind"] = kind
+                if growth_label and not ex.get("growth_label"):
+                    ex["growth_label"] = growth_label
+                if growth_pct is not None and (ex.get("growth_pct") is None or growth_pct > ex["growth_pct"]):
+                    ex["growth_pct"] = growth_pct
+                if interest_score is not None and (ex.get("interest_value") is None or interest_score > ex["interest_value"]):
+                    ex["interest_value"] = interest_score
+                return
+            kw_map[k_low] = {
+                "keyword": t_clean,
+                "kind": kind,
+                "seed_term": seed_parent,
+                "growth_label": growth_label,
+                "growth_pct": growth_pct,
+                "interest_value": interest_score,
+                "source": f"apify:{slug}",
+            }
+
+        for row in raw_items:
+            if not isinstance(row, dict):
+                continue
+            if "interestOverTime_timelineData" in row or "relatedQueries_rising" in row:
+                sterm = str(row.get("searchTerm") or row.get("inputUrlOrTerm") or seeds[0]).strip()
+                vals: list[float] = []
+                for pt in (row.get("interestOverTime_timelineData") or []):
+                    if isinstance(pt, dict):
+                        v_arr = pt.get("value")
+                        v0 = v_arr[0] if isinstance(v_arr, list) and v_arr else pt.get("value")
+                        if isinstance(v0, (int, float)):
+                            vals.append(float(v0))
+                cur_v = round(vals[-1], 1) if vals else None
+                avg_v = round(sum(vals) / len(vals), 1) if vals else None
+                peak_v = round(max(vals), 1) if vals else None
+                mom = 0.0
+                if len(vals) >= 6:
+                    sp_idx = max(2, len(vals) // 4)
+                    rec_avg = sum(vals[-sp_idx:]) / sp_idx
+                    pri_avg = sum(vals[:-sp_idx]) / max(1, len(vals[:-sp_idx]))
+                    mom = round(((rec_avg - pri_avg) / max(pri_avg, 5.0)) * 100.0, 1)
+                seed_summaries.append({
+                    "seed_term": sterm,
+                    "current_interest": cur_v,
+                    "avg_interest": avg_v,
+                    "peak_interest": peak_v,
+                    "momentum_pct": mom,
+                })
+                _upsert_kw(sterm, "seed", sterm, f"{'+' if mom >= 0 else ''}{mom}%", mom, cur_v)
+                for rq in (row.get("relatedQueries_rising") or [])[:12]:
+                    if isinstance(rq, dict) and rq.get("query"):
+                        rv = rq.get("value")
+                        fv = str(rq.get("formattedValue") or "").strip()
+                        is_bo = "breakout" in fv.lower() or "đột phá" in fv.lower() or (isinstance(rv, (int, float)) and rv >= 5000)
+                        gp = float(rv) if isinstance(rv, (int, float)) else (5000.0 if is_bo else None)
+                        lbl = "Đột phá (Breakout)" if is_bo and not fv.startswith("+") else (fv or (f"+{int(gp)}%" if gp else "Rising"))
+                        _upsert_kw(rq["query"], "rising", sterm, lbl, gp, None)
+                for tq in (row.get("relatedQueries_top") or [])[:10]:
+                    if isinstance(tq, dict) and tq.get("query"):
+                        vt = float(tq["value"]) if isinstance(tq.get("value"), (int, float)) else None
+                        _upsert_kw(tq["query"], "top", sterm, f"Top {int(vt)}/100" if vt is not None else "Top Search", None, vt)
+            else:
+                q_txt = str(row.get("query") or row.get("term") or row.get("keyword") or "").strip()
+                if q_txt:
+                    rtype = str(row.get("type") or row.get("sub_type") or "").lower()
+                    kind = "rising" if "rising" in rtype else "top"
+                    vn = float(row["value"]) if isinstance(row.get("value"), (int, float)) else None
+                    _upsert_kw(q_txt, kind, seeds[0], str(row.get("formatted_value") or ""), vn if kind == "rising" else None, vn if kind == "top" else None)
+
+        ordered = sorted(
+            kw_map.values(),
+            key=lambda x: (2 if x["kind"] == "rising" else (1 if x["kind"] == "seed" else 0), float(x["growth_pct"] or 0.0), float(x["interest_value"] or 0.0)),
+            reverse=True,
+        )[: max(3, min(int(max_keywords or 16), 30))]
+
+        return {
+            "provider": "apify",
+            "actor_or_endpoint": slug,
+            "geo": cc,
+            "time_range": apify_tr or "today 12-m",
+            "seed_summaries": seed_summaries,
+            "keywords": ordered,
+            "cost_usd": round(0.012 * max(1, len(seeds)), 4),
+        }
+
+    # --- Social Painpoint Discovery (Facebook · Threads · X · Reddit) --------
+
+    def search_social_painpoints(
+        self,
+        tokens: list[str],
+        channel: str,
+        query: str,
+        limit: int = 8,
+        max_charge_usd: float = 0.05,
+    ) -> tuple[str, list[dict]]:
+        ch = channel.lower().strip()
+        lim = max(1, min(20, int(limit)))
+        if ch in ("facebook", "facebook_organic"):
+            candidates = [
+                ("scraper_one~facebook-posts-search", {"query": query, "resultsCount": lim}),
+                ("apify~facebook-search-scraper", {"categories": [query], "searchType": "posts", "resultsLimit": lim}),
+            ]
+        elif ch == "facebook_ads":
+            candidates = [
+                ("automation-lab~facebook-ads-library", {"searchTerms": [query], "country": "VN", "maxItems": lim}),
+                ("apify~facebook-ads-scraper", {"searchQuery": query, "country": "VN", "maxItems": lim}),
+            ]
+        elif ch == "threads":
+            candidates = [
+                ("futurizerush~meta-threads-scraper", {"mode": "search", "keywords": [query], "max_posts": lim}),
+                ("watcher.data~search-threads-by-keywords", {"keywords": [query], "maxItemsPerKeyword": lim}),
+                ("igview-owner~threads-search-scraper", {"searchQuery": query, "sort": "top"}),
+            ]
+        elif ch in ("x", "twitter"):
+            candidates = [
+                ("apidojo~tweet-scraper", {"searchTerms": [query], "maxItems": lim}),
+            ]
+        elif ch == "reddit":
+            candidates = [
+                ("trudax~reddit-scraper-lite", {"searches": [query], "maxItems": lim}),
+            ]
+        else:
+            raise ApifyError(f"Kênh MXH chưa hỗ trợ: {channel}", status=400)
+
+        slug, rows = self._run_actor_ring(tokens, candidates, max_charge_usd=max_charge_usd, timeout_sec=52)
+        out = []
+        for r in rows[:lim]:
+            if not isinstance(r, dict):
+                continue
+            txt = str(
+                r.get("text")
+                or r.get("fullText")
+                or r.get("body")
+                or r.get("selftext")
+                or r.get("adText")
+                or r.get("caption")
+                or r.get("description")
+                or r.get("title")
+                or ""
+            ).strip()
+            title_h = str(r.get("title") or "").strip()
+            if title_h and title_h not in txt:
+                txt = f"{title_h} — {txt}".strip(" —")
+            if not txt:
+                continue
+            author_obj = r.get("author") if isinstance(r.get("author"), dict) else (r.get("user") if isinstance(r.get("user"), dict) else {})
+            author = str(
+                author_obj.get("userName")
+                or author_obj.get("username")
+                or author_obj.get("name")
+                or r.get("username")
+                or r.get("authorName")
+                or r.get("pageName")
+                or r.get("communityName")
+                or ""
+            ).strip()
+            url = str(
+                r.get("url")
+                or r.get("postUrl")
+                or r.get("twitterUrl")
+                or r.get("linkUrl")
+                or r.get("permalink")
+                or ""
+            ).strip()
+            out.append({
+                "channel": "facebook_organic" if ch == "facebook" else ("x" if ch == "twitter" else ch),
+                "author": author,
+                "text": txt[:900],
+                "url": url,
+                "likes": parse_int_metric(r.get("likes") or r.get("likeCount") or r.get("upVotes") or r.get("reactionsCount") or 0),
+                "comments": parse_int_metric(r.get("comments") or r.get("replyCount") or r.get("numberOfComments") or r.get("commentsCount") or 0),
+                "shares": parse_int_metric(r.get("shares") or r.get("retweetCount") or r.get("repostCount") or 0),
+                "source": f"apify:{slug}",
+            })
+        return slug, out

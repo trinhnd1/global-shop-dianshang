@@ -1,4 +1,4 @@
-/* Global Shop Dianshang v1.0.3 — My Shops (TikTok · Shopee · Facebook Fanpage), Expanded Kho & Detailed Job History */
+/* Global Shop Dianshang v1.0.4 — Google Trends + Social Painpoints (Facebook · Threads · X · Reddit) -> Product Discovery */
 (() => {
   const ROUTE_TO_TAB = {
     "/": "hunt",
@@ -90,6 +90,7 @@
   let LAST_HIST_DETAIL = null;
   let MY_SHOPS_FILTER_PLAT = "";
   let MY_SHOP_SELECTED_CMPS = new Set();
+  let GT_HISTORY_RUNS = [];
 
   function esc(val) {
     return String(val ?? "")
@@ -452,7 +453,163 @@
     } catch (_) {}
   }
 
+  function renderGoogleTrendsResult(run) {
+    const box = document.getElementById("gtResultsBox");
+    if (!box || !run) return;
+    const seeds = run.seed_summaries || [];
+    const kws = run.keywords || run.results || [];
+    const seedsHtml = seeds.length
+      ? `<div class="row" style="margin-bottom:8px;gap:6px">
+          ${seeds.map((s) => `<span class="badge blue">📈 <strong>${esc(s.seed_term)}</strong>: Điểm hiện tại ${s.current_interest ?? "—"} · Đà tăng <strong>${s.momentum_pct != null ? (s.momentum_pct >= 0 ? "+" : "") + s.momentum_pct + "%" : "—"}</strong></span>`).join("")}
+         </div>`
+      : "";
+
+    box.innerHTML = `
+      <div style="background:#081222;border:1px solid var(--border);border-radius:8px;padding:10px">
+        <div class="row" style="justify-content:space-between;margin-bottom:6px">
+          <span style="font-size:12.5px;color:#7dd3fc"><strong>Nguồn dữ liệu:</strong> <code>${esc(run.source_used || run.provider_used || "")}</code> · ${kws.length} từ khoá xu hướng</span>
+          <button class="btn btn-sm btn-pri" data-action="gt-push-all-top">🎯 Đẩy Top 4 từ khoá lên ô Săn SP Đa tầng</button>
+        </div>
+        ${seedsHtml}
+        ${
+          kws.length
+            ? `<table class="tbl">
+                <thead><tr><th>Từ khoá Xu hướng / Đột phá</th><th>Loại tín hiệu</th><th>Độ tăng trưởng</th><th>Ngành (Jev)</th><th>Điểm Ý định Mua (Jev)</th><th>Hành động</th></tr></thead>
+                <tbody>
+                  ${kws.map((k) => `
+                    <tr>
+                      <td><strong class="gt-kw-item" data-kw="${esc(k.keyword)}">${esc(k.keyword)}</strong></td>
+                      <td><span class="badge ${k.kind === "rising" ? "gold" : "blue"}">${k.kind === "rising" ? "🔥 Đột phá / Rising" : k.kind === "seed" ? "🌱 Gốc" : "⭐ Top Search"}</span></td>
+                      <td><strong>${esc(k.growth_label || "—")}</strong></td>
+                      <td>${esc(k.industry_label || "—")}</td>
+                      <td>${k.jev_score_10 != null ? `<span class="badge ${k.jev_score_10 >= 7 ? "green" : "blue"}">🤖 ${k.jev_score_10}/10</span>` : "—"}</td>
+                      <td class="row">
+                        <button class="btn btn-sm btn-pri" data-action="gt-push-kw" data-kw="${esc(k.keyword)}">+ Đưa vào Săn SP</button>
+                        <button class="btn btn-sm btn-gold" data-action="prod-find-cn" data-id="" data-title="${esc(k.keyword)}">🇨🇳 Nguồn 1688</button>
+                      </td>
+                    </tr>`).join("")}
+                </tbody>
+              </table>`
+            : `<div style="color:var(--muted)">Chưa có từ khoá mở rộng cho truy vấn này.</div>`
+        }
+      </div>`;
+  }
+
+  async function loadGoogleTrendsHistory() {
+    try {
+      const data = await api("/api/hunt/google-trends/history");
+      GT_HISTORY_RUNS = data.runs || [];
+      const sel = document.getElementById("gtHistorySelect");
+      if (sel) {
+        sel.innerHTML =
+          `<option value="">🕒 Xem lại lịch sử Google Trends (${GT_HISTORY_RUNS.length})...</option>` +
+          GT_HISTORY_RUNS.map((r) => `<option value="${esc(r.run_id)}">${esc((r.seed_terms || []).join(", "))} (${ (r.keywords || []).length } từ khoá · ${fmtTime(r.created_at).slice(5, 16)})</option>`).join("");
+      }
+    } catch (_) {}
+  }
+
+  async function loadPainpoints() {
+    const box = document.getElementById("painpointsListBox");
+    if (!box) return;
+    const data = await api("/api/hunt/painpoints");
+    const items = data.painpoints || [];
+    const chLabel = {
+      facebook_organic: "📘 Facebook",
+      facebook_ads: "📢 FB Ads",
+      threads: "🧵 Threads",
+      x: "𝕏 X",
+      reddit: "👽 Reddit",
+    };
+
+    box.innerHTML = items.length
+      ? items.map((pp) => {
+          const pil = (pp.jev_detail || {}).pillars || {};
+          const posts = pp.evidence_posts || [];
+          const prods = pp.matched_products || [];
+          return `
+            <div style="border:1px solid rgba(16,185,129,0.35);border-radius:10px;padding:12px;margin-bottom:12px;background:#081220">
+              <div class="row" style="justify-content:space-between">
+                <div class="row" style="gap:6px">
+                  <span class="badge green">🧠 Painpoint</span>
+                  <span class="badge blue">${esc(pp.industry_icon)} ${esc(pp.industry_label)}</span>
+                  ${(pp.channels || []).map((c) => `<span class="badge">${esc(chLabel[c] || c)}</span>`).join("")}
+                  ${pp.jev_pain_score != null ? `<span class="badge gold">🤖 Jev Pain Score: ${pp.jev_pain_score}/10</span>` : ""}
+                </div>
+                <div class="row">
+                  <span style="font-size:11.5px;color:var(--muted)">${fmtTime(pp.created_at)}</span>
+                  <button class="btn btn-sm btn-danger" data-action="pp-delete" data-id="${esc(pp.painpoint_id)}">Xoá</button>
+                </div>
+              </div>
+
+              <div style="font-size:15px;font-weight:700;margin-top:8px;color:#e2e8f0">⚡ ${esc(pp.pain_title)}</div>
+              <div style="font-size:12.5px;color:#93c5fd;margin-top:3px">💡 Định hướng giải pháp: <strong>${esc(pp.solution_archetype)}</strong> ${
+                pil.pain_severity != null
+                  ? ` · Độ bức thiết: <strong>${pil.pain_severity}/10</strong> · Dễ giải bằng SP: <strong>${pil.product_solvability}/10</strong> · Hook Video 3s: <strong>${pil.viral_hook_potential}/10</strong>`
+                  : ""
+              }</div>
+
+              <div style="margin-top:8px">
+                <div style="font-size:12px;color:#6ee7b7;margin-bottom:4px">🎯 Từ khoá Sản phẩm Giải pháp đề xuất (bấm để săn thêm trên Shopee/TikTok hoặc tìm xưởng 1688):</div>
+                <div class="row" style="gap:6px">
+                  ${(pp.recommended_keywords || []).map((kw) => `
+                    <span class="badge green" style="padding:4px 8px;font-size:12px">
+                      🔑 ${esc(kw)}
+                      <button class="btn btn-sm" style="padding:2px 6px;margin-left:4px" data-action="gt-push-kw" data-kw="${esc(kw)}" title="Đưa lên ô Săn SP">+ Săn SP</button>
+                      <button class="btn btn-sm btn-gold" style="padding:2px 6px" data-action="prod-find-cn" data-id="" data-title="${esc(kw)}" title="Tìm xưởng 1688/PDD">🇨🇳 1688</button>
+                    </span>
+                  `).join("")}
+                </div>
+              </div>
+
+              ${
+                posts.length
+                  ? `<details style="margin-top:8px">
+                      <summary style="cursor:pointer;font-size:12px;color:var(--muted)">💬 Xem ${posts.length} bài đăng / bình luận thực tế thu thập từ Facebook, Threads, X, Reddit</summary>
+                      <div style="margin-top:6px;max-height:190px;overflow:auto;padding:8px;background:#060d18;border-radius:6px">
+                        ${posts.map((po) => `
+                          <div style="border-bottom:1px solid var(--border);padding:5px 0;font-size:12px">
+                            <span class="badge">${esc(chLabel[po.channel] || po.channel)}</span>
+                            ${po.author ? `<strong>@${esc(po.author)}:</strong>` : ""}
+                            <span>${esc((po.text || "").slice(0, 240))}</span>
+                            ${po.url ? `<a href="${esc(po.url)}" target="_blank" style="color:#7dd3fc;margin-left:6px">[Mở bài gốc ↗]</a>` : ""}
+                          </div>`).join("")}
+                      </div>
+                    </details>`
+                  : ""
+              }
+
+              ${
+                prods.length
+                  ? `<div style="margin-top:10px;border-top:1px solid var(--border);padding-top:8px">
+                      <div class="row" style="justify-content:space-between;margin-bottom:5px">
+                        <strong style="font-size:12.5px;color:#fcd34d">🛒 Sản phẩm Giải pháp đã tìm thấy &amp; lưu vào Kho SP (${prods.length} SP):</strong>
+                        <button class="btn btn-sm btn-pri" data-action="jump-kho-pending">🗂 Sang Kho Phân loại</button>
+                      </div>
+                      <table class="tbl">
+                        <thead><tr><th>#</th><th>Tên Sản phẩm Giải pháp</th><th>Sàn</th><th>Giá bán</th><th>Đã bán</th><th>Điểm Jev</th><th>Thao tác</th></tr></thead>
+                        <tbody>
+                          ${prods.map((p) => `
+                            <tr>
+                              <td>#${p.id}</td>
+                              <td><a href="${esc(p.url || "#")}" target="_blank" style="color:#93c5fd">${esc(p.title)}</a></td>
+                              <td><span class="badge">${esc(p.platform)}</span></td>
+                              <td>${p.price_vnd > 0 ? vnd(p.price_vnd) : "Chưa lấy"}</td>
+                              <td><strong>${Number(p.sold_count || 0).toLocaleString("vi-VN")}</strong></td>
+                              <td>${p.jev_score != null ? `<span class="badge gold">${p.jev_score}/10</span>` : "—"}</td>
+                              <td><button class="btn btn-sm btn-pri" data-action="prod-dossier" data-id="${p.id}">📊 Mở &amp; Phân loại</button></td>
+                            </tr>`).join("")}
+                        </tbody>
+                      </table>
+                    </div>`
+                  : ""
+              }
+            </div>`;
+        }).join("")
+      : `<div style="color:var(--muted);font-size:12.5px">Chưa có Painpoint nào được lưu. Nhập chủ đề (VD: <em>"nhà tắm ẩm mốc mùi hôi"</em> hoặc <em>"đau mỏi cổ vai gáy"</em>) rồi bấm <strong>"🧠 Quét Painpoint &amp; Tìm Sản phẩm Phù hợp"</strong>!</div>`;
+  }
+
   async function loadHuntRecentRuns() {
+    await Promise.all([loadGoogleTrendsHistory(), loadPainpoints()]);
     const box = document.getElementById("huntRecentRunsBox");
     if (!box) return;
     const data = await api("/api/history-logs?module=hunt");
@@ -1250,6 +1407,10 @@
       if (DEFAULT_FEES_BY_PLAT[p] !== undefined && !document.getElementById("msEditId").value) {
         document.getElementById("msFee").value = DEFAULT_FEES_BY_PLAT[p];
       }
+    } else if (ev.target.id === "gtHistorySelect") {
+      const rid = ev.target.value;
+      const found = GT_HISTORY_RUNS.find((r) => r.run_id === rid);
+      if (found) renderGoogleTrendsResult(found);
     }
   });
 
@@ -1401,13 +1562,66 @@
         toast("Đã gửi yêu cầu dừng");
       } else if (act === "hunt-open-run") {
         await openHistoryDetail(actEl.dataset.id, "huntPastDetailBox");
+      } else if (act === "add-hunt-sample") {
+        const kw = actEl.dataset.kw || "";
+        const hk = document.getElementById("huntKeywords");
+        const cur = hk.value.split(/[\n,]+/).map((s) => s.trim()).filter(Boolean);
+        if (kw && !cur.includes(kw)) {
+          cur.push(kw);
+          hk.value = cur.join(", ");
+        }
+        const ppIn = document.getElementById("ppTopicInput");
+        if (ppIn && !ppIn.value.trim()) ppIn.value = kw;
       } else if (act === "close-hunt-past") {
         document.getElementById("huntPastDetailBox").innerHTML = "";
       } else if (act === "gt-search") {
-        const kw = document.getElementById("gtKeyword").value.trim();
-        const res = await api("/api/hunt/google-trends", "POST", { keyword: kw });
-        document.getElementById("huntLogsBox").textContent = JSON.stringify(res, null, 2);
+        const kw = document.getElementById("gtKeyword").value.trim() || document.getElementById("huntKeywords").value.trim();
+        toast("Đang quét từ khoá Đột phá Google Trends VN & chấm điểm Jev AI...");
+        const res = await api("/api/hunt/google-trends", "POST", {
+          keyword: kw,
+          time_range: document.getElementById("gtTimeRange")?.value || "today 3-m",
+          category: document.getElementById("gtCategory")?.value || "",
+          score_jev: document.getElementById("gtScoreJev")?.checked !== false,
+        });
+        renderGoogleTrendsResult(res);
+        loadGoogleTrendsHistory();
         toast(res.summary);
+      } else if (act === "gt-push-kw") {
+        const kw = actEl.dataset.kw || "";
+        const hk = document.getElementById("huntKeywords");
+        const cur = hk.value.split(/[\n,]+/).map((s) => s.trim()).filter(Boolean);
+        if (kw && !cur.includes(kw)) cur.push(kw);
+        hk.value = cur.join(", ");
+        hk.scrollIntoView({ behavior: "smooth", block: "center" });
+        toast(`Đã thêm "${kw}" vào ô Săn Sản phẩm!`);
+      } else if (act === "gt-push-all-top") {
+        const els = [...document.querySelectorAll(".gt-kw-item")].slice(0, 4);
+        const hk = document.getElementById("huntKeywords");
+        const cur = hk.value.split(/[\n,]+/).map((s) => s.trim()).filter(Boolean);
+        els.forEach((el) => {
+          const w = el.dataset.kw;
+          if (w && !cur.includes(w)) cur.push(w);
+        });
+        hk.value = cur.join(", ");
+        hk.scrollIntoView({ behavior: "smooth", block: "center" });
+        toast("Đã đẩy Top 4 từ khoá xu hướng lên ô Săn Sản phẩm!");
+      } else if (act === "pp-discover") {
+        const topic = document.getElementById("ppTopicInput").value.trim() || document.getElementById("huntKeywords").value.split(/[\n,]+/)[0]?.trim() || "";
+        const chs = [...document.querySelectorAll(".pp-ch:checked")].map((c) => c.value);
+        toast("Đang quét Painpoint trên Facebook/Threads/X/Reddit, chấm Jev AI & tìm Sản phẩm Giải pháp...");
+        const res = await api("/api/hunt/painpoints", "POST", {
+          topic_query: topic,
+          channels: chs,
+          auto_find_products: document.getElementById("ppAutoFindProducts")?.checked !== false,
+        });
+        toast(res.summary);
+        await syncSidebarCountsAndRefs();
+        await loadPainpoints();
+      } else if (act === "pp-refresh") {
+        await loadPainpoints();
+      } else if (act === "pp-delete") {
+        await api(`/api/hunt/painpoints/${encodeURIComponent(actEl.dataset.id)}`, "DELETE");
+        await loadPainpoints();
       } else if (act === "kw-suggest") {
         const kw = document.getElementById("kwInput").value.trim();
         const res = await api("/api/keywords/suggest", "POST", { keyword: kw });

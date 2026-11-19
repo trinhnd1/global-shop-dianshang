@@ -64,6 +64,29 @@ class FakeJev:
             "_cost_usd": 0.0006,
         }
 
+    def score_google_trend_keyword(self, api_key: str, kw_item: dict, model: str = "", base_url: str = "") -> dict:
+        return {
+            "jev_score_10": 8.4,
+            "buyer_intent": 8.6,
+            "trend_durability": 8.1,
+            "industry": "gia_dung",
+            "worth_hunting_prob": 0.9,
+            "jev_model": "jev-1.14.0",
+            "_cost_usd": 0.0006,
+        }
+
+    def evaluate_social_painpoint(self, api_key: str, pain_context: dict, model: str = "", base_url: str = "") -> dict:
+        return {
+            "overall_pain_score_10": 8.75,
+            "pillars": {"pain_severity": 9.0, "product_solvability": 8.8, "viral_hook_potential": 8.3},
+            "industry": "gia_dung",
+            "solution_archetype": "ve_sinh_khu_mui_diet_khuan",
+            "solution_archetype_label": "Chế phẩm / Dụng cụ vệ sinh, khử mùi, chống ẩm mốc",
+            "worth_sourcing_prob": 0.92,
+            "jev_model": "jev-1.14.0",
+            "_cost_usd": 0.0006,
+        }
+
 
 class GlobalShopDianshangE2ETest(unittest.TestCase):
     def setUp(self):
@@ -83,6 +106,7 @@ class GlobalShopDianshangE2ETest(unittest.TestCase):
         self.api.products.jev = fake_jev
         self.api.keywords.jev = fake_jev
         self.api.spy_video.jev = fake_jev
+        self.api.hunt.jev = fake_jev
 
         self.webapp = WebApp(self.api, DEFAULT_STATIC)
         self.httpd = make_server("127.0.0.1", 0, self.webapp, server_class=LocalHTTPServer, handler_class=LocalRequestHandler)
@@ -114,9 +138,9 @@ class GlobalShopDianshangE2ETest(unittest.TestCase):
     def test_01_security_version_masking_and_tailscale_guards(self):
         st, health = self.req("GET", "/api/health")
         self.assertEqual(st, 200)
-        self.assertEqual(health["version"], "1.0.3")
-        self.assertEqual(__version__, "1.0.3")
-        self.assertEqual(health["schema_version"], 2)
+        self.assertEqual(health["version"], "1.0.4")
+        self.assertEqual(__version__, "1.0.4")
+        self.assertEqual(health["schema_version"], 3)
 
         # Tailscale MagicDNS & CGNAT allowed
         st_ts, _ = self.req("GET", "/api/health", headers={"Host": "nguyens-mac-mini.tail213fd3.ts.net:8999"})
@@ -377,6 +401,48 @@ class GlobalShopDianshangE2ETest(unittest.TestCase):
         self.assertEqual(st_mcp, 200)
         overview_txt = mcp_res["result"]["content"][0]["text"]
         self.assertIn("Global Shop Dianshang", overview_txt)
+
+    def test_04_google_trends_and_social_painpoint_to_product_discovery(self):
+        self.req("POST", "/api/settings", {"providers": {"typesafe_key": "apikey_test_jev_painpoint"}})
+
+        # 1) Google Trends multi-seed + Jev Buyer Intent scoring + history
+        st_gt, gt = self.req("POST", "/api/hunt/google-trends", {
+            "seed_terms": ["quạt cầm tay", "máy hút ẩm"],
+            "time_range": "today 3-m",
+            "score_jev": True,
+        })
+        self.assertEqual(st_gt, 200)
+        self.assertGreaterEqual(len(gt["keywords"]), 2)
+        self.assertEqual(gt["keywords"][0]["jev_score_10"], 8.4)
+
+        _, gt_hist = self.req("GET", "/api/hunt/google-trends/history")
+        self.assertEqual(len(gt_hist["runs"]), 1)
+
+        # 2) Social Painpoint Discovery (Facebook, Threads, X, Reddit) -> Jev Diagnosis -> Solution Products in Kho
+        pp_res = self.api.hunt.discover_painpoints(
+            topic_query="nhà tắm ẩm mốc mùi hôi cống",
+            channels=["facebook_organic", "threads", "x", "reddit"],
+            auto_find_products=True,
+            injected_posts=[
+                {"channel": "facebook_organic", "author": "nhadep_group", "text": "Cứu em với nhà tắm mùa nồm mùi hôi cống bốc lên và tường bị nấm mốc đen, dùng phễu thoát sàn ngăn mùi loại nào tốt ạ?", "comments": 45, "likes": 120},
+                {"channel": "threads", "author": "minh_anh", "text": "Ở chung cư hay bị mùi thoát sàn toilet cực kỳ khó chịu, xịt tẩy nấm mốc nhà tắm xong đỡ hẳn", "comments": 18, "likes": 64},
+                {"channel": "reddit", "author": "r/CleaningTips", "text": "Bathroom drain smell and mold problem — silicone backflow drain trap fixed it", "comments": 32, "likes": 210},
+                {"channel": "x", "author": "decor_vn", "text": "Đặt máy hút ẩm mini trong phòng tắm khô thoáng hẳn", "comments": 5, "likes": 29},
+            ],
+            injected_products=[
+                {"platform": "shopee", "native_product_id": "25500000111", "title": "Phễu thoát sàn ngăn mùi hôi cống Inox 304 tự đóng mở", "price_vnd": 65000, "sold_count": 3200, "url": "https://shopee.vn/product/1/25500000111"},
+                {"platform": "tiktok_shop", "native_product_id": "1730000000000000888", "title": "Bình xịt tẩy nấm mốc nhà tắm công nghệ Nhật 500ml", "price_vnd": 89000, "sold_count": 1450, "url": "https://shop.tiktok.com/view/product/1730000000000000888?region=VN"},
+            ],
+        )
+        pp = pp_res["painpoint"]
+        self.assertEqual(pp["jev_pain_score"], 8.75)
+        self.assertIn("phễu thoát sàn ngăn mùi", pp["recommended_keywords"])
+        self.assertEqual(len(pp["matched_products"]), 2)
+
+        st_pp_list, pp_list = self.req("GET", "/api/hunt/painpoints")
+        self.assertEqual(st_pp_list, 200)
+        self.assertEqual(len(pp_list["painpoints"]), 1)
+        self.assertEqual(len(pp_list["painpoints"][0]["evidence_posts"]), 4)
 
 
 if __name__ == "__main__":

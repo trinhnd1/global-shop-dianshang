@@ -433,6 +433,48 @@ MIGRATIONS: list[tuple[int, str, list[str]]] = [
             "ALTER TABLE shops ADD COLUMN campaign_ids_json TEXT NOT NULL DEFAULT '[]'",
         ],
     ),
+    (
+        3,
+        "v3_painpoints_and_google_trends_runs",
+        [
+            """
+            CREATE TABLE IF NOT EXISTS google_trends_runs (
+                run_id TEXT PRIMARY KEY,
+                seed_terms_json TEXT NOT NULL DEFAULT '[]',
+                geo TEXT NOT NULL DEFAULT 'VN',
+                time_range TEXT NOT NULL DEFAULT 'today 3-m',
+                category TEXT NOT NULL DEFAULT '',
+                provider_used TEXT NOT NULL DEFAULT '',
+                seed_summaries_json TEXT NOT NULL DEFAULT '[]',
+                keywords_json TEXT NOT NULL DEFAULT '[]',
+                cost_usd REAL NOT NULL DEFAULT 0.0,
+                created_at TEXT NOT NULL
+            )
+            """,
+            "CREATE INDEX IF NOT EXISTS idx_gt_runs_created ON google_trends_runs(created_at DESC)",
+            """
+            CREATE TABLE IF NOT EXISTS painpoint_discoveries (
+                painpoint_id TEXT PRIMARY KEY,
+                job_id TEXT NOT NULL DEFAULT '',
+                topic_query TEXT NOT NULL,
+                channels_json TEXT NOT NULL DEFAULT '[]',
+                industry TEXT NOT NULL DEFAULT 'khac',
+                pain_title TEXT NOT NULL,
+                pain_summary TEXT NOT NULL DEFAULT '',
+                solution_archetype TEXT NOT NULL DEFAULT '',
+                recommended_keywords_json TEXT NOT NULL DEFAULT '[]',
+                evidence_posts_json TEXT NOT NULL DEFAULT '[]',
+                jev_pain_score REAL,
+                jev_detail_json TEXT NOT NULL DEFAULT '{}',
+                matched_product_ids_json TEXT NOT NULL DEFAULT '[]',
+                status TEXT NOT NULL DEFAULT 'active',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """,
+            "CREATE INDEX IF NOT EXISTS idx_painpoint_updated ON painpoint_discoveries(updated_at DESC)",
+        ],
+    ),
 ]
 
 

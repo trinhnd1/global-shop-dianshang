@@ -344,6 +344,7 @@ class HistoryLogService:
         pids: list[int] = []
         for cand_list in (
             job_res.get("product_ids"),
+            resp.get("product_ids"),
             resp.get("saved_product_ids"),
             (payload.get("request") or {}).get("ids") if isinstance(payload.get("request"), dict) else None,
         ):
@@ -377,6 +378,10 @@ class HistoryLogService:
             kpis.append({"label": "Ngân sách / Thực chi", "value": f"${job_detail['actual_cost_usd']:.4f} / ${job_detail['budget_limit_usd']:.2f}"})
         if hydrated_products:
             kpis.append({"label": "Sản phẩm thu được", "value": f"{len(hydrated_products)} SP"})
+        if job_res.get("painpoints_count"):
+            kpis.append({"label": "Painpoint MXH phát hiện", "value": f"{job_res['painpoints_count']} nhóm"})
+        if isinstance(resp.get("painpoint"), dict):
+            kpis.append({"label": "Từ khoá giải pháp", "value": ", ".join((resp["painpoint"].get("recommended_keywords") or [])[:3])})
         if job_res.get("scored_jev_count") is not None:
             kpis.append({"label": "Đã chấm Jev AI", "value": f"{job_res['scored_jev_count']} SP"})
         if payload.get("channels"):

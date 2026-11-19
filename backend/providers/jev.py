@@ -247,6 +247,67 @@ class JevClient:
             "_cost_usd": res["_cost_usd"],
         }
 
+    def score_google_trend_keyword(self, api_key: str, kw_item: dict, model: str = DEFAULT_MODEL, base_url: str = DEFAULT_ENDPOINT) -> dict:
+        """Score a Google Trends Rising/Breakout keyword for physical e-commerce product demand."""
+        scale_4 = ["Tin tức/Không phải SP", "Nhu cầu mua yếu", "Có ý định mua rõ", "Từ khoá vàng để nhập hàng bán"]
+        questions = {
+            "buyer_intent": {"type": "score", "instructions": "Từ khoá xu hướng này thể hiện ý định tìm mua sản phẩm vật lý trên Shopee/TikTok cao đến mức nào?", "criteria": scale_4},
+            "trend_durability": {"type": "score", "instructions": "Độ bền nhu cầu trong 1-3 tháng tới để nhà bán kịp nhập hàng 1688/PDD về bán?", "criteria": scale_4},
+            "industry": {"type": "choice", "instructions": "Từ khoá này thuộc ngành hàng thương mại điện tử nào?", "criteria": INDUSTRY_CHOICES},
+            "worth_hunting": {"type": "noul", "instructions": "Xác suất nên đưa từ khoá này sang quét tìm sản phẩm bán chạy ngay?"},
+        }
+        res = self.ask_atomic(api_key, kw_item, questions, model=model, base_url=base_url)
+        a = res["answers"]
+        score_10 = round(a["buyer_intent"] * 0.60 + a["trend_durability"] * 0.40, 2)
+        return {
+            "jev_score_10": score_10,
+            "buyer_intent": a["buyer_intent"],
+            "trend_durability": a["trend_durability"],
+            "industry": a["industry"],
+            "worth_hunting_prob": a["worth_hunting"],
+            "jev_model": res["model"],
+            "_cost_usd": res["_cost_usd"],
+        }
+
+    def evaluate_social_painpoint(self, api_key: str, pain_context: dict, model: str = DEFAULT_MODEL, base_url: str = DEFAULT_ENDPOINT) -> dict:
+        """Evaluate customer painpoint discussions from Facebook, Threads, X, Reddit to guide product sourcing."""
+        scale_4 = ["Mơ hồ / Khó thương mại hoá", "Có nhu cầu nhỏ", "Nỗi đau rõ / Dễ chốt đơn", "Nỗi đau cực nóng / Mỏ vàng sản phẩm"]
+        solution_archetypes = {
+            "dung_cu_tien_ich_thong_minh": "Dụng cụ tiện ích thông minh tiết kiệm thời gian",
+            "thiet_bi_dien_tu_mini": "Thiết bị điện tử / gia dụng mini sạc pin",
+            "luu_tru_sap_xep_gon": "Kệ / Hộp lưu trữ tối ưu không gian chật",
+            "ve_sinh_khu_mui_diet_khuan": "Chế phẩm / Dụng cụ vệ sinh, khử mùi, chống ẩm mốc",
+            "cham_soc_suc_khoe_giam_dau": "Thiết bị massage, công thái học, hỗ trợ giấc ngủ & sức khoẻ",
+            "lam_dep_cham_soc_ca_nhan": "Giải pháp làm đẹp & chăm sóc cá nhân nhanh tại nhà",
+            "phu_kien_di_chuyen_ngoai_troi": "Phụ kiện chống nóng/mưa, du lịch, ô tô - xe máy",
+            "me_be_thu_cung_tien_loi": "Đồ dùng giải phóng sức lao động cho Mẹ & Bé / Thú cưng",
+        }
+        questions = {
+            "pain_severity": {"type": "score", "instructions": "Mức độ bức xúc, khó chịu lặp đi lặp lại khiến khách hàng sẵn sàng rút ví mua giải pháp ngay?", "criteria": scale_4},
+            "product_solvability": {"type": "score", "instructions": "Khả năng giải quyết nỗi đau này bằng một sản phẩm vật lý nhỏ gọn dễ nhập từ 1688/Pinduoduo về bán trên Shopee/TikTok?", "criteria": scale_4},
+            "viral_hook_potential": {"type": "score", "instructions": "Mức độ dễ chuyển nỗi đau này thành cảnh mở đầu (Hook 3s Before/After) gây bùng nổ đơn trên TikTok/Facebook Ads?", "criteria": scale_4},
+            "industry": {"type": "choice", "instructions": "Nỗi đau này thuộc ngành hàng kinh doanh nào?", "criteria": INDUSTRY_CHOICES},
+            "solution_archetype": {"type": "choice", "instructions": "Nhóm sản phẩm giải pháp nào phù hợp nhất để giải quyết nỗi đau này?", "criteria": solution_archetypes},
+            "worth_sourcing": {"type": "noul", "instructions": "Xác suất nhà bán nên đi tìm ngay dòng sản phẩm giải quyết painpoint này để nhập bán?"},
+        }
+        res = self.ask_atomic(api_key, pain_context, questions, model=model, base_url=base_url)
+        a = res["answers"]
+        overall = round(a["pain_severity"] * 0.38 + a["product_solvability"] * 0.37 + a["viral_hook_potential"] * 0.25, 2)
+        return {
+            "overall_pain_score_10": overall,
+            "pillars": {
+                "pain_severity": a["pain_severity"],
+                "product_solvability": a["product_solvability"],
+                "viral_hook_potential": a["viral_hook_potential"],
+            },
+            "industry": a["industry"],
+            "solution_archetype": a["solution_archetype"],
+            "solution_archetype_label": solution_archetypes.get(a["solution_archetype"], a["solution_archetype"]),
+            "worth_sourcing_prob": a["worth_sourcing"],
+            "jev_model": res["model"],
+            "_cost_usd": res["_cost_usd"],
+        }
+
     def evaluate_video(
         self,
         api_key: str,

@@ -11,7 +11,7 @@
     <aside class="side" id="sidebar">
       <div class="brand">
         <h1>🏬 Global Shop Dianshang</h1>
-        <div class="sub">Nghiên cứu SP Bán chạy · Từ khoá · Nguồn TQ · Shop của tôi (<span id="sideVer">v1.0.3</span>)</div>
+        <div class="sub">Nghiên cứu SP Bán chạy · Từ khoá · Nguồn TQ · Shop của tôi (<span id="sideVer">v1.0.4</span>)</div>
       </div>
 
       <div class="nav-sec">1 · Nghiên cứu &amp; Shop của tôi</div>
@@ -47,7 +47,7 @@
         <div class="row">
           <button class="btn btn-sm menu-btn" data-action="toggle-menu">☰ Menu</button>
           <span class="badge green" id="topStatusBadge">🟢 Sẵn sàng</span>
-          <span class="badge blue" id="topVerBadge">📦 v1.0.3</span>
+          <span class="badge blue" id="topVerBadge">📦 v1.0.4</span>
         </div>
         <div class="row">
           <button class="btn btn-sm btn-blue" data-action="jump-myshops">🏠 Shop của tôi (<span id="topMyShopsCnt">0</span>)</button>
@@ -65,56 +65,160 @@
           <div class="kpi"><div class="lbl">Doanh số Đơn bán / Lãi ròng</div><div class="val green" id="kpiSalesProfit">0đ</div></div>
         </div>
 
-        <!-- VIEW 1.1: SĂN SẢN PHẨM BÁN CHẠY -->
+        <!-- VIEW 1.1: SĂN SẢN PHẨM ĐA TẦNG: GOOGLE TRENDS + PAINPOINT MXH (FB/THREADS/X/REDDIT) -> SẢN PHẨM GIẢI PHÁP -->
         <section class="view active" id="view-hunt">
           <div class="page-head">
             <div>
-              <h2>🔎 Phần 1.1 · Săn Sản phẩm Tiềm năng để Nhập Bán</h2>
-              <p>Quét sản phẩm trên Shopee, TikTok Shop, Lazada, Facebook Ads &amp; Google Trends — tự động đưa 100% sản phẩm gọi về vào <strong>Kho SP (Chờ đánh giá)</strong> để bạn xem và phân loại.</p>
+              <h2>🔎 Phần 1.1 · Săn Sản phẩm Đa tầng — Google Trends · Săn Painpoint (Facebook, Threads, X, Reddit) &amp; Tìm SP Giải pháp</h2>
+              <p>Kết hợp <strong>Apify (#1) &rarr; Treg (#2) + TypeSafe Jev AI</strong>: Mở rộng từ khoá đột phá Google Trends, lắng nghe nỗi đau khách hàng trên MXH để suy ra mặt hàng giải pháp, rồi quét thẳng sản phẩm trên Shopee / TikTok Shop đưa về Kho SP.</p>
             </div>
           </div>
+
+          <!-- ROW 1: UNIFIED MULTI-STAGE HUNTER + LIVE LOGS -->
           <div class="grid2">
             <div class="card">
-              <h3>Khởi chạy phiên Săn Sản phẩm Bán chạy</h3>
+              <h3>1. 🚀 Khởi chạy Phiên Săn Đa tầng (Từ khoá / Ngách / Vấn đề khách hàng)</h3>
               <div class="field">
-                <label>Từ khoá hoặc Ngách sản phẩm (mỗi dòng hoặc phẩy 1 từ khoá)</label>
-                <textarea id="huntKeywords" rows="3" placeholder="VD: máy xay tỏi ớt, kệ nhà tắm thông minh, đồng hồ thông minh"></textarea>
+                <label>Nhập Từ khoá SP, Ngách hoặc Nỗi đau khách hàng (mỗi dòng hoặc phẩy 1 mục)</label>
+                <textarea id="huntKeywords" rows="3" placeholder="VD: nhà tắm ẩm mốc mùi hôi, đau mỏi cổ vai gáy văn phòng, máy xay tỏi ớt"></textarea>
+                <div class="chips" style="margin-top:6px;margin-bottom:0">
+                  <button type="button" class="chip" data-action="add-hunt-sample" data-kw="nhà tắm ẩm mốc mùi hôi">+ 🚿 Nhà tắm ẩm mốc mùi hôi</button>
+                  <button type="button" class="chip" data-action="add-hunt-sample" data-kw="đau mỏi cổ vai gáy văn phòng">+ 💺 Đau mỏi cổ vai gáy</button>
+                  <button type="button" class="chip" data-action="add-hunt-sample" data-kw="bếp chật nhiều chai lọ">+ 🍳 Bếp chật bừa bộn</button>
+                  <button type="button" class="chip" data-action="add-hunt-sample" data-kw="lông chó mèo bám quần áo">+ 🐾 Lông chó mèo rụng</button>
+                  <button type="button" class="chip" data-action="add-hunt-sample" data-kw="phòng trọ nóng bức mất điện">+ ❄️ Phòng nóng mất điện</button>
+                </div>
               </div>
+
+              <div class="field" style="background:#081120;padding:9px 10px;border-radius:8px;border:1px solid var(--border)">
+                <label style="color:#7dd3fc">Bước A · Mở rộng Xu hướng &amp; Kênh Săn Painpoint Mạng xã hội (Apify #1 &rarr; Treg #2):</label>
+                <div class="row" style="gap:10px;margin-top:4px">
+                  <label><input type="checkbox" class="hunt-ch" value="google_trends" checked /> 📈 Google Trends (+Jev)</label>
+                  <label><input type="checkbox" class="hunt-ch" value="facebook_organic" /> 📘 Facebook Organic</label>
+                  <label><input type="checkbox" class="hunt-ch" value="facebook_ads" /> 📢 Facebook Ads</label>
+                  <label><input type="checkbox" class="hunt-ch" value="threads" /> 🧵 Threads</label>
+                  <label><input type="checkbox" class="hunt-ch" value="x" /> 𝕏 X (Twitter)</label>
+                  <label><input type="checkbox" class="hunt-ch" value="reddit" /> 👽 Reddit</label>
+                </div>
+                <label style="color:#6ee7b7;margin-top:8px">Bước B · Sàn TMĐT Tìm Sản phẩm Giải pháp &amp; Đưa vào Kho SP:</label>
+                <div class="row" style="gap:10px;margin-top:4px">
+                  <label><input type="checkbox" class="hunt-ch" value="shopee" checked /> 🛍 Shopee VN</label>
+                  <label><input type="checkbox" class="hunt-ch" value="tiktok_shop" checked /> 🛒 TikTok Shop</label>
+                  <label><input type="checkbox" class="hunt-ch" value="lazada" /> 📦 Lazada VN</label>
+                  <label><input type="checkbox" id="huntAutoJev" checked /> 🤖 Tự chấm điểm Jev AI</label>
+                </div>
+              </div>
+
               <div class="grid2">
                 <div class="field">
-                  <label>Số SP mỗi sàn</label>
+                  <label>Số mẫu thu thập / kênh</label>
                   <input type="number" id="huntLimit" value="8" min="3" max="30" />
                 </div>
                 <div class="field">
                   <label>Trần ngân sách phiên (USD)</label>
-                  <input type="number" id="huntBudget" value="0.30" step="0.05" />
+                  <input type="number" id="huntBudget" value="0.35" step="0.05" />
                 </div>
               </div>
-              <div class="row" style="margin-bottom:10px">
-                <label><input type="checkbox" class="hunt-ch" value="shopee" checked /> Shopee VN</label>
-                <label><input type="checkbox" class="hunt-ch" value="tiktok_shop" checked /> TikTok Shop</label>
-                <label><input type="checkbox" class="hunt-ch" value="lazada" /> Lazada VN</label>
-                <label><input type="checkbox" class="hunt-ch" value="facebook_ads" /> Facebook Ads</label>
-                <label><input type="checkbox" id="huntAutoJev" checked /> Tự chấm điểm Jev Seller</label>
-              </div>
+
               <div class="row">
                 <button class="btn" data-action="hunt-estimate">💲 Ước tính chi phí</button>
-                <button class="btn btn-pri" data-action="hunt-start">🚀 Bắt đầu Săn Sản phẩm</button>
+                <button class="btn btn-pri" data-action="hunt-start">🚀 Chạy Săn Đa tầng Ngay</button>
                 <button class="btn btn-danger" data-action="hunt-stop">🛑 Dừng</button>
               </div>
               <div id="huntEstimateBox" style="margin-top:8px;color:var(--muted);font-size:12.5px"></div>
             </div>
 
             <div class="card">
-              <h3>📈 Khám phá Xu hướng Google Trends VN &amp; Log Trực tiếp</h3>
-              <div class="row" style="margin-bottom:10px">
-                <input type="text" id="gtKeyword" placeholder="Nhập từ khoá gốc (VD: quạt tích điện, máy sưởi mini)" style="flex:1" />
-                <button class="btn btn-blue" data-action="gt-search">Tra xu hướng</button>
+              <div class="row" style="justify-content:space-between;margin-bottom:8px">
+                <h3 style="margin:0">📡 Nhật ký Tiến trình Săn Đa tầng Trực tiếp</h3>
+                <button class="btn btn-sm" data-action="jump-kho-pending">📝 Mở Kho Chờ đánh giá</button>
               </div>
-              <pre class="codebox" id="huntLogsBox">Sẵn sàng quét sản phẩm tiềm năng...</pre>
+              <pre class="codebox" id="huntLogsBox" style="min-height:245px">Sẵn sàng: Chọn Google Trends + Kênh MXH (Facebook, Threads, X, Reddit) + Shopee/TikTok Shop để săn từ Painpoint ra Sản phẩm!</pre>
             </div>
           </div>
 
+          <!-- ROW 2: GOOGLE TRENDS BREAKOUT WORKBENCH -->
+          <div class="card" style="border-color:rgba(56,189,248,0.4)">
+            <div class="row" style="justify-content:space-between;margin-bottom:8px">
+              <div>
+                <h3 style="margin:0;color:#7dd3fc">2. 📈 Săn Từ khoá Đột phá Google Trends VN &amp; Chấm Ý định Mua Jev AI</h3>
+                <div style="font-size:12px;color:var(--muted)">Tự động ưu tiên Apify Google Trends (#1) &rarr; dự phòng Treg Google Keywords/SerpAPI (#2), sau đó dùng Jev AI chấm điểm ý định mua sắm hàng vật lý.</div>
+              </div>
+              <select id="gtHistorySelect" style="width:auto;max-width:250px;font-size:12px">
+                <option value="">🕒 Xem lại lịch sử quét Google Trends...</option>
+              </select>
+            </div>
+
+            <div class="grid4">
+              <div class="field" style="grid-column:span 2;margin:0">
+                <label>Nhập 1–5 từ khoá gốc (ngăn cách dấu phẩy)</label>
+                <input type="text" id="gtKeyword" placeholder="VD: quạt tích điện, máy massage, kệ nhà tắm, đèn năng lượng" />
+              </div>
+              <div class="field" style="margin:0">
+                <label>Khung thời gian &amp; Danh mục</label>
+                <div class="row" style="flex-wrap:nowrap">
+                  <select id="gtTimeRange">
+                    <option value="now 7-d">7 ngày qua</option>
+                    <option value="today 1-m">30 ngày qua</option>
+                    <option value="today 3-m" selected>90 ngày (Chuẩn)</option>
+                    <option value="today 12-m">12 tháng</option>
+                  </select>
+                  <select id="gtCategory">
+                    <option value="">Mọi ngành</option>
+                    <option value="18">Mua sắm</option>
+                    <option value="11">Nhà &amp; Vườn</option>
+                    <option value="44">Làm đẹp</option>
+                    <option value="5">Điện tử</option>
+                  </select>
+                </div>
+              </div>
+              <div class="row" style="align-items:flex-end">
+                <label style="font-size:12px"><input type="checkbox" id="gtScoreJev" checked /> 🤖 Jev chấm</label>
+                <button class="btn btn-blue" data-action="gt-search">📈 Quét Google Trends</button>
+              </div>
+            </div>
+            <div id="gtResultsBox" style="margin-top:10px"></div>
+          </div>
+
+          <!-- ROW 3: SOCIAL PAINPOINT DISCOVERY -> PRODUCT SOLUTION FINDER -->
+          <div class="card" style="border-color:rgba(16,185,129,0.4)">
+            <div class="row" style="justify-content:space-between;margin-bottom:8px">
+              <div>
+                <h3 style="margin:0;color:#6ee7b7">3. 🧠 Săn Painpoint Khách hàng (Facebook · Threads · X · Reddit) &rarr; Tìm Sản phẩm Phù hợp</h3>
+                <div style="font-size:12px;color:var(--muted)">Quét bài đăng/thảo luận phàn nàn thực tế trên MXH &rarr; Jev AI chấm độ bức thiết &amp; trích xuất Từ khoá Giải pháp &rarr; tự động đi tìm sản phẩm khớp nhu cầu trên Shopee &amp; TikTok Shop.</div>
+              </div>
+              <button class="btn btn-sm" data-action="pp-refresh">↻ Làm mới danh sách Painpoint</button>
+            </div>
+
+            <div class="grid2">
+              <div class="field" style="margin:0">
+                <label>Chủ đề đời sống / Vấn đề / Tệp khách hàng cần tìm Painpoint</label>
+                <input type="text" id="ppTopicInput" placeholder="VD: nhà tắm mùi hôi ẩm mốc, mẹ bỉm pha sữa đêm, bàn làm việc rối dây điện..." />
+              </div>
+              <div class="field" style="margin:0">
+                <label>Chọn kênh mạng xã hội lắng nghe Painpoint</label>
+                <div class="row" style="padding-top:5px;gap:10px">
+                  <label><input type="checkbox" class="pp-ch" value="facebook_organic" checked /> 📘 Facebook</label>
+                  <label><input type="checkbox" class="pp-ch" value="facebook_ads" /> 📢 FB Ads</label>
+                  <label><input type="checkbox" class="pp-ch" value="threads" checked /> 🧵 Threads</label>
+                  <label><input type="checkbox" class="pp-ch" value="x" checked /> 𝕏 X (Twitter)</label>
+                  <label><input type="checkbox" class="pp-ch" value="reddit" checked /> 👽 Reddit</label>
+                </div>
+              </div>
+            </div>
+
+            <div class="row" style="margin-top:10px;justify-content:space-between">
+              <label style="font-size:12.5px;color:#6ee7b7;cursor:pointer">
+                <input type="checkbox" id="ppAutoFindProducts" checked />
+                <strong>🛒 Tự động lấy Từ khoá Giải pháp đi tìm Sản phẩm trên Shopee &amp; TikTok Shop rồi lưu thẳng vào Kho SP</strong>
+              </label>
+              <button class="btn btn-pri" data-action="pp-discover">🧠 Quét Painpoint &amp; Tìm Sản phẩm Phù hợp</button>
+            </div>
+
+            <div id="painpointsListBox" style="margin-top:14px"></div>
+          </div>
+
+          <!-- ROW 4: RECENT HUNT JOBS -->
           <div class="card">
             <div class="row" style="justify-content:space-between;margin-bottom:8px">
               <h3 style="margin:0">📜 Các Phiên Săn đã chạy gần đây (Bấm để xem chi tiết Log &amp; Sản phẩm thu được)</h3>

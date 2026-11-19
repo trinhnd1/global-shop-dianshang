@@ -399,3 +399,260 @@ class TregClient:
 
     def fetch_google_trends(self, token: str, keyword: str, geo: str = "VN", max_cost_usd: float = 0.025) -> dict:
         return self.call(token, "treg.google.keywords.ideas", {"keyword": keyword, "country": geo}, method="POST", max_cost_usd=max_cost_usd)
+
+    def explore_google_trends(
+        self,
+        token: str,
+        seed_terms: list[str],
+        geo: str = "VN",
+        time_range: str = "today 3-m",
+        max_keywords: int = 16,
+        max_cost_usd: float = 0.025,
+    ) -> dict:
+        """Backup Google Trends & Buyer-Intent Keyword Explorer via Treg (`treg.google.keywords.trends` + `ideas` + `serpapi.x.google-trends`)."""
+        seeds = [str(s).strip().lstrip("#").strip()[:120] for s in (seed_terms or []) if str(s or "").strip()][:5]
+        if not seeds:
+            raise TregError("Vui lòng nhập ít nhất 1 từ khoá gốc", status=400)
+        cc = (geo or "VN").strip().upper()
+        lang = "vi" if cc == "VN" else "en"
+        total_cost = 0.0
+        endpoints_used: list[str] = []
+        seed_summaries: list[dict] = []
+        kw_map: dict[str, dict] = {}
+
+        def _upsert_kw(term_txt: str, kind: str, seed_parent: str, growth_label: str = "", growth_pct: float | None = None, interest_score: float | None = None):
+            t_clean = str(term_txt or "").strip()
+            if not t_clean:
+                return
+            k_low = t_clean.lower()
+            rank_order = {"rising": 3, "seed": 2, "top": 1}
+            ex = kw_map.get(k_low)
+            if ex:
+                if rank_order.get(kind, 0) > rank_order.get(ex["kind"], 0):
+                    ex["kind"] = kind
+                if growth_label and not ex.get("growth_label"):
+                    ex["growth_label"] = growth_label
+                return
+            kw_map[k_low] = {
+                "keyword": t_clean,
+                "kind": kind,
+                "seed_term": seed_parent,
+                "growth_label": growth_label,
+                "growth_pct": growth_pct,
+                "interest_value": interest_score,
+                "source": "treg:google_trends",
+            }
+
+        try:
+            r_tr = self.call(token, "treg.google.keywords.trends", {"keywords": seeds, "country": cc.lower()}, method="POST", max_cost_usd=max_cost_usd)
+            total_cost += float(r_tr.get("_cost_usd") or 0.0)
+            endpoints_used.append(str(r_tr.get("_served_by") or "treg.google.keywords.trends"))
+            series_list = ((r_tr.get("output") or {}).get("series") if isinstance(r_tr.get("output"), dict) else None) or []
+            for s_obj in series_list:
+                if not isinstance(s_obj, dict):
+                    continue
+                kws_s = s_obj.get("keywords") if isinstance(s_obj.get("keywords"), list) else seeds
+                pts = s_obj.get("data") if isinstance(s_obj.get("data"), list) else []
+                for idx_kw, kw_name in enumerate(kws_s):
+                    vals = []
+                    for pt in pts:
+                        if isinstance(pt, dict):
+                            v_arr = pt.get("values") if isinstance(pt.get("values"), list) else [pt.get("value")]
+                            vi = v_arr[idx_kw] if idx_kw < len(v_arr) else (v_arr[0] if v_arr else None)
+                            if isinstance(vi, (int, float)):
+                                vals.append(float(vi))
+                    cur_v = round(vals[-1], 1) if vals else None
+                    avg_v = round(sum(vals) / len(vals), 1) if vals else None
+                    peak_v = round(max(vals), 1) if vals else None
+                    mom = 0.0
+                    if len(vals) >= 6:
+                        sp_idx = max(2, len(vals) // 4)
+                        rec_avg = sum(vals[-sp_idx:]) / sp_idx
+                        pri_avg = sum(vals[:-sp_idx]) / max(1, len(vals[:-sp_idx]))
+                        mom = round(((rec_avg - pri_avg) / max(pri_avg, 5.0)) * 100.0, 1)
+                    seed_summaries.append({"seed_term": str(kw_name), "current_interest": cur_v, "avg_interest": avg_v, "peak_interest": peak_v, "momentum_pct": mom})
+                    _upsert_kw(str(kw_name), "seed", str(kw_name), f"{'+' if mom >= 0 else ''}{mom}%", mom, cur_v)
+        except Exception:
+            pass
+
+        for s in seeds[:3]:
+            got = 0
+            try:
+                r_id = self.call(token, "treg.google.keywords.ideas", {"keyword": s, "country": cc.lower(), "language": lang, "limit": 12}, method="POST", max_cost_usd=max_cost_usd)
+                total_cost += float(r_id.get("_cost_usd") or 0.0)
+                endpoints_used.append(str(r_id.get("_served_by") or "treg.google.keywords.ideas"))
+                kw_rows = (((r_id.get("output") or {}).get("keywords")) if isinstance(r_id.get("output"), dict) else None) or self._extract_list(r_id)
+                for idx_r, kr in enumerate(kw_rows[:12]):
+                    val_str = str(kr.get("value") or kr.get("keyword") or kr.get("query") or "").strip() if isinstance(kr, dict) else str(kr).strip()
+                    if not val_str:
+                        continue
+                    vol = kr.get("search_volume") or kr.get("volume") if isinstance(kr, dict) else None
+                    _upsert_kw(val_str, "top", s, f"Vol {int(vol):,}" if isinstance(vol, (int, float)) and vol > 0 else f"Gợi ý #{idx_r + 1}", None, float(max(20, 100 - idx_r * 6)))
+                    got += 1
+            except Exception:
+                pass
+            if got == 0:
+                try:
+                    r_sp = self.call(token, "serpapi.x.google-trends", {"engine": "google_trends", "q": s, "data_type": "RELATED_QUERIES", "geo": cc}, method="GET", max_cost_usd=max_cost_usd)
+                    total_cost += float(r_sp.get("_cost_usd") or 0.0)
+                    endpoints_used.append("serpapi.x.google-trends")
+                    rq_wrap = r_sp.get("related_queries") or ((r_sp.get("output") or {}).get("related_queries") if isinstance(r_sp.get("output"), dict) else {}) or {}
+                    for rq in (rq_wrap.get("rising") or [])[:8]:
+                        if isinstance(rq, dict) and rq.get("query"):
+                            ev = rq.get("extracted_value")
+                            _upsert_kw(rq["query"], "rising", s, str(rq.get("value") or "Rising"), float(ev) if isinstance(ev, (int, float)) else None, None)
+                    for tq in (rq_wrap.get("top") or [])[:8]:
+                        if isinstance(tq, dict) and tq.get("query"):
+                            ev = tq.get("extracted_value")
+                            _upsert_kw(tq["query"], "top", s, f"Top {ev}/100" if ev is not None else "Top Search", None, float(ev) if isinstance(ev, (int, float)) else None)
+                except Exception:
+                    pass
+
+        for s in seeds:
+            if s.lower() not in kw_map:
+                _upsert_kw(s, "seed", s)
+
+        ordered = sorted(
+            kw_map.values(),
+            key=lambda x: (2 if x["kind"] == "rising" else (1 if x["kind"] == "seed" else 0), float(x["growth_pct"] or 0.0), float(x["interest_value"] or 0.0)),
+            reverse=True,
+        )[: max(3, min(int(max_keywords or 16), 30))]
+        return {
+            "provider": "treg",
+            "actor_or_endpoint": " + ".join(dict.fromkeys(endpoints_used)) or "treg.google.keywords",
+            "geo": cc,
+            "time_range": time_range or "today 3-m",
+            "seed_summaries": seed_summaries,
+            "keywords": ordered,
+            "cost_usd": round(total_cost, 5),
+        }
+
+    # --- Social Painpoint Discovery Backup (Facebook · Threads · X · Reddit) -
+
+    def search_social_painpoints(
+        self,
+        token: str,
+        channel: str,
+        query: str,
+        limit: int = 8,
+        max_cost_usd: float = 0.03,
+    ) -> tuple[str, list[dict], float | None]:
+        ch = channel.lower().strip()
+        lim = max(1, min(20, int(limit)))
+
+        if ch in ("facebook", "facebook_organic"):
+            serp_q = f'site:facebook.com "{query}" (posts OR reel OR videos OR groups)'
+            res = self.call(token, "treg.google.serp.organic", {"q": serp_q, "country": "vn", "language": "vi", "limit": lim}, method="POST", max_cost_usd=min(0.012, max_cost_usd))
+            rows = (((res.get("output") or {}).get("results")) if isinstance(res.get("output"), dict) else None) or self._extract_list(res)
+            out = []
+            for r in rows[:lim]:
+                if not isinstance(r, dict):
+                    continue
+                u = str(r.get("url") or r.get("link") or "").strip()
+                txt = f"{r.get('title') or ''} — {r.get('snippet') or ''}".strip(" —")
+                if txt and "ads/library" not in u.lower():
+                    out.append({
+                        "channel": "facebook_organic",
+                        "author": "Facebook",
+                        "text": txt[:900],
+                        "url": u,
+                        "likes": 0,
+                        "comments": 0,
+                        "shares": 0,
+                        "source": "treg:google.serp.facebook",
+                    })
+            return "treg.google.serp.organic", out, res.get("_cost_usd")
+
+        if ch == "facebook_ads":
+            res = self.call(token, "crawl4ai.meta-ads.library.search", {"query": query, "country": "VN", "active_status": "active", "limit": lim}, method="POST", max_cost_usd=max_cost_usd)
+            rows = (((res.get("output") or {}).get("ads")) if isinstance(res.get("output"), dict) else None) or self._extract_list(res)
+            out = []
+            for r in rows[:lim]:
+                if not isinstance(r, dict):
+                    continue
+                txt = str(r.get("body") or r.get("ad_creative_body") or r.get("text") or r.get("title") or "").strip()
+                if txt:
+                    out.append({
+                        "channel": "facebook_ads",
+                        "author": str(r.get("page_name") or r.get("advertiser") or "FB Ads"),
+                        "text": txt[:900],
+                        "url": str(r.get("cta_url") or r.get("link_url") or r.get("snapshot_url") or ""),
+                        "likes": 0,
+                        "comments": 0,
+                        "shares": 0,
+                        "source": "treg:meta-ads",
+                    })
+            return "crawl4ai.meta-ads.library.search", out, res.get("_cost_usd")
+
+        if ch == "threads":
+            res = self.call(token, "scrapecreators.x.v1-threads-search", {"query": query}, method="GET", max_cost_usd=max_cost_usd)
+            rows = res.get("posts") if isinstance(res.get("posts"), list) else (res.get("threads") if isinstance(res.get("threads"), list) else self._extract_list(res))
+            out = []
+            for r in rows[:lim]:
+                if not isinstance(r, dict):
+                    continue
+                txt = str(r.get("text") or r.get("caption") or ((r.get("caption") or {}).get("text") if isinstance(r.get("caption"), dict) else "") or "").strip()
+                user_obj = r.get("user") if isinstance(r.get("user"), dict) else {}
+                uname = str(user_obj.get("username") or r.get("username") or "").strip()
+                code = str(r.get("code") or "").strip()
+                url = str(r.get("url") or (f"https://www.threads.net/@{uname}/post/{code}" if uname and code else ""))
+                if txt:
+                    out.append({
+                        "channel": "threads",
+                        "author": uname,
+                        "text": txt[:900],
+                        "url": url,
+                        "likes": parse_int_metric(r.get("like_count") or r.get("likes") or 0),
+                        "comments": parse_int_metric(r.get("reply_count") or r.get("direct_reply_count") or 0),
+                        "shares": parse_int_metric(r.get("repost_count") or 0),
+                        "source": "treg:threads",
+                    })
+            return "scrapecreators.x.v1-threads-search", out, res.get("_cost_usd")
+
+        if ch in ("x", "twitter"):
+            res = self.call(token, "anyapi.x.search.posts", {"query": query, "limit": lim}, method="POST", max_cost_usd=max_cost_usd)
+            rows = (((res.get("output") or {}).get("tweets") or (res.get("output") or {}).get("posts")) if isinstance(res.get("output"), dict) else None) or self._extract_list(res)
+            out = []
+            for r in rows[:lim]:
+                if not isinstance(r, dict):
+                    continue
+                txt = str(r.get("text") or r.get("full_text") or r.get("content") or "").strip()
+                author_obj = r.get("author") if isinstance(r.get("author"), dict) else {}
+                uname = str(author_obj.get("userName") or author_obj.get("screen_name") or r.get("username") or "").strip()
+                if txt:
+                    out.append({
+                        "channel": "x",
+                        "author": uname,
+                        "text": txt[:900],
+                        "url": str(r.get("url") or ""),
+                        "likes": parse_int_metric(r.get("likes") or r.get("favorite_count") or 0),
+                        "comments": parse_int_metric(r.get("replies") or r.get("reply_count") or 0),
+                        "shares": parse_int_metric(r.get("retweets") or r.get("retweet_count") or 0),
+                        "source": "treg:x",
+                    })
+            return "anyapi.x.search.posts", out, res.get("_cost_usd")
+
+        if ch == "reddit":
+            res = self.call(token, "crawl4ai.reddit.search.posts", {"query": query, "limit": lim}, method="POST", max_cost_usd=max_cost_usd)
+            rows = (((res.get("output") or {}).get("posts") or (res.get("output") or {}).get("rows")) if isinstance(res.get("output"), dict) else None) or self._extract_list(res)
+            out = []
+            for r in rows[:lim]:
+                if not isinstance(r, dict):
+                    continue
+                t_head = str(r.get("title") or "").strip()
+                t_body = str(r.get("selftext") or r.get("text") or r.get("body") or "").strip()
+                txt = f"{t_head} — {t_body}".strip(" —")
+                if txt:
+                    out.append({
+                        "channel": "reddit",
+                        "author": str(r.get("subreddit") or r.get("author") or "reddit"),
+                        "text": txt[:900],
+                        "url": str(r.get("url") or r.get("permalink") or ""),
+                        "likes": parse_int_metric(r.get("score") or r.get("ups") or r.get("upvotes") or 0),
+                        "comments": parse_int_metric(r.get("num_comments") or r.get("comments") or 0),
+                        "shares": 0,
+                        "source": "treg:reddit",
+                    })
+            return "crawl4ai.reddit.search.posts", out, res.get("_cost_usd")
+
+        raise TregError(f"Kênh MXH chưa hỗ trợ trên Treg: {channel}", status=400)
