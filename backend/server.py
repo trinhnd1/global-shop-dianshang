@@ -50,7 +50,7 @@ class LocalHTTPServer(ThreadingMixIn, WSGIServer):
 
     def get_request(self):
         sock, address = super().get_request()
-        sock.settimeout(240)
+        sock.settimeout(600)
         return sock, address
 
     def process_request(self, request, client_address):

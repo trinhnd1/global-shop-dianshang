@@ -651,9 +651,7 @@ class ApifyClient:
                     ("scrapesage~taobao-scraper", {"mode": "search", "keywords": [query_or_url], "maxItems": max(10, lim), "scrapeDetails": False}),
                 ]
         elif plat == "pinduoduo":
-            pdd_search_url = f"https://mobile.yangkeduo.com/search_result.html?search_key={urllib.parse.quote(query_or_url)}"
             candidates = [
-                ("trusted_tech_spot~pinduoduo-temu-wholesale-bestsellers-scraper", {"url": pdd_search_url, "includeKeywords": query_or_url, "enableRagEnrichment": False}),
                 ("parsebird~1688-wholesale-scraper", {"keywords": [query_or_url], "maxResults": lim}),
                 ("memo23~taobao-scraper", {"searchQueries": [query_or_url], "maxProductsPerKeyword": max(5, lim)}),
             ]

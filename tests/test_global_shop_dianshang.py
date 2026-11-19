@@ -152,8 +152,8 @@ class GlobalShopDianshangE2ETest(unittest.TestCase):
     def test_01_security_version_masking_and_tailscale_guards(self):
         st, health = self.req("GET", "/api/health")
         self.assertEqual(st, 200)
-        self.assertEqual(health["version"], "1.0.9")
-        self.assertEqual(__version__, "1.0.9")
+        self.assertEqual(health["version"], "1.0.10")
+        self.assertEqual(__version__, "1.0.10")
         self.assertEqual(health["schema_version"], 6)
 
         # Tailscale MagicDNS & CGNAT allowed

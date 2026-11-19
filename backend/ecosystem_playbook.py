@@ -420,8 +420,8 @@ class EcosystemPlaybookService:
 
         # --- STEP 3: ENRICH INVENTORY STOCK FOR TOP PRODUCTS & SCORE WITH JEV AI ---
         vault_prods = self.products.get_products_by_ids(discovered_pids)
-        # Enrich up to 5 top products that lack `stock` or `price_vnd` so inventory tracking baseline is populated!
-        need_stock = [p for p in vault_prods if int(p.get("stock") or 0) <= 0 and p.get("url")][:4]
+        # Enrich up to 2 top products that lack `stock` so inventory tracking baseline is populated quickly!
+        need_stock = [p for p in vault_prods if int(p.get("stock") or 0) <= 0 and p.get("url")][:2]
         for p_st in need_stock:
             try:
                 self.products.enrich_product(p_st["id"])
@@ -584,12 +584,14 @@ class EcosystemPlaybookService:
             cn_queries = self._derive_cn_accessory_queries(seed_kw, target_focus, vn_titles)
             _log(f"🇨🇳 [Bước 5] Tìm Phụ kiện Thay thế / Bổ sung / Đa dạng mẫu trên {', '.join(cn_platforms)} với {len(cn_queries)} hướng từ khoá: {[q[0] for q in cn_queries]}...")
             seen_cn_urls = {it.get("item_url") for it in cn_items_enriched if it.get("item_url")}
-            for cn_q, vi_desc in cn_queries:
-                for cplat in cn_platforms:
-                    if cplat not in ("pinduoduo", "taobao", "1688"):
-                        continue
+            valid_cplats = [cp for cp in cn_platforms if cp in ("pinduoduo", "taobao", "1688")]
+            for q_idx, (cn_q, vi_desc) in enumerate(cn_queries[:4]):
+                if not valid_cplats:
+                    break
+                target_plats = [valid_cplats[q_idx % len(valid_cplats)]] if len(cn_queries) >= 3 else valid_cplats[:2]
+                for cplat in target_plats:
                     try:
-                        s_res = self.china_sourcing.search_and_save(query_or_url=cn_q, platform=cplat, limit=6, weight_kg=0.25)
+                        s_res = self.china_sourcing.search_and_save(query_or_url=cn_q, platform=cplat, limit=8, weight_kg=0.25)
                         for sit in s_res.get("items") or []:
                             u_cn = sit.get("item_url") or sit["sourcing_id"]
                             if u_cn in seen_cn_urls:
