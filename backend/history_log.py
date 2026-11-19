@@ -18,6 +18,7 @@ LOCAL_PATH_RE = re.compile(r"/Users/[^\s\"',]+")
 
 MODULE_LABELS = {
     "hunt": "🎯 Săn SP Bán chạy",
+    "desk300": "🤖 Xử lý SP 300+desk -> Jev",
     "keywords": "🔑 Tra cứu Từ khoá",
     "watches": "🔭 Theo dõi Từ khoá/SP/Shop",
     "shops": "🏪 Kho Shop & Quét Shop",
@@ -65,7 +66,9 @@ def classify_http_module(path: str) -> tuple[str, str] | None:
     if path.startswith("/api/settings") or path.startswith("/api/providers/") or path.startswith("/api/connections/"):
         return ("settings", "Cập nhật cấu hình / kết nối")
     if path.startswith("/api/hunt/") or path.startswith("/api/creators/"):
-        return ("hunt", "Săn sản phẩm / Tìm Creator")
+        return ("hunt", "Săn sản phẩm / Painpoint / Creator")
+    if path.startswith("/api/desk300/"):
+        return ("desk300", "Luồng xử lý SP 300+desk -> Jev")
     if path.startswith("/api/keywords/"):
         return ("keywords", "Tra cứu từ khoá Shopee / TikTok")
     if path.startswith("/api/watches"):

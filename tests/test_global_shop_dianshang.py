@@ -138,9 +138,9 @@ class GlobalShopDianshangE2ETest(unittest.TestCase):
     def test_01_security_version_masking_and_tailscale_guards(self):
         st, health = self.req("GET", "/api/health")
         self.assertEqual(st, 200)
-        self.assertEqual(health["version"], "1.0.4")
-        self.assertEqual(__version__, "1.0.4")
-        self.assertEqual(health["schema_version"], 3)
+        self.assertEqual(health["version"], "1.0.5")
+        self.assertEqual(__version__, "1.0.5")
+        self.assertEqual(health["schema_version"], 4)
 
         # Tailscale MagicDNS & CGNAT allowed
         st_ts, _ = self.req("GET", "/api/health", headers={"Host": "nguyens-mac-mini.tail213fd3.ts.net:8999"})
@@ -443,6 +443,100 @@ class GlobalShopDianshangE2ETest(unittest.TestCase):
         self.assertEqual(st_pp_list, 200)
         self.assertEqual(len(pp_list["painpoints"]), 1)
         self.assertEqual(len(pp_list["painpoints"][0]["evidence_posts"]), 4)
+
+    def test_05_strict_apify_first_and_300desk_fail_closed_product_pipeline(self):
+        from backend.providers.desk300plus import Desk300PlusClient, Desk300PlusFailClosedError
+
+        # Non-loopback gateway URL is strictly rejected (Fail-Closed)
+        with self.assertRaises(Desk300PlusFailClosedError):
+            Desk300PlusClient(gateway_url="https://api.deepseek.com")
+
+        # Verify strict Apify #1 BEFORE Treg #2 order on product enrichment
+        call_order = []
+
+        class OrderApify:
+            def scrape_tiktok_shop_detail(self, tokens, url_or_id, max_charge_usd=0.05):
+                call_order.append("apify")
+                return {"price_vnd": 249000, "sold_count": 980, "title": "Máy massage cổ vai gáy 6 đầu xung điện"}
+
+        class OrderTreg:
+            def fetch_tiktok_shop_product_detail(self, token, pid, region="VN"):
+                call_order.append("treg")
+                return {"price_vnd": 249000, "sold_count": 980}
+
+        self.req("POST", "/api/providers/apify/keys", {"label": "Primary", "token": "apify_api_fake_for_order_test_1234", "make_primary": True})
+        self.req("POST", "/api/settings", {"providers": {"treg_key": "treg_fake_for_order_test_1234", "typesafe_key": "jev_fake_1234"}})
+        self.api.products.apify = OrderApify()
+        self.api.products.treg = OrderTreg()
+
+        _, created_p = self.req("POST", "/api/products", {
+            "platform": "tiktok_shop",
+            "native_product_id": "1731112223334445556",
+            "title": "Máy massage cổ vai gáy raw",
+            "price_vnd": 0,
+            "sold_count": 0,
+        })
+        pid = created_p["product"]["id"]
+        _, enr_res = self.req("POST", f"/api/products/{pid}/enrich", {})
+        self.assertEqual(call_order, ["apify"])  # Apify #1 succeeded -> Treg #2 was NOT called!
+        self.assertEqual(enr_res["product"]["price_vnd"], 249000)
+
+        # Configure healthy Fail-Closed 300+desk stub (OPi SOCKS5 verified)
+        class HealthyDeskRunner:
+            def check_gateway_status(self, probe_egress_ip=False):
+                return {
+                    "ok": True,
+                    "fail_closed": True,
+                    "gateway_url": "http://127.0.0.1:18765",
+                    "service": "desk300plus-gateway",
+                    "socks_proxy": "socks5h://100.113.217.101:1080",
+                    "dsh_script_exists": True,
+                }
+
+            def __call__(self, workdir, prompt_text, mode="gateway", use_pro=False):
+                payload = {
+                    "items": [
+                        {
+                            "id": pid,
+                            "keep": True,
+                            "seo_title": "Máy Massage Cổ Vai Gáy 6 Đầu Chườm Ấm Hồng Ngoại Giảm Đau Mỏi Dân Văn Phòng",
+                            "cn_1688_keyword": "颈椎按摩器热敷脉冲",
+                            "combo_strategy": "Tặng kèm 2 miếng dán điện cực + túi vải đựng chống sốc",
+                            "video_angles": ["Hook 3s: Dân văn phòng ngồi 8 tiếng cứng đờ cổ vai gáy", "Test chế độ chườm ấm 42 độ", "Chốt combo tặng kèm túi đựng"],
+                        }
+                    ]
+                }
+                meta = {
+                    "verified": {"path_ok": True, "via_socks": True, "direct_mac_call": False, "fallback_used": False, "forbidden_hosts_in_artifacts": []}
+                }
+                return json.dumps(payload, ensure_ascii=False), meta
+
+        healthy_client = Desk300PlusClient(custom_runner=HealthyDeskRunner())
+        self.api.desk_pipeline.desk300 = healthy_client
+
+        st_d, d_res = self.req("POST", "/api/desk300/run", {"mode": "vault_process", "product_ids": [pid]})
+        self.assertEqual(st_d, 200)
+        self.assertEqual(d_res["run"]["nnn_code"], "001")
+        self.assertEqual(d_res["run"]["strong_pick_count"], 1)
+        self.assertEqual(d_res["run"]["results"][0]["cn_1688_keyword"], "颈椎按摩器热敷脉冲")
+        self.assertEqual(d_res["run"]["results"][0]["decision_tier"], "strong_pick")
+
+        # Verify Kho SP product record received `desk300` metadata + CSV bundle written
+        _, prod_dos = self.req("GET", f"/api/products/{pid}")
+        self.assertEqual(prod_dos["product"]["desk300"]["cn_1688_keyword"], "颈椎按摩器热敷脉冲")
+        exp_dir = Path(self.tmp.name) / "exports" / "300-desk" / d_res["run"]["export_dir"]
+        self.assertTrue((exp_dir / "products.csv").is_file())
+        self.assertTrue((exp_dir / "jev_decisions.csv").is_file())
+
+        # Verify Fail-Closed 503 when OrangePi5 Pro SOCKS5 is down (0% Mac IP fallback!)
+        class OfflineDeskRunner:
+            def check_gateway_status(self, probe_egress_ip=False):
+                raise Desk300PlusFailClosedError("FAIL-CLOSED: SOCKS5 OrangePi5 Pro offline", status=503)
+
+        self.api.desk_pipeline.desk300 = Desk300PlusClient(custom_runner=OfflineDeskRunner())
+        st_fail, fail_res = self.req("POST", "/api/desk300/run", {"mode": "vault_process", "product_ids": [pid]})
+        self.assertEqual(st_fail, 503)
+        self.assertIn("FAIL-CLOSED", fail_res["detail"])
 
 
 if __name__ == "__main__":

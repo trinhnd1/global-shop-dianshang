@@ -72,6 +72,25 @@ class ChinaSourcingService:
             raise ValueError("Sàn nguồn hàng Trung Quốc phải là 1688, taobao, pinduoduo, douyin hoặc alibaba")
 
         effective_query = translate_vn_to_cn_keyword(raw_q)
+        # Prefer pre-computed `300+desk` Chinese 1688 keyword on linked product, or ask `300+desk` when online!
+        if linked_product_id and self.products:
+            lp = self.products.get_product(int(linked_product_id))
+            desk_cn = ((lp or {}).get("desk300") or {}).get("cn_1688_keyword")
+            if desk_cn and effective_query == raw_q:
+                effective_query = str(desk_cn).strip()
+        if effective_query == raw_q and not raw_q.startswith("http") and getattr(self, "desk300", None) is not None:
+            try:
+                d_res = self.desk300.call_gateway_json(
+                    "Bạn là trợ lý `300+desk` chuyên dịch tên sản phẩm Việt Nam sang từ khoá tiếng Trung tìm xưởng gốc trên 1688/Pinduoduo. Chỉ trả về JSON.",
+                    f'Dịch cụm sản phẩm sau sang từ khoá tiếng Trung (中文) ngắn gọn dùng trên 1688: "{raw_q}"\nTrả về JSON: {{"cn_keyword": "<tiếng Trung>"}}',
+                    task_type="cn_sourcing_kw",
+                    timeout_sec=18,
+                )
+                cand_cn = str((d_res.get("parsed") or {}).get("cn_keyword") or "").strip()
+                if cand_cn:
+                    effective_query = cand_cn[:60]
+            except Exception:
+                pass
         cfg = settings.read_settings(self.connect, self.secrets)
         src_cfg = cfg["sourcing"]
         eff_weight = float(weight_kg if weight_kg is not None else src_cfg.get("default_weight_kg", 0.4))

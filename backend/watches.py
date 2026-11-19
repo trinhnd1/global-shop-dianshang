@@ -257,13 +257,21 @@ class WatchesService:
             else:
                 cfg = settings.read_settings(self.connect, self.secrets)
                 apify_toks = settings.apify_tokens(cfg)
+                treg_tok = (cfg["providers"].get("treg_key") or "").strip()
                 target = w["target_url"] or w["target_key"]
+                # STRICT PRIORITY #1: Apify
                 if apify_toks and self.apify:
                     try:
                         if plat == "shopee":
                             prod_data = self.apify.scrape_shopee_product(apify_toks, target)
                         else:
                             prod_data = self.apify.scrape_tiktok_shop_detail(apify_toks, target)
+                    except Exception:
+                        prod_data = None
+                # STRICT PRIORITY #2: Treg Backup
+                if not prod_data and treg_tok and self.treg and plat == "tiktok_shop":
+                    try:
+                        prod_data = self.treg.fetch_tiktok_shop_product_detail(treg_tok, target)
                     except Exception:
                         prod_data = None
                 if not prod_data and w.get("linked_product_id"):

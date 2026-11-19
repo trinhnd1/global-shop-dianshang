@@ -1,8 +1,9 @@
-/* Global Shop Dianshang v1.0.4 — Google Trends + Social Painpoints (Facebook · Threads · X · Reddit) -> Product Discovery */
+/* Global Shop Dianshang v1.0.5 — Strict Apify #1 -> Treg #2 + Fail-Closed 300+desk Product Flow -> Jev Decision */
 (() => {
   const ROUTE_TO_TAB = {
     "/": "hunt",
     "/san-sp": "hunt",
+    "/luong-300-desk": "deskflow",
     "/tu-khoa": "keywords",
     "/theo-doi": "watches",
     "/soi-shop": "shopspy",
@@ -222,6 +223,8 @@
       if (elTopMyShops) elTopMyShops.textContent = ownCnt;
       document.getElementById("cntShops").textContent = compCnt;
       document.getElementById("cntSourcing").textContent = ov.sourcing_count;
+      const elDeskCnt = document.getElementById("cntDeskRuns");
+      if (elDeskCnt) elDeskCnt.textContent = ov.desk300_runs_count || 0;
       if (ov.recent_logs?.length) {
         document.getElementById("cntHistoryLogs").textContent = ov.recent_logs[0].seq_no || ov.recent_logs.length;
       }
@@ -334,6 +337,7 @@
   async function refreshTab(tab) {
     await syncSidebarCountsAndRefs();
     if (tab === "hunt") await loadHuntRecentRuns();
+    else if (tab === "deskflow") await loadDesk300Tab();
     else if (tab === "myshops") await loadMyShops();
     else if (tab === "results") await loadProducts();
     else if (tab === "keywords") await loadKeywordHistory();
@@ -632,6 +636,125 @@
       : `<div style="color:var(--muted)">Chưa có phiên săn nào được chạy.</div>`;
   }
 
+  // --- PART 1.1B: LUỒNG XỬ LÝ SẢN PHẨM 300+DESK (OPi SOCKS5) -> JEV DECISION ---
+  function renderDeskGatewayBanner(st) {
+    const html = st?.ok
+      ? `<div class="row" style="justify-content:space-between">
+          <div>
+            <span class="badge green">🟢 300+desk SẴN SÀNG (FAIL-CLOSED)</span>
+            <strong style="margin-left:6px">${esc(st.service || "desk300plus-gateway")}</strong> ·
+            <code>${esc(st.gateway_url)}</code> &rarr; <code>${esc(st.socks_proxy)}</code>
+            ${st.dsh_script_exists ? '<span class="badge blue" style="margin-left:6px">DSH Script OK</span>' : ""}
+          </div>
+          <span style="font-size:12px;color:#6ee7b7">0% gọi trực tiếp từ IP Mac · 0% bịa số liệu</span>
+         </div>`
+      : `<div>
+          <span class="badge red">🔴 FAIL-CLOSED: 300+desk TẠM NGẮT</span>
+          <strong style="margin-left:6px;color:#fca5a5">${esc(st?.error || "Gateway 300+desk hoặc SOCKS5 OrangePi5 Pro chưa phản hồi")}</strong>
+          <div style="font-size:12px;color:var(--muted);margin-top:4px">Hệ thống tuyệt đối không tự chuyển sang IP Mac trực tiếp để bảo vệ an toàn hạ tầng.</div>
+         </div>`;
+    const b1 = document.getElementById("desk300GatewayBanner");
+    if (b1) b1.innerHTML = html;
+    const b2 = document.getElementById("desk300SettingsStatusBox");
+    if (b2) b2.innerHTML = html;
+  }
+
+  function renderDeskRunDetail(run) {
+    const box = document.getElementById("deskActiveRunBox");
+    if (!box || !run) return;
+    const steps = run.steps || [];
+    const results = run.results || [];
+    box.innerHTML = `
+      <div class="card" style="border-color:rgba(56,189,248,0.5);background:#081222">
+        <div class="row" style="justify-content:space-between;margin-bottom:8px">
+          <div>
+            <span class="badge blue" style="font-size:13px">Lô #${esc(run.nnn_code)}</span>
+            <strong style="margin-left:6px">${esc(run.title)}</strong>
+            ${statusBadgeHtml(run.status)}
+          </div>
+          <div class="row">
+            <span class="badge gold">🔥 ${run.strong_pick_count} strong_pick</span>
+            <span class="badge green">🟡 ${run.maybe_count} maybe</span>
+            <span class="badge">⚪ ${run.pass_count} pass</span>
+            <button class="btn btn-sm btn-pri" data-action="jump-kho-all">🗂 Xem trong Kho SP</button>
+          </div>
+        </div>
+
+        <div style="font-size:12px;color:#93c5fd;margin-bottom:8px">
+          📂 Gói CSV xuất ra: <code>local-data/exports/300-desk/${esc(run.export_dir)}/</code> (<code>products.csv</code>, <code>jev_decisions.csv</code>, <code>egress_meta.json</code>)
+        </div>
+
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:6px;margin-bottom:12px">
+          ${steps.map((s) => `
+            <div style="padding:7px 9px;border-radius:8px;background:#060d18;border:1px solid var(--border);font-size:12px">
+              <div><strong>${s.status === "completed" ? "✅" : s.status === "failed" ? "❌" : "⏳"} ${esc(s.label)}</strong></div>
+              <div style="color:var(--muted);margin-top:2px;font-size:11.3px">${esc(s.detail || "")}</div>
+            </div>`).join("")}
+        </div>
+
+        ${
+          results.length
+            ? `<table class="tbl">
+                <thead><tr><th>#</th><th>Quyết định Jev</th><th>Tên chuẩn SEO &amp; Góc Video (300+desk)</th><th>Giá &amp; Đã bán</th><th>Từ khoá Xưởng 1688</th><th>Thao tác</th></tr></thead>
+                <tbody>
+                  ${results.map((r) => `
+                    <tr>
+                      <td>#${r.id}</td>
+                      <td>
+                        <span class="badge ${r.decision_tier === "strong_pick" ? "gold" : r.decision_tier === "maybe" ? "green" : ""}">${esc(r.decision_label)}</span>
+                        <div style="font-size:11.5px;margin-top:3px">🎯 Jev: <strong>${r.jev_score ?? "—"}/10</strong></div>
+                      </td>
+                      <td>
+                        <a href="${esc(r.url || "#")}" target="_blank" style="color:#e2e8f0;font-weight:700">${esc(r.seo_title || r.raw_title)}</a>
+                        <div style="font-size:11.5px;color:#93c5fd;margin-top:2px">🎁 Combo: ${esc(r.combo_strategy || "")}</div>
+                        <div style="font-size:11.3px;color:var(--muted);margin-top:2px">🎬 ${(r.video_angles || []).slice(0, 2).map((a) => esc(a)).join(" · ")}</div>
+                      </td>
+                      <td>
+                        <div><strong>${r.price_vnd > 0 ? vnd(r.price_vnd) : "Chưa lấy"}</strong></div>
+                        <div style="font-size:11.5px;color:var(--muted)">Đã bán: ${Number(r.sold_count || 0).toLocaleString("vi-VN")}</div>
+                      </td>
+                      <td><code style="color:#fcd34d;font-size:13px">${esc(r.cn_1688_keyword)}</code></td>
+                      <td class="row">
+                        <button class="btn btn-sm btn-gold" data-action="prod-find-cn" data-id="${r.id}" data-title="${esc(r.cn_1688_keyword)}">🇨🇳 Tìm 1688</button>
+                        <button class="btn btn-sm btn-pri" data-action="prod-dossier" data-id="${r.id}">📊 Mở</button>
+                      </td>
+                    </tr>`).join("")}
+                </tbody>
+              </table>`
+            : ""
+        }
+      </div>`;
+  }
+
+  async function loadDesk300Tab() {
+    const data = await api("/api/desk300/runs");
+    renderDeskGatewayBanner(data.gateway);
+    const runs = data.runs || [];
+    if (runs.length && !document.getElementById("deskActiveRunBox").innerHTML) {
+      renderDeskRunDetail(runs[0]);
+    }
+    const hbox = document.getElementById("deskRunsHistoryBox");
+    if (hbox) {
+      hbox.innerHTML = runs.length
+        ? `<table class="tbl">
+            <thead><tr><th>Mã NNN</th><th>Thời gian</th><th>Lô xử lý 300+desk &rarr; Jev</th><th>Trạng thái</th><th>Kết quả Jev</th><th>Thư mục CSV</th><th>Chi tiết</th></tr></thead>
+            <tbody>
+              ${runs.map((r) => `
+                <tr>
+                  <td><strong style="color:#fcd34d">#${esc(r.nnn_code)}</strong></td>
+                  <td>${fmtTime(r.created_at)}</td>
+                  <td><strong>${esc(r.title)}</strong></td>
+                  <td>${statusBadgeHtml(r.status)}</td>
+                  <td>🔥 ${r.strong_pick_count} · 🟡 ${r.maybe_count} · ⚪ ${r.pass_count}</td>
+                  <td><code>${esc(r.export_dir)}</code></td>
+                  <td><button class="btn btn-sm btn-pri" data-action="desk300-open-run" data-id="${esc(r.run_id)}">🔍 Mở bảng</button></td>
+                </tr>`).join("")}
+            </tbody>
+           </table>`
+        : `<div style="color:var(--muted)">Chưa có lô xử lý 300+desk nào. Bấm nút <strong>"🚀 Chạy Luồng 300+desk &rarr; Jev cho Kho SP Ngay"</strong> ở trên!</div>`;
+    }
+  }
+
   // --- PART 1.2: KEYWORD RESEARCH --------------------------------------------
   function renderKeywordResult(res) {
     const s = res.summary_stats || {};
@@ -856,13 +979,26 @@
 
   function renderProductCardHtml(p, ownShops) {
     const ec = p.economics || {};
+    const d3 = p.desk300 || null;
     const pillars = (p.jev_detail || {}).pillars || {};
-    const cls = p.jev_score >= 7.2 ? "is-gold" : p.jev_score >= 6.2 ? "is-green" : "";
+    const cls = d3?.decision_tier === "strong_pick" || p.jev_score >= 7.2 ? "is-gold" : p.jev_score >= 6.2 ? "is-green" : "";
 
     const pillarsHtml = Object.keys(pillars).length
       ? `<div class="pillars">${Object.entries(PILLAR_LABELS)
           .map(([k, lbl]) => `<div>${esc(lbl)}<b>${pillars[k] ?? "–"}</b></div>`)
           .join("")}</div>`
+      : "";
+
+    const desk300Html = d3
+      ? `<div style="background:#071426;border:1px solid rgba(56,189,248,0.35);border-radius:8px;padding:7px 8px;font-size:11.8px">
+          <div class="row" style="justify-content:space-between;margin-bottom:3px">
+            <span class="badge ${d3.decision_tier === "strong_pick" ? "gold" : d3.decision_tier === "maybe" ? "green" : ""}">${esc(d3.decision_label || d3.decision_tier)}</span>
+            <span style="color:#7dd3fc;font-size:11px">300+desk #${esc(d3.nnn_code || "")}</span>
+          </div>
+          ${d3.seo_title ? `<div style="color:#e2e8f0;font-weight:600">✨ SEO: ${esc(d3.seo_title)}</div>` : ""}
+          ${d3.cn_1688_keyword ? `<div style="color:#fcd34d;margin-top:2px">🇨🇳 Từ khoá 1688: <code>${esc(d3.cn_1688_keyword)}</code></div>` : ""}
+          ${d3.combo_strategy ? `<div style="color:#93c5fd;margin-top:2px">🎁 Combo: ${esc(d3.combo_strategy)}</div>` : ""}
+         </div>`
       : "";
 
     return `
@@ -875,7 +1011,7 @@
                 <input type="checkbox" data-action="toggle-select-pid" data-id="${p.id}" ${SELECTED_PIDS.has(p.id) ? "checked" : ""}/>
                 #${p.id} · ${esc(p.platform.toUpperCase())}
               </label>
-              <span class="badge ${p.jev_score >= 7 ? "gold" : p.jev_score != null ? "green" : ""}">${p.jev_score != null ? `🤖 Jev ${p.jev_score}/10` : "⏳ Chưa chấm Jev"}</span>
+              <span class="badge ${p.jev_score >= 7 ? "gold" : p.jev_score != null ? "green" : ""}">${p.jev_score != null ? `🎯 Jev ${p.jev_score}/10` : "⏳ Chưa chấm Jev"}</span>
             </div>
             <div style="font-weight:600;margin:4px 0;line-height:1.38">
               <a href="${esc(p.url || "#")}" target="_blank" style="color:var(--txt);text-decoration:none">${esc(p.title)}</a>
@@ -904,6 +1040,7 @@
         </div>
 
         ${pillarsHtml}
+        ${desk300Html}
 
         <div style="font-size:11.5px;color:var(--muted);display:flex;justify-content:space-between;flex-wrap:wrap;gap:4px">
           <span>Doanh số ước tính: <strong style="color:var(--txt)">${vnd(p.gmv_vnd)}</strong></span>
@@ -932,10 +1069,11 @@
         </div>
 
         <div class="row" style="gap:5px">
-          <button class="btn btn-sm" data-action="prod-enrich" data-id="${p.id}" title="Lấy Giá bán, Lượt bán & Ảnh thực tế">🔄 Lấy Giá</button>
-          <button class="btn btn-sm btn-pri" data-action="prod-score-jev" data-id="${p.id}">🤖 Chấm Jev</button>
-          <button class="btn btn-sm btn-gold" data-action="prod-find-cn" data-id="${p.id}" data-title="${esc(p.title)}">🇨🇳 Nguồn TQ</button>
-          <button class="btn btn-sm" data-action="prod-dossier" data-id="${p.id}">📊 Hồ sơ &amp; Lãi</button>
+          <button class="btn btn-sm btn-gold" data-action="prod-300desk" data-id="${p.id}" title="Đưa SP qua 300+desk (OPi SOCKS5) đặt Tên SEO, dịch 1688 & Jev chốt">🤖 300+desk</button>
+          <button class="btn btn-sm" data-action="prod-enrich" data-id="${p.id}" title="Lấy Giá bán, Lượt bán (Apify #1 -> Treg #2)">🔄 Lấy Giá</button>
+          <button class="btn btn-sm btn-pri" data-action="prod-score-jev" data-id="${p.id}">🎯 Jev</button>
+          <button class="btn btn-sm btn-gold" data-action="prod-find-cn" data-id="${p.id}" data-title="${esc(d3?.cn_1688_keyword || p.title)}">🇨🇳 1688</button>
+          <button class="btn btn-sm" data-action="prod-dossier" data-id="${p.id}">📊 Lãi</button>
           <button class="btn btn-sm" data-action="prod-watch" data-id="${p.id}" data-plat="${esc(p.platform)}" data-url="${esc(p.url)}" data-title="${esc(p.title)}">🔭</button>
         </div>
       </div>`;
@@ -1345,12 +1483,14 @@
   }
 
   async function loadSettings() {
-    const [mv, tg, bh, mcp] = await Promise.all([
+    const [mv, tg, bh, mcp, d3st] = await Promise.all([
       api("/api/settings"),
       api("/api/providers/telegram/status"),
       api("/api/connections/browser"),
       api("/api/mcp/status"),
+      api("/api/desk300/status").catch(() => ({ ok: false })),
     ]);
+    renderDeskGatewayBanner(d3st);
     const st = mv.settings || {};
     document.getElementById("setTgToken").value = st.notify?.telegram_token || "";
     document.getElementById("setTgChatId").value = st.notify?.telegram_chat_id || "";
@@ -1452,6 +1592,8 @@
         document.getElementById("sidebar")?.classList.toggle("open");
       } else if (act === "close-modal") {
         closeModal();
+      } else if (act === "jump-deskflow") {
+        showTab("deskflow", "/luong-300-desk");
       } else if (act === "jump-myshops") {
         showTab("myshops", "/shop-cua-toi");
       } else if (act === "jump-kho-all") {
@@ -1498,6 +1640,55 @@
         loadProducts();
       } else if (act === "clear-selection") {
         SELECTED_PIDS.clear();
+        loadProducts();
+      } else if (act === "desk300-check") {
+        toast("Đang kiểm tra Gateway 300+desk (127.0.0.1:18765) & SOCKS5 OrangePi5 Pro...");
+        const st = await api("/api/desk300/check", "POST", {});
+        renderDeskGatewayBanner(st);
+        toast(st.summary || "300+desk SẴN SÀNG!");
+      } else if (act === "desk300-refresh") {
+        await loadDesk300Tab();
+      } else if (act === "desk300-open-run") {
+        const d = await api(`/api/desk300/runs/${encodeURIComponent(actEl.dataset.id)}`);
+        if (d.run) renderDeskRunDetail(d.run);
+      } else if (act === "desk300-run-vault" || act === "kho-run-300desk") {
+        const selIds = [...SELECTED_PIDS];
+        const lim = Number(document.getElementById("deskVaultLimit")?.value || 8);
+        const eng = document.getElementById("deskEngineSel")?.value || "gateway_fast";
+        const autoShop = document.getElementById("deskAutoAssignShop")?.checked !== false;
+        showTab("deskflow", "/luong-300-desk");
+        document.getElementById("deskActiveRunBox").innerHTML = `<div class="card">⏳ Đang chạy luồng 5 bước: <strong>Apify #1 &rarr; Treg #2 &rarr; 300+desk (OPi SOCKS5) &rarr; Jev AI Ra Quyết định</strong>...</div>`;
+        const res = await api("/api/desk300/run", "POST", {
+          mode: "vault_process",
+          product_ids: selIds.length ? selIds : undefined,
+          limit: lim,
+          exec_engine: eng,
+          auto_assign_my_shop: autoShop,
+        });
+        renderDeskRunDetail(res.run);
+        await syncSidebarCountsAndRefs();
+        await loadDesk300Tab();
+        toast(res.summary);
+      } else if (act === "desk300-run-hunt") {
+        const kws = (document.getElementById("deskHuntKeywords")?.value || "").split(/[\n,]+/).map((s) => s.trim()).filter(Boolean);
+        const chs = [...document.querySelectorAll(".desk-ch:checked")].map((c) => c.value);
+        const eng = document.getElementById("deskEngineSel")?.value || "gateway_fast";
+        document.getElementById("deskActiveRunBox").innerHTML = `<div class="card">⏳ Đang săn sản phẩm (Apify #1 &rarr; Treg #2) và đưa qua <strong>300+desk (OPi SOCKS5) &rarr; Jev AI</strong>...</div>`;
+        const res = await api("/api/desk300/run", "POST", {
+          mode: "hunt_and_process",
+          keywords: kws,
+          channels: chs,
+          exec_engine: eng,
+          auto_assign_my_shop: true,
+        });
+        renderDeskRunDetail(res.run);
+        await syncSidebarCountsAndRefs();
+        await loadDesk300Tab();
+        toast(res.summary);
+      } else if (act === "prod-300desk") {
+        toast("Đang đưa SP qua 300+desk (OPi SOCKS5) đặt Tên SEO, dịch 1688 & Jev chốt...");
+        const res = await api(`/api/products/${actEl.dataset.id}/process-300desk`, "POST", {});
+        toast(res.summary);
         loadProducts();
       } else if (act === "prod-set-status") {
         const pid = Number(actEl.dataset.id);
@@ -1546,7 +1737,8 @@
           keywords: kws,
           channels: chs,
           items_per_channel: Number(document.getElementById("huntLimit").value || 8),
-          budget_limit_usd: Number(document.getElementById("huntBudget").value || 0.3),
+          budget_limit_usd: Number(document.getElementById("huntBudget").value || 0.35),
+          use_300desk: document.getElementById("huntUse300Desk")?.checked !== false,
           auto_score_jev: document.getElementById("huntAutoJev").checked,
         };
         if (act === "hunt-estimate") {

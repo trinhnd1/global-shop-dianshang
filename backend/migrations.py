@@ -475,6 +475,43 @@ MIGRATIONS: list[tuple[int, str, list[str]]] = [
             "CREATE INDEX IF NOT EXISTS idx_painpoint_updated ON painpoint_discoveries(updated_at DESC)",
         ],
     ),
+    (
+        4,
+        "v4_desk300_product_pipeline_runs",
+        [
+            """
+            CREATE TABLE IF NOT EXISTS desk300_sequence (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                last_nnn INTEGER NOT NULL DEFAULT 0
+            )
+            """,
+            "INSERT OR IGNORE INTO desk300_sequence (id, last_nnn) VALUES (1, 0)",
+            """
+            CREATE TABLE IF NOT EXISTS desk300_runs (
+                run_id TEXT PRIMARY KEY,
+                nnn_no INTEGER NOT NULL,
+                nnn_code TEXT NOT NULL,
+                title TEXT NOT NULL,
+                mode TEXT NOT NULL DEFAULT 'vault_process',
+                exec_engine TEXT NOT NULL DEFAULT 'gateway_fast',
+                status TEXT NOT NULL DEFAULT 'running',
+                input_product_ids_json TEXT NOT NULL DEFAULT '[]',
+                output_product_ids_json TEXT NOT NULL DEFAULT '[]',
+                strong_pick_count INTEGER NOT NULL DEFAULT 0,
+                maybe_count INTEGER NOT NULL DEFAULT 0,
+                pass_count INTEGER NOT NULL DEFAULT 0,
+                export_dir TEXT NOT NULL DEFAULT '',
+                egress_verified INTEGER NOT NULL DEFAULT 0,
+                steps_json TEXT NOT NULL DEFAULT '[]',
+                results_json TEXT NOT NULL DEFAULT '[]',
+                error_text TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """,
+            "CREATE INDEX IF NOT EXISTS idx_desk300_runs_nnn ON desk300_runs(nnn_no DESC)",
+        ],
+    ),
 ]
 
 

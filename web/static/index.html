@@ -11,11 +11,12 @@
     <aside class="side" id="sidebar">
       <div class="brand">
         <h1>🏬 Global Shop Dianshang</h1>
-        <div class="sub">Nghiên cứu SP Bán chạy · Từ khoá · Nguồn TQ · Shop của tôi (<span id="sideVer">v1.0.4</span>)</div>
+        <div class="sub">Apify #1 · Treg #2 · 300+desk · Jev (<span id="sideVer">v1.0.5</span>)</div>
       </div>
 
-      <div class="nav-sec">1 · Nghiên cứu &amp; Shop của tôi</div>
-      <button class="nav-btn active" data-tab="hunt" data-route="/san-sp"><span>🔎 Săn SP Bán chạy</span></button>
+      <div class="nav-sec">1 · Nghiên cứu, 300+desk &amp; Shop của tôi</div>
+      <button class="nav-btn active" data-tab="hunt" data-route="/san-sp"><span>🔎 Săn SP &amp; Painpoint</span></button>
+      <button class="nav-btn" data-tab="deskflow" data-route="/luong-300-desk"><span>🤖 Xử lý SP 300+desk &rarr; Jev</span><em class="ncount" id="cntDeskRuns">0</em></button>
       <button class="nav-btn" data-tab="keywords" data-route="/tu-khoa"><span>🔑 Tra cứu Từ khoá Shopee/TT</span></button>
       <button class="nav-btn" data-tab="watches" data-route="/theo-doi"><span>🔭 Theo dõi Từ khoá · SP · Shop</span><em class="ncount" id="cntWatches">0</em></button>
       <button class="nav-btn" data-tab="shopspy" data-route="/soi-shop"><span>🏪 Quét SP theo Shop &amp; Creator</span></button>
@@ -47,9 +48,10 @@
         <div class="row">
           <button class="btn btn-sm menu-btn" data-action="toggle-menu">☰ Menu</button>
           <span class="badge green" id="topStatusBadge">🟢 Sẵn sàng</span>
-          <span class="badge blue" id="topVerBadge">📦 v1.0.4</span>
+          <span class="badge blue" id="topVerBadge">📦 v1.0.5</span>
         </div>
         <div class="row">
+          <button class="btn btn-sm btn-pri" data-action="jump-deskflow">🤖 300+desk &rarr; Jev</button>
           <button class="btn btn-sm btn-blue" data-action="jump-myshops">🏠 Shop của tôi (<span id="topMyShopsCnt">0</span>)</button>
           <button class="btn btn-sm" data-action="jump-kho-all">🗂 Kho SP (<span id="topVaultCnt">0</span>)</button>
           <button class="btn btn-sm btn-gold" data-action="jump-history">📜 Nhật ký Công việc</button>
@@ -100,12 +102,13 @@
                   <label><input type="checkbox" class="hunt-ch" value="x" /> 𝕏 X (Twitter)</label>
                   <label><input type="checkbox" class="hunt-ch" value="reddit" /> 👽 Reddit</label>
                 </div>
-                <label style="color:#6ee7b7;margin-top:8px">Bước B · Sàn TMĐT Tìm Sản phẩm Giải pháp &amp; Đưa vào Kho SP:</label>
+                <label style="color:#6ee7b7;margin-top:8px">Bước B · Sàn TMĐT Tìm SP (Ưu tiên #1 Apify &rarr; #2 Treg) + Xử lý 300+desk &rarr; Jev Ra Quyết định:</label>
                 <div class="row" style="gap:10px;margin-top:4px">
                   <label><input type="checkbox" class="hunt-ch" value="shopee" checked /> 🛍 Shopee VN</label>
                   <label><input type="checkbox" class="hunt-ch" value="tiktok_shop" checked /> 🛒 TikTok Shop</label>
                   <label><input type="checkbox" class="hunt-ch" value="lazada" /> 📦 Lazada VN</label>
-                  <label><input type="checkbox" id="huntAutoJev" checked /> 🤖 Tự chấm điểm Jev AI</label>
+                  <label style="color:#fcd34d"><input type="checkbox" id="huntUse300Desk" checked /> 🤖 Xử lý SP qua 300+desk (OPi SOCKS5)</label>
+                  <label><input type="checkbox" id="huntAutoJev" checked /> 🎯 Jev AI Ra quyết định</label>
                 </div>
               </div>
 
@@ -226,6 +229,72 @@
             </div>
             <div id="huntPastDetailBox" style="margin-bottom:10px"></div>
             <div id="huntRecentRunsBox"></div>
+          </div>
+        </section>
+
+        <!-- VIEW 1.1B: LUỒNG XỬ LÝ SẢN PHẨM 300+DESK (OPi SOCKS5) -> JEV RA QUYẾT ĐỊNH -->
+        <section class="view" id="view-deskflow">
+          <div class="page-head">
+            <div>
+              <h2>🤖 Luồng Xử lý Sản phẩm <code>300+desk</code> (OPi SOCKS5 Fail-Closed) &rarr; <code>Jev AI</code> Ra Quyết định</h2>
+              <p>Quy tắc bất biến giống <strong>affiliate-peng</strong>: <strong>#1 Apify</strong> thu thập trước <strong>#2 Treg</strong> &rarr; <strong><code>300+desk</code></strong> (<code>127.0.0.1:18765 &rarr; socks5h://100.113.217.101:1080</code> Fail-Closed, 0% lộ IP Mac, 0% bịa số) gộp lọc SP, đặt Tên SEO, dịch Từ khoá xưởng 1688 &amp; lên Combo/Góc Video &rarr; <strong><code>TypeSafe Jev AI</code></strong> chốt quyết định (<code>strong_pick &rarr; maybe &rarr; pass</code>).</p>
+            </div>
+            <div class="row">
+              <button class="btn btn-sm" data-action="desk300-check">🔌 Kiểm tra 300+desk &amp; OPi SOCKS5</button>
+              <button class="btn btn-sm" data-action="desk300-refresh">↻ Làm mới</button>
+            </div>
+          </div>
+
+          <div class="card" id="desk300GatewayBanner" style="padding:10px 14px;border-color:rgba(56,189,248,0.4)">
+            Đang kiểm tra trạng thái kết nối <code>300+desk</code> Gateway &amp; OrangePi5 Pro SOCKS5...
+          </div>
+
+          <div class="grid2">
+            <!-- Mode A: Process Vault Products -->
+            <div class="card">
+              <h3>A · 🗂 Xử lý Sản phẩm đang có trong Kho SP qua <code>300+desk &rarr; Jev</code></h3>
+              <p style="font-size:12.5px;color:var(--muted);margin-top:0">Lấy các SP đang ở nhóm <strong>Chờ đánh giá</strong> (hoặc các SP bạn tích chọn trong Kho SP) &rarr; làm giàu Giá/Lượt bán qua Apify #1 &rarr; Treg #2 &rarr; đưa vào <code>300+desk</code> xử lý &rarr; <code>Jev AI</code> chốt quyết định &amp; xuất gói <code>exports/300-desk/NNN-...</code>.</p>
+              <div class="grid2">
+                <div class="field">
+                  <label>Số lượng SP tối đa trong lô</label>
+                  <input type="number" id="deskVaultLimit" value="8" min="1" max="20" />
+                </div>
+                <div class="field">
+                  <label>Cơ chế chạy <code>300+desk</code> (OPi SOCKS5)</label>
+                  <select id="deskEngineSel">
+                    <option value="gateway_fast" selected>⚡ 300+desk Gateway Fast (deepseek-flash · 5–12s)</option>
+                    <option value="dsh_harness">🧬 DeepSeek Harness DSH (run-dsh-portable.sh)</option>
+                  </select>
+                </div>
+              </div>
+              <label style="display:block;font-size:12.5px;margin-bottom:10px;color:#6ee7b7">
+                <input type="checkbox" id="deskAutoAssignShop" checked /> 🏠 Tự động gắn các SP <code>strong_pick / maybe</code> vào <strong>Shop của tôi</strong> phù hợp nhất
+              </label>
+              <button class="btn btn-pri" data-action="desk300-run-vault">🚀 Chạy Luồng 300+desk &rarr; Jev cho Kho SP Ngay</button>
+            </div>
+
+            <!-- Mode B: Hunt Fresh + 300+desk + Jev -->
+            <div class="card">
+              <h3>B · 🎯 Săn Mới (Apify #1 &rarr; Treg #2) + Xử lý <code>300+desk</code> + <code>Jev</code> Chốt</h3>
+              <p style="font-size:12.5px;color:var(--muted);margin-top:0">Nhập từ khoá ngách sản phẩm &rarr; tự động gọi Apify (#1) trước Treg (#2) trên Shopee &amp; TikTok Shop &rarr; đẩy thẳng sang <code>300+desk</code> gộp lọc, dịch từ khoá 1688 &rarr; <code>Jev AI</code> phân hạng quyết định.</p>
+              <div class="field">
+                <label>Từ khoá sản phẩm cần săn &amp; xử lý trọn luồng (cách nhau dấu phẩy)</label>
+                <input type="text" id="deskHuntKeywords" placeholder="VD: máy massage cổ vai gáy, kệ gia vị xoay, phễu thoát sàn ngăn mùi" />
+              </div>
+              <div class="row" style="margin-bottom:10px">
+                <label><input type="checkbox" class="desk-ch" value="shopee" checked /> 🛍 Shopee VN</label>
+                <label><input type="checkbox" class="desk-ch" value="tiktok_shop" checked /> 🛒 TikTok Shop</label>
+                <label><input type="checkbox" class="desk-ch" value="lazada" /> 📦 Lazada VN</label>
+              </div>
+              <button class="btn btn-gold" data-action="desk300-run-hunt">⚡ Săn Apify #1 &rarr; Xử lý 300+desk &rarr; Jev Chốt Ngay</button>
+            </div>
+          </div>
+
+          <div id="deskActiveRunBox"></div>
+
+          <div class="card">
+            <h3>📜 Lịch sử các Lô Xử lý <code>300+desk &rarr; Jev</code> (Mã cấp số nguyên tử <code>NNN</code>)</h3>
+            <div id="deskRunsHistoryBox"></div>
           </div>
         </section>
 
@@ -377,8 +446,9 @@
               <p>Hiển thị đầy đủ 100% sản phẩm gọi về từ mọi công cụ — xem Giá bán, Lượt bán, Doanh số GMV, Điểm Jev 6 trụ cột và phân loại trực tiếp theo Nhóm / Ngành hàng / Shop.</p>
             </div>
             <div class="row">
-              <button class="btn btn-sm btn-pri" data-action="enrich-missing-all">🔄 Lấy Giá &amp; Lượt bán các SP còn khuyết</button>
-              <button class="btn btn-sm btn-pri" data-action="score-unscored-all">⭐ Chấm Jev các SP chưa chấm</button>
+              <button class="btn btn-sm btn-gold" data-action="kho-run-300desk">🤖 Đưa SP vào luồng 300+desk &rarr; Jev</button>
+              <button class="btn btn-sm btn-pri" data-action="enrich-missing-all">🔄 Lấy Giá &amp; Lượt bán (Apify #1 &rarr; Treg #2)</button>
+              <button class="btn btn-sm btn-pri" data-action="score-unscored-all">🎯 Jev Chấm quyết định</button>
               <button class="btn btn-sm" data-action="open-add-product">➕ Thêm SP thủ công</button>
               <button class="btn btn-sm btn-gold" data-action="compare-selected">⚖️ So sánh 2–5 SP</button>
               <a class="btn btn-sm btn-blue" href="/api/products/export.csv" target="_blank">📥 Xuất Excel (CSV)</a>
@@ -445,8 +515,9 @@
                 <button class="btn btn-sm btn-blue" data-action="bulk-apply" data-bact="assign_shop">🏠 Gắn Shop của tôi</button>
                 <button class="btn btn-sm btn-pri" data-action="bulk-apply" data-bact="auto_assign_shop" title="Tự động khớp sản phẩm vào Shop TikTok / Shopee / Fanpage của tôi theo ngành hàng & tag ngách">🤖 Tự chọn Shop phù hợp</button>
 
+                <button class="btn btn-sm btn-gold" data-action="bulk-apply" data-bact="process_300desk">🤖 Xử lý lô chọn qua 300+desk &rarr; Jev</button>
                 <button class="btn btn-sm btn-pri" data-action="bulk-apply" data-bact="enrich">🔄 Lấy Giá &amp; Đã bán</button>
-                <button class="btn btn-sm btn-pri" data-action="bulk-apply" data-bact="score_jev">🤖 Chấm Jev lô này</button>
+                <button class="btn btn-sm btn-pri" data-action="bulk-apply" data-bact="score_jev">🎯 Jev Ra quyết định</button>
                 <button class="btn btn-sm btn-gold" data-action="bulk-status" data-st="quan_tam">⭐ Quan tâm</button>
                 <button class="btn btn-sm btn-pri" data-action="bulk-status" data-st="nhap_test">🧪 Nhập test</button>
                 <button class="btn btn-sm btn-danger" data-action="bulk-status" data-st="bo_qua">⛔ Loại bỏ</button>
@@ -945,9 +1016,11 @@
                 <div class="field"><label>TypeSafe Jev API Key (jev-1.14.0)</label><input type="password" id="setJevKey" /></div>
               </div>
               <div class="row">
-                <button class="btn btn-sm" data-action="treg-check">Kiểm tra Treg</button>
-                <button class="btn btn-sm" data-action="jev-check">Kiểm tra Jev AI</button>
+                <button class="btn btn-sm" data-action="treg-check">Kiểm tra Treg (#2 Backup)</button>
+                <button class="btn btn-sm" data-action="jev-check">Kiểm tra Jev AI (Ra quyết định)</button>
+                <button class="btn btn-sm btn-gold" data-action="desk300-check">🔌 Kiểm tra 300+desk &amp; OPi SOCKS5</button>
               </div>
+              <div id="desk300SettingsStatusBox" style="margin-top:8px;font-size:12px;color:var(--muted)"></div>
             </div>
 
             <div class="card">

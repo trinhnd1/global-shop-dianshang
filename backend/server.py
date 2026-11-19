@@ -15,6 +15,7 @@ from . import PRODUCT_NAME, get_build_info, settings
 from .campaigns_and_sales import CampaignsAndSalesService, DailyBriefingDaemon
 from .china_sourcing import ChinaSourcingService
 from .chrome_profile_hub import DedicatedChromeHub
+from .desk_pipeline import DeskProductWorkflowService
 from .history_log import HistoryLogService
 from .hunt import HuntAndCreatorsService
 from .jobs import JobManager
@@ -24,6 +25,7 @@ from .mcp_gateway import McpGatewayService
 from .migrations import current_schema_version, run_migrations
 from .products import ProductsService
 from .providers.apify import ApifyClient, ApifyError
+from .providers.desk300plus import Desk300PlusClient
 from .providers.jev import JevClient, JevError
 from .providers.treg import TregClient, TregError
 from .responses import ApiError, Raw, check_host_and_origin, json_object, text
@@ -110,6 +112,7 @@ class Application:
         self.apify = ApifyClient()
         self.treg = TregClient()
         self.jev = JevClient()
+        self.desk300 = Desk300PlusClient()
         self.ledger = CostLedger(self.connect)
         self.jobs = JobManager(self.connect, ledger=self.ledger)
         self.history_logs = HistoryLogService(self.connect)
@@ -151,7 +154,23 @@ class Application:
         )
         self.watch_scheduler = WatchSchedulerDaemon(self.watches)
         self.china_sourcing = ChinaSourcingService(self.connect, self.secrets, self.products, apify=self.apify, treg=self.treg, jev=self.jev)
+        self.china_sourcing.desk300 = self.desk300
+        self.desk_pipeline = DeskProductWorkflowService(
+            self.connect,
+            self.secrets,
+            self.root,
+            self.products,
+            shops=self.shops,
+            jobs=self.jobs,
+            apify=self.apify,
+            treg=self.treg,
+            jev=self.jev,
+            desk300=self.desk300,
+        )
+        self.products.desk_pipeline = self.desk_pipeline
         self.hunt = HuntAndCreatorsService(self.connect, self.secrets, self.products, self.jobs, apify=self.apify, treg=self.treg, jev=self.jev)
+        self.hunt.desk300 = self.desk300
+        self.hunt.desk_pipeline = self.desk_pipeline
         self.spy_video = SpyAndVideoService(
             self.connect,
             self.secrets,
@@ -172,6 +191,7 @@ class Application:
 
         self.handlers = [
             self.mcp_gateway,
+            self.desk_pipeline,
             self.products,
             self.keywords,
             self.shops,
@@ -358,6 +378,7 @@ class Application:
                     "my_shops_count": sc["own_count"],
                     "competitor_shops_count": sc["competitor_count"],
                     "sourcing_count": len(self.china_sourcing.list_items(limit=200)),
+                    "desk300_runs_count": len(self.desk_pipeline.list_runs(limit=100)),
                     "campaigns_count": len(self.campaigns.list_campaigns()),
                     "sales": self.campaigns.sales_summary()["seller_kpis"],
                     "recent_logs": self.history_logs.list_logs(limit=6),

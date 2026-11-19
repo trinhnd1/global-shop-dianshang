@@ -416,21 +416,35 @@ class ProductsService:
         url = prod["url"]
 
         if plat == "tiktok_shop":
-            if treg_tok and self.treg and npid:
-                try:
-                    fetched = self.treg.fetch_tiktok_shop_product_detail(treg_tok, npid, region=prod["market"])
-                except Exception:
-                    fetched = None
-            if (not fetched or float(fetched.get("price_vnd") or 0) <= 0) and apify_toks and self.apify and (url or npid):
+            # STRICT PRIORITY #1: Apify Store API
+            if apify_toks and self.apify and (url or npid):
                 try:
                     fetched = self.apify.scrape_tiktok_shop_detail(apify_toks, url or npid)
                 except Exception:
+                    fetched = None
+            # STRICT PRIORITY #2: Treg.to Backup ONLY if Apify returned empty or missing price
+            if (not fetched or float(fetched.get("price_vnd") or 0) <= 0) and treg_tok and self.treg and npid:
+                try:
+                    t_det = self.treg.fetch_tiktok_shop_product_detail(treg_tok, npid, region=prod["market"])
+                    if t_det:
+                        fetched = {**(fetched or {}), **{k: v for k, v in t_det.items() if v}}
+                except Exception:
                     pass
-        elif plat == "shopee" and apify_toks and self.apify and url:
-            try:
-                fetched = self.apify.scrape_shopee_product(apify_toks, url)
-            except Exception:
-                fetched = None
+        elif plat == "shopee":
+            # STRICT PRIORITY #1: Apify Store API
+            if apify_toks and self.apify and url:
+                try:
+                    fetched = self.apify.scrape_shopee_product(apify_toks, url)
+                except Exception:
+                    fetched = None
+            # STRICT PRIORITY #2: Treg.to Backup
+            if not fetched and treg_tok and self.treg and url:
+                try:
+                    ext = self.treg.call(treg_tok, "treg.web.extract", {"url": url}, method="POST")
+                    if ext.get("title"):
+                        fetched = {"title": str(ext["title"])[:200]}
+                except Exception:
+                    pass
 
         if fetched and (fetched.get("price_vnd") or fetched.get("sold_count") or fetched.get("image_url")):
             return self.upsert_product({**prod, **{k: v for k, v in fetched.items() if v}}, source="enrich_detail")
@@ -760,6 +774,7 @@ class ProductsService:
             "gmv_vnd": r["gmv_vnd"],
             "jev_score": r["jev_score"],
             "jev_detail": rec.get("jev_detail"),
+            "desk300": rec.get("desk300"),
             "economics": rec.get("economics") or {},
             "sourcing_summary": rec.get("sourcing_summary"),
             "assigned_shop_id": rec.get("assigned_shop_id", ""),
@@ -829,6 +844,9 @@ class ProductsService:
             action = text(body.get("action"), "action", 40, required=True)
             if action == "auto_assign_shop" and getattr(self, "shops_service", None) is not None:
                 return "200 OK", self.shops_service.auto_assign_shop_for_products(product_ids=ids)
+            if action == "process_300desk" and getattr(self, "desk_pipeline", None) is not None:
+                run_out = self.desk_pipeline.process_single_or_batch_sync(product_ids=ids, mode="vault_process")
+                return "200 OK", {"run": run_out, "updated": len(run_out["output_product_ids"]), "summary": run_out["summary"]}
             updated = 0
             for pid in ids:
                 if action == "delete":
@@ -870,4 +888,9 @@ class ProductsService:
                 if len(parts) == 4 and parts[3] == "enrich" and method == "POST":
                     enriched = self.enrich_product(pid)
                     return "200 OK", {"product": enriched, "summary": f"Đã cập nhật SP #{pid}: Giá {enriched['price_vnd']:,.0f}đ · Đã bán {enriched['sold_count']}"}
+                if len(parts) == 4 and parts[3] == "process-300desk" and method == "POST":
+                    if getattr(self, "desk_pipeline", None) is None:
+                        raise ApiError("503 Service Unavailable", "Chưa khởi tạo luồng 300+desk")
+                    run_out = self.desk_pipeline.process_single_or_batch_sync(product_ids=[pid], mode="vault_process")
+                    return "200 OK", {"run": run_out, "product": self.get_product(pid), "summary": run_out["summary"]}
         return None

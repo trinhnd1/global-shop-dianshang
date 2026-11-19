@@ -351,39 +351,63 @@ class HuntAndCreatorsService:
                             (json.dumps(pids[:25]), now(), pp_id),
                         )
 
-            # --- STAGE 4: ENRICH MISSING PRICES & JEV SELLER SCORING ---
+            # --- STAGE 4: 300+DESK PRODUCT PROCESSING (IF ENABLED) + JEV FINAL DECISION ---
             enriched = 0
-            for pid in discovered_ids[:8]:
-                ctx.check_cancelled()
-                p_cur = self.products.get_product(pid)
-                if p_cur and float(p_cur.get("price_vnd") or 0) <= 0 and int(p_cur.get("sold_count") or 0) <= 0:
-                    try:
-                        p_after = self.products.enrich_product(pid)
-                        if p_after and (p_after.get("price_vnd", 0) > 0 or p_after.get("sold_count", 0) > 0):
-                            enriched += 1
-                    except Exception:
-                        pass
-
             scored = 0
-            if est["auto_score_jev"] and discovered_ids:
+            desk300_nnn = ""
+            use_desk = bool(body.get("use_300desk", False)) and getattr(self, "desk_pipeline", None) is not None
+
+            if use_desk and discovered_ids:
+                ctx.check_cancelled()
+                ctx.log(f"🤖 [Bước 4] Đưa {len(discovered_ids[:12])} SP vào luồng xử lý 300+desk (OPi SOCKS5) -> Jev AI ra quyết định...")
+                try:
+                    d_run = self.desk_pipeline.process_single_or_batch_sync(
+                        product_ids=discovered_ids[:12],
+                        mode="vault_process",
+                        exec_engine="gateway_fast",
+                        auto_assign_my_shop=True,
+                        log_fn=ctx.log,
+                    )
+                    desk300_nnn = d_run["nnn_code"]
+                    scored = len(d_run["output_product_ids"])
+                except Exception as exc:
+                    ctx.log(f"⚠️ 300+desk dừng an toàn ({exc}) — chuyển sang làm giàu & Jev trực tiếp")
+                    use_desk = False
+
+            if not use_desk:
                 for pid in discovered_ids[:8]:
                     ctx.check_cancelled()
-                    try:
-                        self.products.score_product_jev(pid)
-                        scored += 1
-                    except Exception as exc:
-                        ctx.log(f"⚠️ Chấm Jev SP #{pid}: {exc}")
-                        break
+                    p_cur = self.products.get_product(pid)
+                    if p_cur and float(p_cur.get("price_vnd") or 0) <= 0 and int(p_cur.get("sold_count") or 0) <= 0:
+                        try:
+                            p_after = self.products.enrich_product(pid)
+                            if p_after and (p_after.get("price_vnd", 0) > 0 or p_after.get("sold_count", 0) > 0):
+                                enriched += 1
+                        except Exception:
+                            pass
+
+                if est["auto_score_jev"] and discovered_ids:
+                    for pid in discovered_ids[:8]:
+                        ctx.check_cancelled()
+                        try:
+                            self.products.score_product_jev(pid)
+                            scored += 1
+                        except Exception as exc:
+                            ctx.log(f"⚠️ Chấm Jev SP #{pid}: {exc}")
+                            break
 
             summary = (
                 f"Săn đa tầng hoàn tất: {len(painpoint_ids)} Painpoint MXH · "
-                f"lưu {len(discovered_ids)} SP vào Kho (Chờ đánh giá) · làm giàu {enriched} SP · chấm Jev {scored} SP"
+                f"lưu {len(discovered_ids)} SP vào Kho (Chờ đánh giá)"
+                + (f" · xử lý 300+desk #{desk300_nnn}" if desk300_nnn else f" · làm giàu {enriched} SP")
+                + f" · Jev quyết định {scored} SP"
             )
             ctx.log(f"🏁 {summary}")
             return {
                 "discovered_count": len(discovered_ids),
                 "painpoints_count": len(painpoint_ids),
                 "painpoint_ids": painpoint_ids,
+                "desk300_nnn": desk300_nnn,
                 "scored_jev_count": scored,
                 "product_ids": discovered_ids,
                 "summary": summary,
@@ -549,8 +573,27 @@ class HuntAndCreatorsService:
         else:
             posts = self._collect_social_posts_for_term(q, chs, max(2, min(15, int(limit_per_channel))), apify_toks, treg_tok, log_fn=log_fn)
 
-        # 1) Preliminary painpoint synthesis
+        # 1) Preliminary painpoint synthesis (+ optional `300+desk` synthesis over OPi SOCKS5 when posts present!)
         pain_title, pain_summary, rec_keywords = derive_painpoint_and_product_keywords(q, posts, None)
+        if posts and getattr(self, "desk300", None) is not None and injected_posts is None:
+            try:
+                d_pp = self.desk300.call_gateway_json(
+                    "Bạn là trợ lý `300+desk` chuyên đọc bài đăng mạng xã hội để trích xuất nỗi đau khách hàng (Painpoint) và từ khoá sản phẩm giải pháp bán trên Shopee/TikTok. Chỉ trả về JSON.",
+                    "Chủ đề: " + q + "\nBài đăng MXH:\n" + json.dumps([p.get("text", "")[:220] for p in posts[:8]], ensure_ascii=False)
+                    + '\nTrả về JSON: {"pain_title": "<1 câu tóm tắt nỗi đau>", "product_keywords": ["<từ khoá SP 1>", "<từ khoá SP 2>", "<từ khoá SP 3>"]}',
+                    task_type="painpoint_synthesis",
+                    timeout_sec=25,
+                )
+                dp_obj = d_pp.get("parsed") if isinstance(d_pp.get("parsed"), dict) else {}
+                if dp_obj.get("pain_title"):
+                    pain_title = str(dp_obj["pain_title"]).strip()[:200]
+                for dkw in dp_obj.get("product_keywords") or []:
+                    dkw_s = str(dkw).strip()
+                    if dkw_s and dkw_s.lower() not in {x.lower() for x in rec_keywords}:
+                        rec_keywords.insert(0, dkw_s)
+                rec_keywords = rec_keywords[:6]
+            except Exception:
+                pass
         ind = infer_industry(q + " " + " ".join(rec_keywords))
 
         # 2) Score & classify Painpoint with TypeSafe Jev AI

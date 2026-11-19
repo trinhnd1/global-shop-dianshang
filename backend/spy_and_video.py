@@ -194,34 +194,58 @@ class SpyAndVideoService:
                 raise OverflowError("File video tải lên vượt quá 45MB")
             local_mp4.write_bytes(data)
         elif video_url:
-            if treg_tok and self.treg:
+            # STRICT PRIORITY #1: Apify Store API (clockworks~tiktok-video-scraper + transcript)
+            if apify_toks and self.apify:
                 try:
-                    det = self.treg.inspect_tiktok_video(treg_tok, video_url)
-                    d_data = det.get("data") if isinstance(det.get("data"), dict) else det
-                    caption = caption or str(d_data.get("desc") or d_data.get("title") or "")
-                    author_handle = str((d_data.get("author") or {}).get("unique_id") or "")
-                    views = int((d_data.get("statistics") or {}).get("play_count") or d_data.get("views") or 0)
-                    play_url = str(((d_data.get("video") or {}).get("play_addr") or {}).get("url_list", [""])[0] or "")
-                    if play_url:
-                        download_public_video(play_url, local_mp4)
+                    rows = self.apify.run_sync_items(
+                        apify_toks,
+                        "clockworks~tiktok-video-scraper",
+                        {"postURLs": [video_url], "shouldDownloadVideos": True},
+                        max_charge_usd=0.04,
+                    )
+                    if rows:
+                        r0 = rows[0]
+                        caption = caption or str(r0.get("text") or r0.get("desc") or "")
+                        author_handle = str((r0.get("authorMeta") or {}).get("name") or "")
+                        views = int(r0.get("playCount") or 0)
+                        dl_url = str(r0.get("mediaUrls", [""])[0] if isinstance(r0.get("mediaUrls"), list) and r0.get("mediaUrls") else (r0.get("videoUrl") or ""))
+                        if dl_url and dl_url.startswith("http"):
+                            download_public_video(dl_url, local_mp4)
                 except Exception:
                     pass
+                if not transcript:
+                    try:
+                        tr_rows = self.apify.run_sync_items(
+                            apify_toks,
+                            "scrape-creators~best-tiktok-transcripts-scraper",
+                            {"videos": [video_url]},
+                            max_charge_usd=0.03,
+                        )
+                        if tr_rows and isinstance(tr_rows[0], dict):
+                            transcript = str(tr_rows[0].get("transcript") or tr_rows[0].get("text") or "").strip()
+                    except Exception:
+                        pass
+
+            # STRICT PRIORITY #2: Treg.to Backup ONLY if Apify missed video/transcript
+            if treg_tok and self.treg and (not local_mp4.is_file() or not caption or not transcript):
+                if not local_mp4.is_file() or not caption:
+                    try:
+                        det = self.treg.inspect_tiktok_video(treg_tok, video_url)
+                        d_data = det.get("data") if isinstance(det.get("data"), dict) else det
+                        caption = caption or str(d_data.get("desc") or d_data.get("title") or "")
+                        author_handle = author_handle or str((d_data.get("author") or {}).get("unique_id") or "")
+                        views = views or int((d_data.get("statistics") or {}).get("play_count") or d_data.get("views") or 0)
+                        play_url = str(((d_data.get("video") or {}).get("play_addr") or {}).get("url_list", [""])[0] or "")
+                        if play_url and not local_mp4.is_file():
+                            download_public_video(play_url, local_mp4)
+                    except Exception:
+                        pass
                 if not transcript:
                     try:
                         tr = self.treg.fetch_tiktok_transcript(treg_tok, video_url)
                         transcript = str(tr.get("transcript") or tr.get("text") or (tr.get("data") or {}).get("transcript") or "").strip()
                     except Exception:
                         pass
-            if not caption and apify_toks and self.apify:
-                try:
-                    rows = self.apify.run_sync_items(apify_toks, "clockworks~tiktok-video-scraper", {"postURLs": [video_url]}, max_charge_usd=0.04)
-                    if rows:
-                        r0 = rows[0]
-                        caption = str(r0.get("text") or "")
-                        author_handle = str((r0.get("authorMeta") or {}).get("name") or "")
-                        views = int(r0.get("playCount") or 0)
-                except Exception:
-                    pass
 
         frame_files, frames_b64 = ([], {})
         if local_mp4.is_file():
