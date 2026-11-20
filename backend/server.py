@@ -4,8 +4,10 @@ import json
 import math
 import os
 from pathlib import Path
+import re
 from socketserver import ThreadingMixIn
 import sqlite3
+import subprocess
 import threading
 import time
 from urllib.parse import parse_qs
@@ -408,11 +410,48 @@ class Application:
             pass
         return status, result
 
+    @staticmethod
+    def get_launchagent_status() -> dict:
+        label = "com.peng.global-shop-dianshang"
+        plist_path = Path.home() / "Library" / "LaunchAgents" / f"{label}.plist"
+        installed = plist_path.is_file()
+        loaded = False
+        running = False
+        pid: int | None = None
+        if os.name == "posix" and hasattr(os, "getuid"):
+            try:
+                p = subprocess.run(
+                    ["launchctl", "print", f"gui/{os.getuid()}/{label}"],
+                    capture_output=True,
+                    text=True,
+                    timeout=3,
+                )
+                if p.returncode == 0:
+                    loaded = True
+                    out = p.stdout or ""
+                    running = "state = running" in out
+                    m_pid = re.search(r"\bpid\s*=\s*(\d+)", out)
+                    if m_pid:
+                        pid = int(m_pid.group(1))
+            except Exception:
+                pass
+        return {
+            "label": label,
+            "installed": installed,
+            "loaded": loaded,
+            "running": running,
+            "pid": pid,
+            "run_at_load": installed,
+            "keep_alive": installed,
+        }
+
     def _dispatch_inner(self, env):
         path = env.get("PATH_INFO", "") or "/"
         method = env.get("REQUEST_METHOD", "GET")
 
         try:
+            if path == "/api/system/launchagent" and method == "GET":
+                return "200 OK", self.get_launchagent_status()
             if path == "/api/health" and method == "GET":
                 return "200 OK", {
                     "status": "ok",

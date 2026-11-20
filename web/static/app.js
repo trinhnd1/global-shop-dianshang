@@ -2317,13 +2317,14 @@
   }
 
   async function loadSettings() {
-    const [mv, tg, bh, mcp, d3st, kaloSt] = await Promise.all([
+    const [mv, tg, bh, mcp, d3st, kaloSt, laSt] = await Promise.all([
       api("/api/settings"),
       api("/api/providers/telegram/status"),
       api("/api/connections/browser"),
       api("/api/mcp/status"),
       api("/api/desk300/status").catch(() => ({ ok: false })),
       api("/api/kalodata/status").catch(() => null),
+      api("/api/system/launchagent").catch(() => null),
     ]);
     renderDeskGatewayBanner(d3st);
     const st = mv.settings || {};
@@ -2358,8 +2359,11 @@
     document.getElementById("browserHubBox").innerHTML =
       `Profile: <strong>${esc(bh.profile_name)}</strong> (CDP <code>127.0.0.1:${bh.cdp_port}</code>): <strong>${bh.running ? "🟢 Đang mở (" + bh.open_tabs_count + " tab)" : "⚪ Đang đóng"}</strong> · SecretStore: <code>${esc(mv.secret_backend)}</code>${kLine}`;
 
+    const laHtml = laSt
+      ? `<br/>🔄 LaunchAgent tự khởi động (<code>${esc(laSt.label)}</code>): ${laSt.running ? `<strong style="color:#6ee7b7">🟢 Đang chạy tự động (PID ${laSt.pid || "—"} · RunAtLoad + KeepAlive)</strong>` : laSt.installed ? '<span style="color:#fcd34d">🟡 Đã cài đặt</span>' : "⚪ Chưa cài"}`
+      : "";
     document.getElementById("mcpStatusBox").innerHTML =
-      `🔌 MCP Gateway: <code>${esc(mcp.http_endpoint)}</code> (${mcp.tools_count} tools · chế độ <code>${esc(mcp.access_mode)}</code>)`;
+      `🔌 MCP Gateway: <code>${esc(mcp.http_endpoint)}</code> (${mcp.tools_count} tools · chế độ <code>${esc(mcp.access_mode)}</code>)${laHtml}`;
   }
 
   // --- INLINE SELECT CLASSIFICATION HANDLER ----------------------------------
