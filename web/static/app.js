@@ -10,6 +10,7 @@
     "/soi-shop": "shopspy",
     "/creators": "shopspy",
     "/shop-cua-toi": "myshops",
+    "/bang-xep-hang-jev": "jevrank",
     "/kho": "results",
     "/nguon-hang-tq": "sourcing",
     "/kho-shop": "shops",
@@ -261,6 +262,11 @@
       if (elEcoCnt) elEcoCnt.textContent = ov.ecosystems_count || 0;
       const elTopEcoCnt = document.getElementById("topEcoCnt");
       if (elTopEcoCnt) elTopEcoCnt.textContent = ov.ecosystems_count || 0;
+      const jevCnt = ov.jev_scored_count ?? Math.max(0, (BUCKET_COUNTS.all || 0) - (BUCKET_COUNTS.chua_cham || 0));
+      const elJevCnt = document.getElementById("cntJevScored");
+      if (elJevCnt) elJevCnt.textContent = jevCnt;
+      const elTopJevCnt = document.getElementById("topJevCnt");
+      if (elTopJevCnt) elTopJevCnt.textContent = jevCnt;
       if (ov.recent_logs?.length) {
         document.getElementById("cntHistoryLogs").textContent = ov.recent_logs[0].seq_no || ov.recent_logs.length;
       }
@@ -294,6 +300,17 @@
           .map(([k, inf]) => `<option value="${k}">${inf.ico} ${esc(inf.name)} (${INDUSTRY_COUNTS[k] || 0})</option>`)
           .join("");
       fInd.value = cur;
+    }
+
+    const jrInd = document.getElementById("jrIndustry");
+    if (jrInd) {
+      const curJr = jrInd.value;
+      jrInd.innerHTML =
+        `<option value="">Mọi ngành</option>` +
+        Object.entries(INDUSTRY_META)
+          .map(([k, inf]) => `<option value="${k}">${inf.ico} ${esc(inf.name)}</option>`)
+          .join("");
+      jrInd.value = curJr;
     }
 
     const bInd = document.getElementById("bulkIndustrySel");
@@ -376,6 +393,7 @@
     else if (tab === "ecosystems") await loadEcosystemsTab();
     else if (tab === "deskflow") await loadDesk300Tab();
     else if (tab === "myshops") await loadMyShops();
+    else if (tab === "jevrank") await loadJevLeaderboard();
     else if (tab === "results") await loadProducts();
     else if (tab === "keywords") await loadKeywordHistory();
     else if (tab === "watches") await loadWatches();
@@ -800,6 +818,188 @@
           </tbody>
         </table>`
       : `<div style="color:var(--muted)">Chưa có phiên săn nào được chạy.</div>`;
+  }
+
+  // --- PART 2.0: JEV AI PRODUCT LEADERBOARD (`🏆 BẢNG XẾP HẠNG JEV AI`) -------
+  function renderJevPillarBarsHtml(pillars = {}, highlightKey = "") {
+    const order = [
+      ["suc_cau", "Sức cầu", "#f97316"],
+      ["bien_lai", "Biên lãi", "#10b981"],
+      ["de_nhap_tq", "Nhập TQ", "#f59e0b"],
+      ["canh_tranh", "Cạnh tranh", "#38bdf8"],
+      ["khac_biet", "Combo/USP", "#a78bfa"],
+      ["de_lam_video", "Làm Video", "#f43f5e"],
+    ];
+    return `<div style="display:grid;grid-template-columns:repeat(2,minmax(115px,1fr));gap:4px 8px;font-size:11px">
+      ${order.map(([k, lbl, col]) => {
+        const val = Number(pillars[k] || 0);
+        const pct = Math.min(100, Math.max(0, val * 10));
+        const isHi = highlightKey === k;
+        return `<div>
+          <div style="display:flex;justify-content:space-between;color:${isHi ? "#fde047" : "var(--muted)"};font-weight:${isHi ? "700" : "400"}">
+            <span>${lbl}</span><span>${val > 0 ? val.toFixed(1) : "—"}</span>
+          </div>
+          <div style="height:4px;background:#162238;border-radius:3px;overflow:hidden;margin-top:1px">
+            <div style="width:${pct}%;height:100%;background:${col}"></div>
+          </div>
+        </div>`;
+      }).join("")}
+    </div>`;
+  }
+
+  async function loadJevLeaderboard() {
+    const rk = document.getElementById("jrRankBy")?.value || "overall_10";
+    const tier = document.getElementById("jrTier")?.value || "all";
+    const plat = document.getElementById("jrPlatform")?.value || "";
+    const ind = document.getElementById("jrIndustry")?.value || "";
+    const minSc = document.getElementById("jrMinScore")?.value || "0";
+    const q = document.getElementById("jrSearchQ")?.value.trim() || "";
+
+    const expBtn = document.getElementById("jrExportCsvBtn");
+    if (expBtn) expBtn.href = `/api/products/jev-leaderboard/export.csv?rank_by=${encodeURIComponent(rk)}`;
+
+    const qs = new URLSearchParams({ rank_by: rk, tier, platform: plat, industry: ind, min_score: minSc, q, limit: "200" });
+    const data = await api(`/api/products/jev-leaderboard?${qs}`);
+    const k = data.kpis || {};
+    const items = data.items || [];
+    const top3 = data.podium_top3 || [];
+    const indRank = data.industry_ranking || [];
+
+    document.getElementById("jevRankKpiStrip").innerHTML = `
+      <div class="kpi"><div class="lbl">Tổng SP đã chấm Jev AI</div><div class="val gold">${k.total_scored || 0} SP</div><div style="font-size:11px;color:var(--muted)">Còn ${k.total_unscored || 0} SP chưa chấm</div></div>
+      <div class="kpi"><div class="lbl">🏆 Strong Pick (Nhập test ngay)</div><div class="val green">${k.strong_pick_count || 0} SP</div></div>
+      <div class="kpi"><div class="lbl">⚖️ Maybe (Tiềm năng / Test nhỏ)</div><div class="val sky">${k.maybe_count || 0} SP</div></div>
+      <div class="kpi"><div class="lbl">Điểm Jev Cao nhất / TB</div><div class="val gold">${k.max_jev_score || 0} / ${k.avg_jev_score || 0}</div></div>
+      <div class="kpi"><div class="lbl">% Khuyến nghị Nhập Test TB</div><div class="val green">${k.avg_import_prob_pct || 0}%</div></div>
+    `;
+
+    document.getElementById("jevIndustryRankChips").innerHTML =
+      `<button class="chip ${!ind ? "active" : ""}" data-action="jr-chip-ind" data-ind="">🗂 Tất cả ngành (${k.total_scored || 0})</button>` +
+      indRank
+        .map(
+          (ir) =>
+            `<button class="chip ${ind === ir.industry ? "active" : ""}" data-action="jr-chip-ind" data-ind="${esc(ir.industry)}">${esc(ir.industry_icon)} ${esc(ir.industry_label)}: <strong>${ir.avg_jev_score}/10</strong> (${ir.count} SP)</button>`
+        )
+        .join("");
+
+    const podiumMedals = [
+      { ico: "🥇 HẠNG 1", border: "#fbbf24", bg: "linear-gradient(180deg,#1a170a 0%,#0b1322 100%)", col: "#fde047" },
+      { ico: "🥈 HẠNG 2", border: "#94a3b8", bg: "linear-gradient(180deg,#131b29 0%,#0b1322 100%)", col: "#e2e8f0" },
+      { ico: "🥉 HẠNG 3", border: "#d97706", bg: "linear-gradient(180deg,#1c130c 0%,#0b1322 100%)", col: "#fdba74" },
+    ];
+    document.getElementById("jevRankPodiumBox").innerHTML = top3.length
+      ? `<div class="grid3">
+          ${top3.map((p, idx) => {
+            const pm = podiumMedals[idx] || podiumMedals[2];
+            const cnKw = p.desk300?.cn_1688_keyword || "";
+            return `
+              <div class="card" style="margin:0;border:1.5px solid ${pm.border};background:${pm.bg}">
+                <div class="row" style="justify-content:space-between;margin-bottom:8px">
+                  <span style="font-weight:800;font-size:14px;color:${pm.col}">${pm.ico}</span>
+                  <div class="row" style="gap:5px">
+                    <span class="badge gold" style="font-size:13px;font-weight:800">🤖 ${p.jev_score}/10</span>
+                    <span class="badge ${p.decision_tier === "strong_pick" ? "green" : p.decision_tier === "maybe" ? "blue" : ""}">${p.import_test_prob_pct}% Nhập test</span>
+                  </div>
+                </div>
+                <div style="display:flex;gap:10px;margin-bottom:8px">
+                  ${p.image_url ? `<img src="${esc(p.image_url)}" alt="" style="width:64px;height:64px;object-fit:cover;border-radius:8px;border:1px solid var(--border);flex-shrink:0" />` : ""}
+                  <div style="min-width:0">
+                    <a href="${esc(p.url || "#")}" target="_blank" style="font-weight:700;color:#e2e8f0;text-decoration:none;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">${esc(p.desk300?.seo_title || p.title)}</a>
+                    <div style="font-size:11.5px;color:var(--muted);margin-top:3px">${esc(p.platform_market_label)} · Giá <strong style="color:#fde047">${fmtPriceDual(p)}</strong> · Bán <strong>${Number(p.sold_count || 0).toLocaleString("vi-VN")}</strong></div>
+                    ${cnKw ? `<div style="font-size:11px;color:#fcd34d;margin-top:2px">🇨🇳 1688: <code>${esc(cnKw)}</code></div>` : ""}
+                  </div>
+                </div>
+                ${renderJevPillarBarsHtml(p.pillars, rk)}
+                <div class="row" style="margin-top:10px;justify-content:space-between">
+                  <span class="badge">${esc(p.industry_icon)} ${esc(p.industry_label)}</span>
+                  <div class="row" style="gap:4px">
+                    <button class="btn btn-sm btn-gold" data-action="prod-set-status" data-id="${p.id}" data-st="nhap_test">🚀 Nhập test</button>
+                    <button class="btn btn-sm" data-action="prod-find-cn" data-id="${p.id}" data-title="${esc(cnKw || p.title)}">🇨🇳 1688</button>
+                    <button class="btn btn-sm btn-pri" data-action="prod-dossier" data-id="${p.id}">📊 Hồ sơ</button>
+                  </div>
+                </div>
+              </div>`;
+          }).join("")}
+        </div>`
+      : "";
+
+    const rankMedals = { 1: "🥇 #1", 2: "🥈 #2", 3: "🥉 #3" };
+    const bucketOpts = Object.entries(KHO_BUCKETS_META)
+      .filter(([bk]) => bk !== "all" && bk !== "chua_cham")
+      .map(([bk, inf]) => [bk, `${inf.ico} ${inf.name}`]);
+
+    document.getElementById("jevRankTableBox").innerHTML = items.length
+      ? `<div style="overflow-x:auto">
+          <table class="tbl">
+            <thead>
+              <tr>
+                <th style="width:68px">Hạng</th>
+                <th style="min-width:260px">Sản phẩm &amp; Từ khoá Nguồn TQ</th>
+                <th style="min-width:145px">Điểm Jev &amp; Quyết định</th>
+                <th style="min-width:255px">6 Trụ cột Jev AI (/10)</th>
+                <th>Giá bán &amp; Lượt bán</th>
+                <th>Ngăn Kho hiện tại</th>
+                <th>Thao tác nhanh</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${items.map((p) => {
+                const rBadge = rankMedals[p.rank]
+                  ? `<strong style="font-size:14px;color:${p.rank === 1 ? "#fde047" : p.rank === 2 ? "#e2e8f0" : "#fdba74"}">${rankMedals[p.rank]}</strong>`
+                  : `<strong style="color:#93c5fd">#${p.rank}</strong>`;
+                const tierCls = p.decision_tier === "strong_pick" ? "green" : p.decision_tier === "maybe" ? "blue" : "";
+                const cnKw = p.desk300?.cn_1688_keyword || "";
+                return `
+                  <tr>
+                    <td>${rBadge}</td>
+                    <td>
+                      <div style="display:flex;gap:9px;align-items:flex-start">
+                        ${p.image_url ? `<img src="${esc(p.image_url)}" alt="" style="width:48px;height:48px;object-fit:cover;border-radius:6px;border:1px solid var(--border);flex-shrink:0" />` : ""}
+                        <div>
+                          <a href="${esc(p.url || "#")}" target="_blank" style="font-weight:600;color:#93c5fd">${esc(p.desk300?.seo_title || p.title)}</a>
+                          <div style="font-size:11px;color:var(--muted);margin-top:2px">
+                            <span class="badge">${esc(p.platform_market_label)}</span>
+                            ${p.is_overseas ? '<span class="badge gold">✈️ Quốc tế</span>' : ""}
+                            <span>${esc(p.industry_icon)} ${esc(p.industry_label)}</span>
+                            ${p.shop_name ? `· Shop: <strong>${esc(p.shop_name)}</strong>` : ""}
+                          </div>
+                          ${cnKw ? `<div style="font-size:11px;color:#fcd34d;margin-top:2px">🇨🇳 1688: <code>${esc(cnKw)}</code></div>` : ""}
+                        </div>
+                      </div>
+                    </td>
+                    <td>
+                      <div><span class="badge gold" style="font-size:13.5px;font-weight:800">🤖 ${p.jev_score}/10</span></div>
+                      <div style="margin-top:4px"><span class="badge ${tierCls}">${esc(p.decision_label)}</span></div>
+                      <div style="font-size:11px;color:#6ee7b7;margin-top:3px">Xác suất nhập test: <strong>${p.import_test_prob_pct}%</strong></div>
+                      ${p.strongest_pillar_label ? `<div style="font-size:10.5px;color:var(--muted);margin-top:2px">Mạnh nhất: ${esc(p.strongest_pillar_label)}</div>` : ""}
+                    </td>
+                    <td>${renderJevPillarBarsHtml(p.pillars, rk)}</td>
+                    <td style="font-size:12px">
+                      <div><strong>${fmtPriceDual(p)}</strong></div>
+                      <div style="margin-top:2px">Đã bán: <strong style="color:#6ee7b7">${Number(p.sold_count || 0).toLocaleString("vi-VN")}</strong></div>
+                      ${p.sold_30d > 0 ? `<div style="font-size:11px;color:#fcd34d">30 ngày: ${Number(p.sold_30d).toLocaleString("vi-VN")}</div>` : ""}
+                      ${p.stock > 0 ? `<div style="font-size:11px;color:var(--muted)">Tồn kho: ${p.stock}</div>` : ""}
+                    </td>
+                    <td>
+                      <select data-inline-pid="${p.id}" data-inline-field="bucket" style="font-size:11.5px;padding:4px 6px;max-width:155px">
+                        ${bucketOpts.map(([bk, bl]) => `<option value="${bk}" ${p.bucket === bk ? "selected" : ""}>${esc(bl)}</option>`).join("")}
+                      </select>
+                    </td>
+                    <td>
+                      <div class="row" style="gap:4px">
+                        <button class="btn btn-sm btn-gold" data-action="prod-set-status" data-id="${p.id}" data-st="nhap_test" title="Chuyển sang Đang nhập / Test bán">🚀 Nhập test</button>
+                        <button class="btn btn-sm" data-action="prod-300desk" data-id="${p.id}" title="Đưa qua 300+desk chuẩn hoá SEO & dịch 1688">🤖 300+desk</button>
+                        <button class="btn btn-sm" data-action="prod-find-cn" data-id="${p.id}" data-title="${esc(cnKw || p.title)}" title="Tìm xưởng gốc 1688 / Pinduoduo / Taobao">🇨🇳 Nguồn TQ</button>
+                        <button class="btn btn-sm btn-pri" data-action="prod-dossier" data-id="${p.id}">📊 Hồ sơ</button>
+                        <button class="btn btn-sm" data-action="jr-rescore-one" data-id="${p.id}" title="Chấm lại điểm Jev AI">🔄</button>
+                      </div>
+                    </td>
+                  </tr>`;
+              }).join("")}
+            </tbody>
+          </table>
+        </div>`
+      : `<div style="color:var(--muted);padding:12px">Không có sản phẩm nào khớp bộ lọc. Bạn có thể bấm <strong>"🤖 Chấm Jev Top 15 SP bán chạy chưa chấm"</strong> ở góc phải trên để bổ sung điểm Jev!</div>`;
   }
 
   // --- PART 1.1B: LUỒNG XỬ LÝ SẢN PHẨM 300+DESK (OPi SOCKS5) -> JEV DECISION ---
@@ -2180,6 +2380,8 @@
 
     if (["filterIndustry", "filterShop", "filterCampaign", "filterPlatform", "filterSort"].includes(ev.target.id)) {
       loadProducts();
+    } else if (["jrRankBy", "jrTier", "jrPlatform", "jrIndustry", "jrMinScore"].includes(ev.target.id)) {
+      loadJevLeaderboard();
     } else if (["histFilterMod", "histFilterStatus"].includes(ev.target.id)) {
       loadHistoryAndJobs();
     } else if (ev.target.id === "msPlatform") {
@@ -2251,6 +2453,8 @@
         closeModal();
       } else if (act === "jump-ecosystems") {
         showTab("ecosystems", "/he-sinh-thai");
+      } else if (act === "jump-jevrank") {
+        showTab("jevrank", "/bang-xep-hang-jev");
       } else if (act === "jump-deskflow") {
         showTab("deskflow", "/luong-300-desk");
       } else if (act === "jump-apifystore") {
@@ -3235,6 +3439,31 @@
         await api(`/api/hunt/schedules/${encodeURIComponent(actEl.dataset.id)}`, "DELETE");
         toast("Đã xoá lịch săn lặp lại!");
         await loadHuntSchedules();
+      } else if (act === "jr-refresh" || act === "jr-apply-filter") {
+        await loadJevLeaderboard();
+      } else if (act === "jr-reset-filter") {
+        document.getElementById("jrRankBy").value = "overall_10";
+        document.getElementById("jrTier").value = "all";
+        document.getElementById("jrPlatform").value = "";
+        document.getElementById("jrIndustry").value = "";
+        document.getElementById("jrMinScore").value = "0";
+        document.getElementById("jrSearchQ").value = "";
+        await loadJevLeaderboard();
+      } else if (act === "jr-chip-ind") {
+        document.getElementById("jrIndustry").value = actEl.dataset.ind || "";
+        await loadJevLeaderboard();
+      } else if (act === "jr-score-top-unscored") {
+        const lim = Number(actEl.dataset.limit || 15);
+        toast(`Đang dùng TypeSafe Jev AI chấm điểm Top ${lim} SP có lượt bán cao nhất chưa chấm...`);
+        const res = await api("/api/products/score-unscored", "POST", { limit: lim });
+        toast(res.summary);
+        await syncSidebarCountsAndRefs();
+        await loadJevLeaderboard();
+      } else if (act === "jr-rescore-one") {
+        toast(`Đang chấm lại điểm Jev AI cho SP #${actEl.dataset.id}...`);
+        const res = await api(`/api/products/${actEl.dataset.id}/score-jev`, "POST", {});
+        toast(res.summary);
+        await loadJevLeaderboard();
       }
     } catch (err) {
       toast(err.message || "Có lỗi xảy ra", true);

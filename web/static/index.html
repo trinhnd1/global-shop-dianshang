@@ -20,7 +20,7 @@
     <aside class="side" id="sidebar">
       <div class="brand">
         <h1 style="display:flex;align-items:center;gap:8px"><img src="/favicon.svg?v=1.0.11" alt="GS" width="24" height="24" style="border-radius:6px;flex-shrink:0" /><span>Global Shop Dianshang</span></h1>
-        <div class="sub">Apify #1 · Treg #2 · 300+desk · Jev (<span id="sideVer">v1.0.13</span>)</div>
+        <div class="sub">Apify #1 · Treg #2 · 300+desk · Jev (<span id="sideVer">v1.0.14</span>)</div>
       </div>
 
       <div class="nav-sec">1 · Nghiên cứu, 300+desk &amp; Shop của tôi</div>
@@ -33,6 +33,7 @@
       <button class="nav-btn" data-tab="myshops" data-route="/shop-cua-toi"><span>🏠 Shop của tôi (TT · Shopee · Fanpage)</span><em class="ncount" id="cntMyShops">0</em></button>
 
       <div class="nav-sec">2 · Kho &amp; Phân loại SP</div>
+      <button class="nav-btn" data-tab="jevrank" data-route="/bang-xep-hang-jev"><span>🏆 Bảng Xếp Hạng Jev AI</span><em class="ncount" id="cntJevScored">0</em></button>
       <div id="navKho"></div>
       <div class="nav-sec sub-sec">2B · Phân loại Ngành hàng</div>
       <div id="navIndustries"></div>
@@ -59,9 +60,10 @@
         <div class="row">
           <button class="btn btn-sm menu-btn" data-action="toggle-menu">☰ Menu</button>
           <span class="badge green" id="topStatusBadge">🟢 Sẵn sàng</span>
-          <span class="badge blue" id="topVerBadge">📦 v1.0.8</span>
+          <span class="badge blue" id="topVerBadge">📦 v1.0.14</span>
         </div>
         <div class="row">
+          <button class="btn btn-sm btn-gold" data-action="jump-jevrank">🏆 BXH Jev (<span id="topJevCnt">0</span>)</button>
           <button class="btn btn-sm btn-gold" data-action="jump-ecosystems">🎯 Hệ sinh thái SP (<span id="topEcoCnt">0</span>)</button>
           <button class="btn btn-sm btn-pri" data-action="jump-deskflow">🤖 300+desk &rarr; Jev</button>
           <button class="btn btn-sm" data-action="jump-apifystore">🧩 Apify Store (<span id="topApifyCnt">0</span>)</button>
@@ -789,6 +791,103 @@
               <button class="btn btn-blue" data-action="creator-search">🔍 Tìm Creator &amp; Video Bán hàng</button>
               <div id="creatorsListBox" style="margin-top:12px"></div>
             </div>
+          </div>
+        </section>
+
+        <!-- VIEW 2.0: BẢNG XẾP HẠNG SẢN PHẨM JEV AI CHẤM (6 TRỤ CỘT SELLER & QUYẾT ĐỊNH NHẬP TEST) -->
+        <section class="view" id="view-jevrank">
+          <div class="page-head">
+            <div>
+              <h2>🏆 Bảng Xếp Hạng Sản Phẩm Jev AI (`jev-1.14.0` — 6 Trụ cột Seller &amp; Xác suất Nhập Test)</h2>
+              <p>Xếp hạng toàn bộ sản phẩm đã được <strong>TypeSafe Jev AI</strong> chấm điểm theo tổng thể <code>/10</code>, xác suất nên nhập test <code>%</code>, hoặc từng trụ cột riêng lẻ (Sức cầu · Biên lãi · Dễ nhập TQ · Ít cạnh tranh · Dễ làm Combo · Dễ làm Video).</p>
+            </div>
+            <div class="row">
+              <button class="btn btn-sm btn-pri" data-action="jr-score-top-unscored" data-limit="15">🤖 Chấm Jev Top 15 SP bán chạy chưa chấm</button>
+              <a class="btn btn-sm btn-blue" id="jrExportCsvBtn" href="/api/products/jev-leaderboard/export.csv" target="_blank">📥 Xuất Excel (CSV) BXH</a>
+              <button class="btn btn-sm" data-action="jr-refresh">↻ Làm mới</button>
+            </div>
+          </div>
+
+          <div class="kpi-grid" id="jevRankKpiStrip"></div>
+
+          <!-- Top 3 Podium Cards -->
+          <div id="jevRankPodiumBox" style="margin-bottom:14px"></div>
+
+          <!-- Filters & Ranking Controls -->
+          <div class="card">
+            <div style="margin-bottom:8px">
+              <div style="font-size:12px;color:#fcd34d;font-weight:600;margin-bottom:5px">🏷️ Điểm trung bình theo Ngành hàng (bấm để lọc nhanh):</div>
+              <div class="chips" id="jevIndustryRankChips" style="margin-bottom:0"></div>
+            </div>
+
+            <div class="grid4" style="margin-top:8px">
+              <div class="field" style="margin:0">
+                <label>Tiêu chí Xếp hạng chính</label>
+                <select id="jrRankBy">
+                  <option value="overall_10" selected>🏆 Điểm Jev Tổng hợp (/10)</option>
+                  <option value="import_test_prob">🎯 Xác suất Nên Nhập Test (%)</option>
+                  <option value="composite_roi">💎 Điểm Kết hợp (Jev + Doanh số thực)</option>
+                  <option value="suc_cau">🔥 Trụ cột: Sức cầu &amp; Tốc độ bán</option>
+                  <option value="bien_lai">💰 Trụ cột: Biên lợi nhuận ròng</option>
+                  <option value="de_nhap_tq">🇨🇳 Trụ cột: Dễ nhập nguồn TQ (1688/PDD)</option>
+                  <option value="canh_tranh">🛡 Trụ cột: Ít cạnh tranh / Dễ vào</option>
+                  <option value="khac_biet">✨ Trụ cột: Khác biệt / Đóng Combo</option>
+                  <option value="de_lam_video">🎬 Trụ cột: Dễ quay Video Viral 15s</option>
+                </select>
+              </div>
+              <div class="field" style="margin:0">
+                <label>Hạng Quyết định Jev</label>
+                <select id="jrTier">
+                  <option value="all">Tất cả hạng (Strong Pick · Maybe · Pass)</option>
+                  <option value="strong_pick">🏆 Chỉ Strong Pick (Nhập test ngay)</option>
+                  <option value="maybe">⚖️ Chỉ Maybe (Tiềm năng / Test nhỏ)</option>
+                  <option value="pass">⏸ Chỉ Pass (Theo dõi thêm)</option>
+                </select>
+              </div>
+              <div class="field" style="margin:0">
+                <label>Sàn TMĐT &amp; Xuất xứ</label>
+                <select id="jrPlatform">
+                  <option value="">🌐 Mọi sàn &amp; thị trường</option>
+                  <option value="overseas">✈️ Chỉ Shop Quốc tế / Nước ngoài</option>
+                  <option value="shopee_vn">🇻🇳 Shopee VN</option>
+                  <option value="tiktok_shop_vn">🇻🇳 TikTokShop VN</option>
+                  <option value="shopee_ph">🇵🇭 Shopee PH</option>
+                  <option value="shopee_sg">🇸🇬 Shopee SG</option>
+                  <option value="shopee_my">🇲🇾 Shopee MY</option>
+                  <option value="shopee_th">🇹🇭 Shopee TH</option>
+                  <option value="tiktok_shop_ph">🇵🇭 TikTokShop PH</option>
+                  <option value="tiktok_shop_sg">🇸🇬 TikTokShop SG</option>
+                  <option value="tiktok_shop_my">🇲🇾 TikTokShop MY</option>
+                  <option value="tiktok_shop_th">🇹🇭 TikTokShop TH</option>
+                  <option value="lazada">📦 Lazada VN</option>
+                </select>
+              </div>
+              <div class="field" style="margin:0">
+                <label>Ngành hàng &amp; Điểm tối thiểu</label>
+                <div class="row" style="flex-wrap:nowrap">
+                  <select id="jrIndustry"><option value="">Mọi ngành</option></select>
+                  <select id="jrMinScore" style="max-width:120px">
+                    <option value="0">Điểm ≥ 0</option>
+                    <option value="5">≥ 5.0</option>
+                    <option value="6">≥ 6.0</option>
+                    <option value="7">≥ 7.0</option>
+                    <option value="7.6">≥ 7.6</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <div class="row" style="margin-top:8px;justify-content:space-between">
+              <input type="text" id="jrSearchQ" placeholder="🔍 Tìm tên sản phẩm, shop, từ khoá 1688..." style="max-width:420px" />
+              <div class="row">
+                <button class="btn btn-sm btn-pri" data-action="jr-apply-filter">🔍 Lọc &amp; Xếp hạng</button>
+                <button class="btn btn-sm" data-action="jr-reset-filter">Xoá lọc</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div id="jevRankTableBox"></div>
           </div>
         </section>
 

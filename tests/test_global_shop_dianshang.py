@@ -156,8 +156,8 @@ class GlobalShopDianshangE2ETest(unittest.TestCase):
     def test_01_security_version_masking_and_tailscale_guards(self):
         st, health = self.req("GET", "/api/health")
         self.assertEqual(st, 200)
-        self.assertEqual(health["version"], "1.0.13")
-        self.assertEqual(__version__, "1.0.13")
+        self.assertEqual(health["version"], "1.0.14")
+        self.assertEqual(__version__, "1.0.14")
         self.assertEqual(health["schema_version"], 7)
 
         # Custom Favicon, Apple Touch Icon & WebManifest over Tailscale Host
@@ -1433,6 +1433,83 @@ class GlobalShopDianshangE2ETest(unittest.TestCase):
         self.assertEqual(latest_run["new_products_count"], 1)
         self.assertEqual(latest_run["rising_products_count"], 1)
         self.assertEqual(latest_run["rising_items"][0]["delta_sold"], 9)
+
+    def test_11_jev_product_leaderboard_ranking_pillars_csv_and_telegram_bxh(self):
+        self.req("POST", "/api/settings", {
+            "providers": {"typesafe_key": "apikey_jev_rank_0001"},
+        })
+
+        class CustomRankJev:
+            def score_seller_product(self, api_key, product, model="", base_url=""):
+                t = product.get("title") or ""
+                if "Alpha" in t:
+                    return {
+                        "overall_10": 8.65,
+                        "pillars": {"suc_cau": 9.2, "bien_lai": 8.4, "de_nhap_tq": 8.9, "canh_tranh": 8.0, "khac_biet": 8.3, "de_lam_video": 7.5},
+                        "industry": "cong_nghe",
+                        "import_test_prob": 0.91,
+                        "jev_model": "jev-1.14.0",
+                        "_cost_usd": 0.0006,
+                    }
+                return {
+                    "overall_10": 6.45,
+                    "pillars": {"suc_cau": 6.8, "bien_lai": 6.0, "de_nhap_tq": 6.5, "canh_tranh": 5.9, "khac_biet": 6.2, "de_lam_video": 9.4},
+                    "industry": "gia_dung",
+                    "import_test_prob": 0.62,
+                    "jev_model": "jev-1.14.0",
+                    "_cost_usd": 0.0006,
+                }
+
+        self.api.products.jev = CustomRankJev()
+
+        self.req("POST", "/api/products", {
+            "platform": "shopee_vn",
+            "native_product_id": "90001",
+            "title": "Alpha Bao da từ tính Xteink X4 Pro",
+            "price_vnd": 185000,
+            "sold_count": 1200,
+        })
+        self.req("POST", "/api/products", {
+            "platform": "tiktok_shop_vn",
+            "native_product_id": "90002",
+            "title": "Beta Quạt cầm tay đèn LED đổi màu",
+            "price_vnd": 95000,
+            "sold_count": 450,
+        })
+
+        # Batch score unscored products prioritized by sales!
+        st_sc, sc_res = self.req("POST", "/api/products/score-unscored", {"limit": 10})
+        self.assertEqual(st_sc, 200)
+        self.assertEqual(sc_res["scored_count"], 2)
+
+        # 1) Default rank by overall_10 -> Alpha (#1, 8.65) > Beta (#2, 6.45)
+        st_lb, lb = self.req("GET", "/api/products/jev-leaderboard?rank_by=overall_10")
+        self.assertEqual(st_lb, 200)
+        self.assertEqual(lb["kpis"]["total_scored"], 2)
+        self.assertEqual(lb["kpis"]["strong_pick_count"], 1)
+        self.assertEqual(lb["kpis"]["maybe_count"], 1)
+        self.assertEqual(lb["items"][0]["rank"], 1)
+        self.assertIn("Alpha", lb["items"][0]["title"])
+        self.assertEqual(lb["items"][0]["import_test_prob_pct"], 91.0)
+
+        # 2) Rank by `de_lam_video` pillar -> Beta (#1, 9.4) > Alpha (#2, 7.5)!
+        _, lb_vid = self.req("GET", "/api/products/jev-leaderboard?rank_by=de_lam_video")
+        self.assertIn("Beta", lb_vid["items"][0]["title"])
+        self.assertEqual(lb_vid["items"][0]["pillars"]["de_lam_video"], 9.4)
+
+        # 3) Filter `tier=strong_pick` -> only Alpha!
+        _, lb_sp = self.req("GET", "/api/products/jev-leaderboard?tier=strong_pick")
+        self.assertEqual(len(lb_sp["items"]), 1)
+        self.assertIn("Alpha", lb_sp["items"][0]["title"])
+
+        # 4) CSV export & Telegram `/topjev` command
+        with urllib.request.urlopen(self.base_url + "/api/products/jev-leaderboard/export.csv", timeout=5) as r_csv:
+            csv_txt = r_csv.read().decode("utf-8-sig")
+            self.assertIn("#1", csv_txt)
+            self.assertIn("Alpha Bao da", csv_txt)
+
+        tg_reply = self.api.telegram_bot._build_command_reply("/topjev", "")
+        self.assertIn("🥇 Jev 8.65/10", tg_reply)
 
 
 if __name__ == "__main__":

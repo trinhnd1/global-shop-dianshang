@@ -436,6 +436,7 @@ class Application:
                     hunt_sched_cnt = int(conn.execute("SELECT COUNT(*) FROM hunt_schedules WHERE status != 'archived'").fetchone()[0])
                 return "200 OK", {
                     "vault_products": self.products.count_all(),
+                    "jev_scored_count": self.products.count_jev_scored(),
                     "watches_count": len(self.watches.list_watches()),
                     "shops_count": sc["total_count"],
                     "my_shops_count": sc["own_count"],

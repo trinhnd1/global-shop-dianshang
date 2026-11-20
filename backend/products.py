@@ -214,6 +214,10 @@ class ProductsService:
         with self.connect() as conn:
             return int(conn.execute("SELECT COUNT(*) FROM products WHERE bucket != 'da_loai'").fetchone()[0])
 
+    def count_jev_scored(self) -> int:
+        with self.connect() as conn:
+            return int(conn.execute("SELECT COUNT(*) FROM products WHERE jev_score IS NOT NULL AND bucket != 'da_loai'").fetchone()[0])
+
     def upsert_product(self, item: dict, source: str = "manual") -> dict:
         url = canonicalize_commerce_url(str(item.get("url") or item.get("link_goc") or ""))
         u_plat, u_shop, u_pid = parse_ids_from_url(url)
@@ -751,6 +755,212 @@ class ProductsService:
             "items": items,
         }
 
+    @staticmethod
+    def _classify_jev_tier(score: float | None, import_prob: float | None) -> tuple[str, str]:
+        s = float(score or 0.0)
+        pr = float(import_prob or 0.0)
+        if s >= 7.6 or (s >= 7.2 and pr >= 0.72):
+            return "strong_pick", "🏆 Strong Pick (Nhập test ngay)"
+        if s >= 5.8 or pr >= 0.52:
+            return "maybe", "⚖️ Maybe (Tiềm năng / Test nhỏ)"
+        return "pass", "⏸ Pass (Theo dõi thêm)"
+
+    def get_jev_leaderboard(
+        self,
+        rank_by: str = "overall_10",
+        tier: str = "all",
+        industry: str = "",
+        platform: str = "",
+        bucket: str = "",
+        min_score: float = 0.0,
+        q: str = "",
+        limit: int = 200,
+    ) -> dict:
+        pillar_labels = {
+            "suc_cau": "🔥 Sức cầu",
+            "bien_lai": "💰 Biên lãi",
+            "de_nhap_tq": "🇨🇳 Dễ nhập TQ",
+            "canh_tranh": "🛡 Ít cạnh tranh",
+            "khac_biet": "✨ Khác biệt/Combo",
+            "de_lam_video": "🎬 Dễ làm Video",
+        }
+        with self.connect() as conn:
+            total_unscored = int(
+                conn.execute("SELECT COUNT(*) FROM products WHERE jev_score IS NULL AND bucket != 'da_loai'").fetchone()[0]
+            )
+            scored_rows = conn.execute(
+                "SELECT * FROM products WHERE jev_score IS NOT NULL AND bucket != 'da_loai'"
+            ).fetchall()
+
+        all_scored_items: list[dict] = []
+        ind_agg: dict[str, list[float]] = {}
+        tier_totals = {"strong_pick": 0, "maybe": 0, "pass": 0}
+
+        for r in scored_rows:
+            p = self._format_row(r)
+            j_sc = float(p.get("jev_score") or 0.0)
+            j_det = p.get("jev_detail") if isinstance(p.get("jev_detail"), dict) else {}
+            pillars = j_det.get("pillars") if isinstance(j_det.get("pillars"), dict) else {}
+            imp_prob = float(j_det.get("import_test_prob") or 0.0)
+            d3_tier = (p.get("desk300") or {}).get("decision_tier")
+            if d3_tier in ("strong_pick", "maybe", "pass"):
+                t_code = d3_tier
+                t_lbl = {
+                    "strong_pick": "🏆 Strong Pick (Nhập test ngay)",
+                    "maybe": "⚖️ Maybe (Tiềm năng / Test nhỏ)",
+                    "pass": "⏸ Pass (Theo dõi thêm)",
+                }[t_code]
+            else:
+                t_code, t_lbl = self._classify_jev_tier(j_sc, imp_prob)
+
+            tier_totals[t_code] = tier_totals.get(t_code, 0) + 1
+            ind_agg.setdefault(p["industry"], []).append(j_sc)
+
+            norm_pillars = {
+                pk: round(float(pillars.get(pk) or 0.0), 2)
+                for pk in ("suc_cau", "bien_lai", "de_nhap_tq", "canh_tranh", "khac_biet", "de_lam_video")
+            }
+            non_zero_p = [(pk, val) for pk, val in norm_pillars.items() if val > 0]
+            strongest_pk = max(non_zero_p, key=lambda kv: kv[1])[0] if non_zero_p else ""
+            weakest_pk = min(non_zero_p, key=lambda kv: kv[1])[0] if non_zero_p else ""
+
+            import math
+            sold_boost = min(2.5, math.log10(max(1, int(p.get("sold_count") or 0) + 1)) * 0.55)
+            comp_roi = round(j_sc * 0.78 + imp_prob * 10.0 * 0.12 + sold_boost, 2)
+
+            p["decision_tier"] = t_code
+            p["decision_label"] = t_lbl
+            p["import_test_prob"] = round(imp_prob, 4)
+            p["import_test_prob_pct"] = round(imp_prob * 100.0, 1)
+            p["pillars"] = norm_pillars
+            p["strongest_pillar"] = strongest_pk
+            p["strongest_pillar_label"] = pillar_labels.get(strongest_pk, "")
+            p["weakest_pillar"] = weakest_pk
+            p["weakest_pillar_label"] = pillar_labels.get(weakest_pk, "")
+            p["composite_roi_score"] = comp_roi
+            all_scored_items.append(p)
+
+        # Apply Filters
+        filtered: list[dict] = []
+        q_low = (q or "").strip().lower()
+        plat_f = (platform or "").strip().lower()
+        for it in all_scored_items:
+            if tier and tier != "all" and it["decision_tier"] != tier:
+                continue
+            if industry and it["industry"] != industry:
+                continue
+            if bucket and bucket != "all" and it["bucket"] != bucket:
+                continue
+            if float(it["jev_score"] or 0.0) < float(min_score or 0.0):
+                continue
+            if plat_f:
+                if plat_f == "overseas":
+                    if not it.get("is_overseas"):
+                        continue
+                elif "_" in plat_f and plat_f not in ("tiktok_shop",):
+                    if it.get("channel_code") != plat_f:
+                        continue
+                elif it["platform"] != plat_f:
+                    continue
+            if q_low:
+                cn_kw = ((it.get("desk300") or {}).get("cn_1688_keyword") or "").lower()
+                hay = f"{it['title']} {it.get('shop_name', '')} {it['native_product_id']} {cn_kw}".lower()
+                if q_low not in hay:
+                    continue
+            filtered.append(it)
+
+        # Sort by chosen ranking criterion
+        rk = (rank_by or "overall_10").strip()
+
+        def _sort_key(x: dict):
+            if rk == "import_test_prob":
+                primary = x["import_test_prob"]
+            elif rk == "composite_roi":
+                primary = x["composite_roi_score"]
+            elif rk in x["pillars"]:
+                primary = x["pillars"][rk]
+            else:
+                primary = float(x["jev_score"] or 0.0)
+            return (primary, float(x["jev_score"] or 0.0), int(x.get("sold_count") or 0))
+
+        filtered.sort(key=_sort_key, reverse=True)
+        lim = max(1, min(300, int(limit or 200)))
+        ranked_out = []
+        for idx, item in enumerate(filtered[:lim], start=1):
+            ranked_out.append({**item, "rank": idx})
+
+        scores_list = [float(x["jev_score"] or 0.0) for x in all_scored_items]
+        probs_list = [float(x["import_test_prob_pct"] or 0.0) for x in all_scored_items if x["import_test_prob_pct"] > 0]
+
+        industry_ranking = []
+        for ind_k, vals in ind_agg.items():
+            industry_ranking.append({
+                "industry": ind_k,
+                "industry_label": INDUSTRIES.get(ind_k, ind_k),
+                "industry_icon": INDUSTRY_ICONS.get(ind_k, "📦"),
+                "count": len(vals),
+                "avg_jev_score": round(sum(vals) / len(vals), 2),
+                "top_score": round(max(vals), 2),
+            })
+        industry_ranking.sort(key=lambda x: (x["avg_jev_score"], x["count"]), reverse=True)
+
+        return {
+            "rank_by": rk,
+            "kpis": {
+                "total_scored": len(all_scored_items),
+                "total_unscored": total_unscored,
+                "filtered_count": len(filtered),
+                "strong_pick_count": tier_totals["strong_pick"],
+                "maybe_count": tier_totals["maybe"],
+                "pass_count": tier_totals["pass"],
+                "avg_jev_score": round(sum(scores_list) / len(scores_list), 2) if scores_list else 0.0,
+                "max_jev_score": round(max(scores_list), 2) if scores_list else 0.0,
+                "avg_import_prob_pct": round(sum(probs_list) / len(probs_list), 1) if probs_list else 0.0,
+            },
+            "podium_top3": ranked_out[:3],
+            "industry_ranking": industry_ranking,
+            "pillar_labels": pillar_labels,
+            "items": ranked_out,
+        }
+
+    def export_jev_leaderboard_csv(self, rank_by: str = "overall_10") -> bytes:
+        lb = self.get_jev_leaderboard(rank_by=rank_by, limit=300)
+        buf = io.StringIO()
+        buf.write("\ufeff")
+        w = csv.writer(buf, lineterminator="\r\n")
+        w.writerow([
+            "Hạng", "ID", "Điểm Jev (/10)", "Hạng Quyết định", "% Nên Nhập Test",
+            "Sức cầu", "Biên lãi", "Dễ nhập TQ", "Ít cạnh tranh", "Khác biệt/Combo", "Dễ làm Video",
+            "Sàn & Thị trường", "Tên Sản phẩm", "Ngành hàng", "Ngăn Kho",
+            "Giá bán (VND)", "Đã bán", "Từ khoá 1688", "Shop", "URL",
+        ])
+        for it in lb["items"]:
+            pl = it.get("pillars") or {}
+            cn_kw = (it.get("desk300") or {}).get("cn_1688_keyword") or ""
+            w.writerow([
+                f"#{it['rank']}",
+                it["id"],
+                it["jev_score"],
+                safe_csv_cell(it["decision_label"]),
+                f"{it['import_test_prob_pct']}%",
+                pl.get("suc_cau", 0),
+                pl.get("bien_lai", 0),
+                pl.get("de_nhap_tq", 0),
+                pl.get("canh_tranh", 0),
+                pl.get("khac_biet", 0),
+                pl.get("de_lam_video", 0),
+                safe_csv_cell(it["platform_market_label"]),
+                safe_csv_cell(it["title"]),
+                safe_csv_cell(it["industry_label"]),
+                safe_csv_cell(it["bucket_label"]),
+                it["price_vnd"],
+                it["sold_count"],
+                safe_csv_cell(cn_kw),
+                safe_csv_cell(it.get("shop_name", "")),
+                safe_csv_cell(it["url"]),
+            ])
+        return buf.getvalue().encode("utf-8")
+
     def export_csv(self) -> bytes:
         res = self.list_products(bucket="", limit=500)
         buf = io.StringIO()
@@ -865,9 +1075,37 @@ class ProductsService:
             body = json_object(read_json, env)
             ids = [int(x) for x in (body.get("ids") or []) if str(x).isdigit()] or None
             return "200 OK", self.enrich_batch(product_ids=ids, limit=int(body.get("limit") or 12))
+        if path == "/api/products/jev-leaderboard" and method == "GET":
+            qs = parse_qs(env.get("QUERY_STRING") or "")
+            return "200 OK", self.get_jev_leaderboard(
+                rank_by=(qs.get("rank_by") or ["overall_10"])[0],
+                tier=(qs.get("tier") or ["all"])[0],
+                industry=(qs.get("industry") or [""])[0],
+                platform=(qs.get("platform") or [""])[0],
+                bucket=(qs.get("bucket") or [""])[0],
+                min_score=float((qs.get("min_score") or ["0"])[0] or 0.0),
+                q=(qs.get("q") or [""])[0],
+                limit=int((qs.get("limit") or ["200"])[0] or 200),
+            )
+        if path == "/api/products/jev-leaderboard/export.csv" and method == "GET":
+            qs = parse_qs(env.get("QUERY_STRING") or "")
+            data = self.export_jev_leaderboard_csv(rank_by=(qs.get("rank_by") or ["overall_10"])[0])
+            return "200 OK", Raw(
+                data,
+                [
+                    ("Content-Type", "text/csv; charset=utf-8"),
+                    ("Content-Disposition", 'attachment; filename="bang-xep-hang-jev-dianshang.csv"'),
+                    ("Content-Length", str(len(data))),
+                ],
+            )
         if path == "/api/products/score-unscored" and method == "POST":
+            body = json_object(read_json, env)
+            lim = max(1, min(50, int(body.get("limit") or 15)))
             with self.connect() as conn:
-                rows = conn.execute("SELECT id FROM products WHERE jev_score IS NULL AND bucket != 'da_loai' ORDER BY id DESC LIMIT 10").fetchall()
+                rows = conn.execute(
+                    "SELECT id FROM products WHERE jev_score IS NULL AND bucket != 'da_loai' ORDER BY sold_count DESC, price_vnd DESC, id DESC LIMIT ?",
+                    (lim,),
+                ).fetchall()
             scored = 0
             for r in rows:
                 try:
@@ -875,7 +1113,7 @@ class ProductsService:
                     scored += 1
                 except Exception:
                     break
-            return "200 OK", {"scored_count": scored, "summary": f"Đã chấm điểm Jev cho {scored} sản phẩm chưa chấm"}
+            return "200 OK", {"scored_count": scored, "summary": f"Đã chấm điểm Jev AI cho Top {scored} sản phẩm có lượt bán cao nhất chưa chấm!"}
         if path == "/api/products/export.csv" and method == "GET":
             data = self.export_csv()
             return "200 OK", Raw(

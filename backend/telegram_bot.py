@@ -408,6 +408,7 @@ class TelegramBotService:
                 f"Các lệnh hỗ trợ:\n"
                 f"• /status — Tổng quan Kho SP, Hệ sinh thái, Theo dõi & Nhật ký\n"
                 f"• /last (hoặc /logs) — 8 tác vụ GS-XXXX gần nhất\n"
+                f"• /topjev (hoặc /bxh) — Top 10 Bảng Xếp Hạng Sản phẩm Jev AI\n"
                 f"• /schedules (hoặc /lichsan) — Lịch Săn SP & Painpoint lặp lại\n"
                 f"• /eco — Danh mục Hệ sinh thái & Phụ kiện SP đang theo dõi\n"
                 f"• /watches — Danh sách Từ khoá / SP / Shop đang theo dõi\n"
@@ -430,6 +431,21 @@ class TelegramBotService:
                 f"• Tác vụ gần nhất: {logs[0]['gs_code'] + ' - ' + logs[0]['title'] if logs else 'Chưa có'}\n"
                 f"🌐 Tailscale: {rem}"
             )
+        if cmd in ("/topjev", "/bxh") and self.products_service:
+            lb = self.products_service.get_jev_leaderboard(rank_by="overall_10", limit=10)
+            items = lb.get("items") or []
+            if not items:
+                return f"Chưa có sản phẩm nào được chấm Jev. Mở tại: {self.remote_url('/bang-xep-hang-jev')}"
+            medals = {1: "🥇", 2: "🥈", 3: "🥉"}
+            lines = [f"🏆 BẢNG XẾP HẠNG TOP {len(items)} SẢN PHẨM JEV AI (Tổng đã chấm: {lb['kpis']['total_scored']} SP):"]
+            for it in items:
+                m = medals.get(it["rank"], f"#{it['rank']}")
+                lines.append(
+                    f"{m} Jev {it['jev_score']}/10 ({it['import_test_prob_pct']}% nhập test) | "
+                    f"{it['title'][:58]} — {it['price_vnd']:,.0f}đ (bán {it['sold_count']})"
+                )
+            lines.append(f"🌐 Xem đầy đủ BXH Jev: {self.remote_url('/bang-xep-hang-jev')}")
+            return "\n".join(lines)
         if cmd in ("/schedules", "/lichsan") and self.hunt_schedules_service:
             schs = self.hunt_schedules_service.list_schedules()[:8]
             if not schs:
