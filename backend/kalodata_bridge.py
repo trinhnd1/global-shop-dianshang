@@ -5,6 +5,7 @@ Strictly read-only DOM/Fiber inspection on loopback CDP; NEVER bypasses CAPTCHAs
 """
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
+import hashlib
 import json
 from pathlib import Path
 import re
@@ -149,83 +150,369 @@ EXTRACT_GLOBAL_SELLING_CREATORS_JS = r"""
 
 
 class KalodataAndGlobalSellingService:
-    def __init__(self, connect, secrets, data_dir: str | Path, chrome_hub, custom_scraper=None, telegram_bot=None):
+    def __init__(
+        self,
+        connect,
+        secrets,
+        data_dir: str | Path,
+        chrome_hub,
+        custom_scraper=None,
+        telegram_bot=None,
+        history_logs=None,
+        affiliate_peng_root: str | Path | None = None,
+        affiliate_peng_secret_store=None,
+    ):
         self.connect = connect
         self.secrets = secrets
         self.root = Path(data_dir)
         self.chrome_hub = chrome_hub
         self.custom_scraper = custom_scraper
         self.telegram_bot = telegram_bot
+        self.history_logs = history_logs
         self.custom_rotation_driver = None
         self._cdp_lock = threading.Lock()
-        if not _is_temp_test_dir(self.root):
+        self._mirror_lock = threading.Lock()
+        self._last_stat_sig: tuple[int, int] | None = None
+        self._last_check_mono: float = 0.0
+
+        if affiliate_peng_root is not None:
+            self.affiliate_peng_root: Path | None = Path(affiliate_peng_root)
+            self.mirror_enabled = True
+        elif not _is_temp_test_dir(self.root) and AFFILIATE_PENG_ROOT.is_dir():
+            self.affiliate_peng_root = AFFILIATE_PENG_ROOT
+            self.mirror_enabled = True
+        else:
+            self.affiliate_peng_root = None
+            self.mirror_enabled = False
+        self.affiliate_peng_secret_store = affiliate_peng_secret_store
+
+        if self.mirror_enabled:
             try:
-                self.ensure_affiliate_peng_kalodata_migrated()
+                self.sync_from_affiliate_peng_if_changed(force=True, notify_on_change=False)
             except Exception:
                 pass
 
-    def ensure_affiliate_peng_kalodata_migrated(self, force: bool = False) -> dict:
-        """Copy Kalodata account (`account_email`, `market`, `currency`, `default_window_days`) + Keychain `kalodata.password` from `affiliate-peng`."""
-        cur_cfg = settings.read_settings(self.connect, self.secrets)
-        already_email = (cur_cfg.get("kalodata") or {}).get("account_email", "").strip()
-        already_pw = bool(self.secrets.get("kalodata.password"))
-        if already_email and already_pw and not force:
+    def _read_mirror_state(self) -> dict:
+        with self.connect() as conn:
+            row = conn.execute("SELECT value FROM settings WHERE name='kalodata_mirror_state'").fetchone()
+        if not row:
+            return {}
+        try:
+            return json.loads(row[0] or "{}")
+        except ValueError:
+            return {}
+
+    def _write_mirror_state(self, state: dict) -> None:
+        with self.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO settings (name, value)
+                VALUES ('kalodata_mirror_state', ?)
+                ON CONFLICT(name) DO UPDATE SET value=excluded.value
+                """,
+                (json.dumps(state, ensure_ascii=False),),
+            )
+
+    def _get_upstream_secret(self, key: str) -> str:
+        if self.affiliate_peng_secret_store is not None:
+            return self.affiliate_peng_secret_store.get(key) or ""
+        if Path("/usr/bin/security").is_file() and not _is_temp_test_dir(self.root):
+            proc = subprocess.run(
+                ["/usr/bin/security", "find-generic-password", "-s", AFFILIATE_PENG_KEYCHAIN_SERVICE, "-a", key, "-w"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if proc.returncode == 0:
+                return proc.stdout.rstrip("\r\n")
+        if self.affiliate_peng_root is not None:
+            vault_f = self.affiliate_peng_root / ".secrets.vault.json"
+            if vault_f.is_file():
+                try:
+                    return str(json.loads(vault_f.read_text(encoding="utf-8")).get(key) or "")
+                except Exception:
+                    return ""
+        return ""
+
+    def _set_upstream_secret(self, key: str, value: str) -> None:
+        if not value:
+            return
+        if self.affiliate_peng_secret_store is not None:
+            self.affiliate_peng_secret_store.set(key, value)
+            return
+        if Path("/usr/bin/security").is_file() and not _is_temp_test_dir(self.root):
+            subprocess.run(
+                ["/usr/bin/security", "add-generic-password", "-U", "-s", AFFILIATE_PENG_KEYCHAIN_SERVICE, "-a", key, "-w", value],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+
+    def _upstream_db_stat_sig(self) -> tuple[int, int] | None:
+        if not self.mirror_enabled or self.affiliate_peng_root is None:
+            return None
+        aff_db = self.affiliate_peng_root / "backend.sqlite3"
+        if not aff_db.is_file():
+            return None
+        aff_wal = self.affiliate_peng_root / "backend.sqlite3-wal"
+        m1 = aff_db.stat().st_mtime_ns
+        m2 = aff_wal.stat().st_mtime_ns if aff_wal.is_file() else 0
+        return (m1, m2)
+
+    def sync_from_affiliate_peng_if_changed(self, *, force: bool = False, notify_on_change: bool = True) -> dict:
+        """Automatically mirror Kalodata account, Keychain password & rotation history whenever `affiliate-peng` updates."""
+        if not self.mirror_enabled or self.affiliate_peng_root is None:
+            cur_cfg = settings.read_settings(self.connect, self.secrets)
             return {
-                "migrated": False,
-                "already_configured": True,
-                "account_email": already_email,
-                "has_password_in_keychain": True,
-                "shared_profile": self.chrome_hub.using_shared_peng_profile,
+                "mirror_enabled": False,
+                "synced": False,
+                "account_email": (cur_cfg.get("kalodata") or {}).get("account_email") or "",
             }
 
-        aff_db = AFFILIATE_PENG_ROOT / "backend.sqlite3"
-        migrated_email = already_email
-        kalo_patch: dict = {}
-        if aff_db.is_file():
-            conn = sqlite3.connect(aff_db, timeout=5)
+        aff_db = self.affiliate_peng_root / "backend.sqlite3"
+        if not aff_db.is_file():
+            return {"mirror_enabled": True, "synced": False, "reason": "upstream_db_missing"}
+
+        now_mono = time.monotonic()
+        stat_sig = self._upstream_db_stat_sig()
+        if (
+            not force
+            and stat_sig is not None
+            and stat_sig == self._last_stat_sig
+            and (now_mono - self._last_check_mono) < 3.0
+        ):
+            st_cached = self._read_mirror_state()
+            return {
+                "mirror_enabled": True,
+                "synced": False,
+                "cached": True,
+                "account_email": st_cached.get("upstream_email") or "",
+                "last_synced_at": st_cached.get("last_synced_at") or "",
+            }
+
+        with self._mirror_lock:
+            self._last_stat_sig = stat_sig
+            self._last_check_mono = now_mono
+
+            aff_kalo: dict = {}
+            aff_rotations: list[dict] = []
+            conn = sqlite3.connect(f"file:{aff_db}?mode=ro", uri=True, timeout=5)
+            conn.row_factory = sqlite3.Row
             try:
                 row = conn.execute("SELECT value FROM settings WHERE name='application'").fetchone()
                 if row:
-                    aff_app = json.loads(row[0])
+                    aff_app = json.loads(row["value"] or "{}")
                     aff_kalo = aff_app.get("kalodata") or {}
-                    if aff_kalo.get("account_email"):
-                        migrated_email = str(aff_kalo["account_email"]).strip()
-                        kalo_patch = {
-                            "market": str(aff_kalo.get("market") or "VN"),
-                            "currency": str(aff_kalo.get("currency") or "VND"),
-                            "account_email": migrated_email,
-                            "default_window_days": int(aff_kalo.get("default_window_days") or 7),
-                        }
+                has_rot = conn.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='kalodata_account_rotations'"
+                ).fetchone()
+                if has_rot:
+                    r_rows = conn.execute(
+                        "SELECT rotation_id, old_account_hint, new_account_email, status, kalodata_status_after, "
+                        "step_logs_json, kalodata_after_json, telegram_sent, telegram_message_id, error_message, created_at "
+                        "FROM kalodata_account_rotations ORDER BY created_at DESC LIMIT 12"
+                    ).fetchall()
+                    aff_rotations = [dict(r) for r in r_rows]
             finally:
                 conn.close()
 
-        copied_secrets = []
-        if Path("/usr/bin/security").is_file() and not _is_temp_test_dir(self.root):
-            for skey in ("kalodata.password", "kalodata.session_cookie"):
-                proc = subprocess.run(
-                    ["/usr/bin/security", "find-generic-password", "-s", AFFILIATE_PENG_KEYCHAIN_SERVICE, "-a", skey, "-w"],
-                    capture_output=True,
-                    text=True,
-                    timeout=5,
-                )
-                val = proc.stdout.rstrip("\r\n") if proc.returncode == 0 else ""
-                if val:
-                    self.secrets.set(skey, val)
-                    copied_secrets.append(skey)
+            up_email = str(aff_kalo.get("account_email") or "").strip()
+            if not up_email and aff_rotations and aff_rotations[0].get("new_account_email"):
+                up_email = str(aff_rotations[0]["new_account_email"]).strip()
+            if not up_email:
+                return {"mirror_enabled": True, "synced": False, "reason": "upstream_email_empty"}
 
-        if kalo_patch:
-            settings.save_settings_masked(self.connect, self.secrets, {"kalodata": kalo_patch})
+            up_market = str(aff_kalo.get("market") or "VN").strip().upper()
+            up_curr = str(aff_kalo.get("currency") or "VND").strip().upper()
+            up_win = int(aff_kalo.get("default_window_days") or 7)
+            up_pw = self._get_upstream_secret("kalodata.password")
+            up_ck = self._get_upstream_secret("kalodata.session_cookie")
+            latest_rot_id = str(aff_rotations[0]["rotation_id"]) if aff_rotations else ""
 
+            pw_sig = hashlib.sha256(up_pw.encode("utf-8")).hexdigest()[:16] if up_pw else ""
+            ck_sig = hashlib.sha256(up_ck.encode("utf-8")).hexdigest()[:16] if up_ck else ""
+            upstream_fp = hashlib.sha256(
+                f"{up_email}|{up_market}|{up_curr}|{up_win}|{latest_rot_id}|{pw_sig}|{ck_sig}".encode("utf-8")
+            ).hexdigest()[:32]
+
+            prev_mirror = self._read_mirror_state()
+            cur_cfg = settings.read_settings(self.connect, self.secrets)
+            cur_kalo = cur_cfg.get("kalodata") or {}
+            old_email = str(cur_kalo.get("account_email") or "").strip()
+            cur_pw = self.secrets.get("kalodata.password") or ""
+
+            already_in_sync = (
+                not force
+                and prev_mirror.get("upstream_fingerprint") == upstream_fp
+                and old_email == up_email
+                and (not up_pw or cur_pw == up_pw)
+            )
+            if already_in_sync:
+                return {
+                    "mirror_enabled": True,
+                    "synced": False,
+                    "account_email": up_email,
+                    "last_synced_at": prev_mirror.get("last_synced_at") or "",
+                }
+
+            copied_secrets: list[str] = []
+            if up_pw and up_pw != cur_pw:
+                self.secrets.set("kalodata.password", up_pw)
+                copied_secrets.append("kalodata.password")
+            elif up_pw and force:
+                self.secrets.set("kalodata.password", up_pw)
+                copied_secrets.append("kalodata.password")
+
+            cur_ck = self.secrets.get("kalodata.session_cookie") or ""
+            if up_ck and (up_ck != cur_ck or force):
+                self.secrets.set("kalodata.session_cookie", up_ck)
+                copied_secrets.append("kalodata.session_cookie")
+
+            settings.save_settings_masked(
+                self.connect,
+                self.secrets,
+                {
+                    "kalodata": {
+                        "market": up_market,
+                        "currency": up_curr,
+                        "account_email": up_email,
+                        "default_window_days": up_win,
+                    }
+                },
+            )
+
+            mirrored_rots = 0
+            if aff_rotations:
+                with self.connect() as lconn:
+                    for rr in reversed(aff_rotations):
+                        cur = lconn.execute(
+                            """
+                            INSERT OR IGNORE INTO kalodata_account_rotations
+                            (rotation_id, old_account_hint, new_account_email, status, kalodata_status_after,
+                             step_logs_json, kalodata_after_json, telegram_sent, telegram_message_id, error_message, created_at)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            """,
+                            (
+                                rr["rotation_id"],
+                                str(rr.get("old_account_hint") or "")[:120],
+                                str(rr.get("new_account_email") or "")[:120],
+                                str(rr.get("status") or "completed"),
+                                str(rr.get("kalodata_status_after") or ""),
+                                str(rr.get("step_logs_json") or "[]"),
+                                str(rr.get("kalodata_after_json") or "{}"),
+                                int(rr.get("telegram_sent") or 0),
+                                str(rr.get("telegram_message_id") or ""),
+                                str(rr.get("error_message") or ""),
+                                str(rr.get("created_at") or now()),
+                            ),
+                        )
+                        mirrored_rots += cur.rowcount
+
+            ts = now()
+            new_state = {
+                "enabled": True,
+                "upstream_fingerprint": upstream_fp,
+                "upstream_email": up_email,
+                "upstream_market": up_market,
+                "upstream_currency": up_curr,
+                "upstream_rotation_id": latest_rot_id,
+                "last_synced_at": ts,
+                "sync_count": int(prev_mirror.get("sync_count") or 0) + 1,
+            }
+            self._write_mirror_state(new_state)
+
+            cred_changed = (old_email != up_email) or ("kalodata.password" in copied_secrets and old_email != "")
+            if cred_changed and notify_on_change and self.history_logs is not None:
+                try:
+                    self.history_logs.record_event(
+                        module="kalodata",
+                        action_type="kalodata_account_auto_mirror",
+                        title=f"🔄 Tự động ánh xạ tài khoản Kalodata từ affiliate-peng: {old_email or 'cũ'} -> {up_email}",
+                        status="completed",
+                        summary=(
+                            f"Phát hiện bên affiliate-peng vừa cập nhật tài khoản Kalodata sang '{up_email}' ({up_market}/{up_curr}) "
+                            f"-> Global Shop Dianshang đã tự động cập nhật đồng bộ Email/SĐT, mật khẩu Keychain & lịch sử phiên!"
+                        ),
+                        payload={
+                            "old_account_email": old_email,
+                            "new_account_email": up_email,
+                            "market": up_market,
+                            "currency": up_curr,
+                            "upstream_rotation_id": latest_rot_id,
+                            "mirrored_rotations_added": mirrored_rots,
+                        },
+                        notify_telegram=True,
+                    )
+                except Exception:
+                    pass
+
+            return {
+                "mirror_enabled": True,
+                "migrated": True,
+                "synced": True,
+                "old_account_email": old_email,
+                "account_email": up_email,
+                "market": up_market,
+                "currency": up_curr,
+                "copied_secret_keys": copied_secrets,
+                "mirrored_rotations_added": mirrored_rots,
+                "has_password_in_keychain": bool(self.secrets.get("kalodata.password")),
+                "shared_profile": self.chrome_hub.using_shared_peng_profile,
+                "last_synced_at": ts,
+                "summary": f"Đã ánh xạ đồng bộ tài khoản Kalodata ({up_email}) & mật khẩu Keychain từ affiliate-peng!",
+            }
+
+    def push_kalodata_to_affiliate_peng(self, *, account_email: str, password: str = "", market: str = "VN", currency: str = "VND", default_window_days: int = 7) -> bool:
+        """Bidirectional sync: when Kalodata credentials are updated in Global Shop, also update `affiliate-peng` so both stay unified."""
+        if not self.mirror_enabled or self.affiliate_peng_root is None:
+            return False
+        aff_db = self.affiliate_peng_root / "backend.sqlite3"
+        if not aff_db.is_file():
+            return False
+        with self._mirror_lock:
+            if password:
+                self._set_upstream_secret("kalodata.password", password)
+            conn = sqlite3.connect(aff_db, timeout=8)
+            try:
+                with conn:
+                    row = conn.execute("SELECT value FROM settings WHERE name='application'").fetchone()
+                    app_cfg = json.loads(row[0] or "{}") if row else {}
+                    k_cfg = app_cfg.setdefault("kalodata", {})
+                    k_cfg["account_email"] = account_email
+                    k_cfg["market"] = market
+                    k_cfg["currency"] = currency
+                    k_cfg["default_window_days"] = int(default_window_days or 7)
+                    conn.execute(
+                        "INSERT INTO settings (name, value) VALUES ('application', ?) ON CONFLICT(name) DO UPDATE SET value=excluded.value",
+                        (json.dumps(app_cfg, ensure_ascii=False),),
+                    )
+            finally:
+                conn.close()
+            self._last_stat_sig = None
+        self.sync_from_affiliate_peng_if_changed(force=True, notify_on_change=False)
+        return True
+
+    def ensure_affiliate_peng_kalodata_migrated(self, force: bool = False) -> dict:
+        return self.sync_from_affiliate_peng_if_changed(force=force, notify_on_change=not force)
+
+    def get_mirror_status(self) -> dict:
+        self.sync_from_affiliate_peng_if_changed(force=False, notify_on_change=True)
+        st = self._read_mirror_state()
+        cfg = settings.read_settings(self.connect, self.secrets)
+        kcfg = cfg.get("kalodata") or {}
         return {
-            "migrated": bool(kalo_patch or copied_secrets),
-            "account_email": migrated_email,
-            "copied_secret_keys": copied_secrets,
-            "has_password_in_keychain": bool(self.secrets.get("kalodata.password")),
-            "shared_profile": self.chrome_hub.using_shared_peng_profile,
-            "summary": f"Đã đồng bộ tài khoản Kalodata ({migrated_email}) & Profile chuyên dụng `peng_dedicated` từ affiliate-peng!",
+            "mirror_enabled": self.mirror_enabled,
+            "bidirectional": self.mirror_enabled,
+            "account_email": kcfg.get("account_email") or "",
+            "market": kcfg.get("market") or "VN",
+            "currency": kcfg.get("currency") or "VND",
+            "upstream_rotation_id": st.get("upstream_rotation_id") or "",
+            "last_synced_at": st.get("last_synced_at") or "",
+            "sync_count": int(st.get("sync_count") or 0),
         }
 
     def check_portal_sessions(self) -> dict:
+        self.sync_from_affiliate_peng_if_changed(force=False, notify_on_change=True)
         cfg = settings.read_settings(self.connect, self.secrets)
         kalo_cfg = cfg.get("kalodata") or {}
         hub_st = self.chrome_hub.status()
@@ -278,6 +565,8 @@ class KalodataAndGlobalSellingService:
             "profile_name": hub_st["profile_name"],
             "kalodata_session": kalo_session,
             "affiliate_global_selling_session": ags_session,
+            "mirror_enabled": self.mirror_enabled,
+            "mirror": self._read_mirror_state(),
         }
 
     @staticmethod
@@ -625,6 +914,7 @@ class KalodataAndGlobalSellingService:
             return rows[: max(1, min(40, int(max_results)))]
 
     def inspect_kalodata_quota(self) -> dict:
+        self.sync_from_affiliate_peng_if_changed(force=False, notify_on_change=True)
         cfg = settings.read_settings(self.connect, self.secrets)
         kcfg = cfg.get("kalodata") or {}
         email = str(kcfg.get("account_email") or "").strip()
@@ -942,6 +1232,17 @@ class KalodataAndGlobalSellingService:
                     ts,
                 ),
             )
+        if rot_status == "completed" and self.mirror_enabled:
+            try:
+                self.push_kalodata_to_affiliate_peng(
+                    account_email=new_email,
+                    password=new_password,
+                    market=market,
+                    currency=currency,
+                    default_window_days=win_days,
+                )
+            except Exception:
+                pass
         return {
             "ok": rot_status == "completed",
             "rotation_id": rotation_id,
@@ -958,6 +1259,7 @@ class KalodataAndGlobalSellingService:
         }
 
     def list_account_rotations(self, limit: int = 15) -> list[dict]:
+        self.sync_from_affiliate_peng_if_changed(force=False, notify_on_change=True)
         with self.connect() as conn:
             rows = conn.execute(
                 "SELECT * FROM kalodata_account_rotations ORDER BY created_at DESC, rowid DESC LIMIT ?",
@@ -983,6 +1285,8 @@ class KalodataAndGlobalSellingService:
         if path == "/api/kalodata/status" and method == "GET":
             st = self.check_portal_sessions()
             return "200 OK", st
+        if path == "/api/kalodata/mirror-status" and method == "GET":
+            return "200 OK", self.get_mirror_status()
         if path in ("/api/kalodata/quota", "/api/providers/kalodata/check") and method in ("GET", "POST"):
             return "200 OK", self.inspect_kalodata_quota()
         if path == "/api/kalodata/sync-from-affiliate" and method == "POST":
@@ -1005,3 +1309,30 @@ class KalodataAndGlobalSellingService:
             rows = self.search_affiliate_global_selling_creators(kw, max_results=int(body.get("limit") or 20))
             return "200 OK", {"keyword": kw, "creators": rows, "count": len(rows)}
         return None
+
+
+class KalodataAccountMirrorDaemon:
+    """Background watcher that polls `affiliate-peng` every 5s and mirrors any Kalodata account update immediately."""
+
+    def __init__(self, kalodata_bridge: KalodataAndGlobalSellingService, poll_sec: float = 5.0):
+        self.bridge = kalodata_bridge
+        self.poll_sec = poll_sec
+        self._stop = threading.Event()
+        self._started = False
+
+    def start(self) -> None:
+        if self._started or not self.bridge.mirror_enabled:
+            return
+        self._started = True
+        t = threading.Thread(target=self._loop, name="KalodataAccountMirrorDaemon", daemon=True)
+        t.start()
+
+    def stop(self) -> None:
+        self._stop.set()
+
+    def _loop(self) -> None:
+        while not self._stop.wait(self.poll_sec):
+            try:
+                self.bridge.sync_from_affiliate_peng_if_changed(force=False, notify_on_change=True)
+            except Exception:
+                pass

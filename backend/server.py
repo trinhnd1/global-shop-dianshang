@@ -24,7 +24,7 @@ from .history_log import HistoryLogService
 from .hunt import HuntAndCreatorsService
 from .hunt_schedules import HuntScheduleService, HuntSchedulerDaemon
 from .jobs import JobManager
-from .kalodata_bridge import KalodataAndGlobalSellingService
+from .kalodata_bridge import KalodataAccountMirrorDaemon, KalodataAndGlobalSellingService
 from .kalodata_hunter import KalodataVnHunterService
 from .kalodata_import import KalodataImportAndCaptureService
 from .kalodata_pro_suite import KalodataProSuiteService
@@ -222,7 +222,9 @@ class Application:
             self.root,
             self.chrome_hub,
             telegram_bot=self.telegram_bot,
+            history_logs=self.history_logs,
         )
+        self.kalodata_mirror_daemon = KalodataAccountMirrorDaemon(self.kalodata_bridge)
         self.kalodata_hunter = KalodataVnHunterService(
             self.connect,
             self.secrets,
@@ -246,6 +248,7 @@ class Application:
             self.chrome_hub,
             shops=self.shops,
         )
+        self.kalodata_import.kalodata_bridge = self.kalodata_bridge
         self.ecosystems = EcosystemPlaybookService(
             self.connect,
             self.secrets,
@@ -524,9 +527,26 @@ class Application:
                 }
             if path == "/api/settings":
                 if method == "GET":
+                    self.kalodata_bridge.sync_from_affiliate_peng_if_changed(force=False, notify_on_change=True)
                     return "200 OK", settings.masked_view(self.connect, self.secrets)
                 if method == "POST":
-                    return "200 OK", settings.save_settings_masked(self.connect, self.secrets, self.read_json(env))
+                    patch = self.read_json(env)
+                    saved_mv = settings.save_settings_masked(self.connect, self.secrets, patch)
+                    if isinstance(patch, dict) and isinstance(patch.get("kalodata"), dict) and self.kalodata_bridge.mirror_enabled:
+                        cur_full = settings.read_settings(self.connect, self.secrets)
+                        k_full = cur_full.get("kalodata") or {}
+                        if k_full.get("account_email"):
+                            try:
+                                self.kalodata_bridge.push_kalodata_to_affiliate_peng(
+                                    account_email=str(k_full.get("account_email") or ""),
+                                    password=self.secrets.get("kalodata.password") or "",
+                                    market=str(k_full.get("market") or "VN"),
+                                    currency=str(k_full.get("currency") or "VND"),
+                                    default_window_days=int(k_full.get("default_window_days") or 7),
+                                )
+                            except Exception:
+                                pass
+                    return "200 OK", saved_mv
                 return "405 Method Not Allowed", {"detail": "Phương thức không hợp lệ"}
 
             if path.startswith("/api/providers/"):

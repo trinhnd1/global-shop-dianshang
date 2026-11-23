@@ -167,6 +167,8 @@ class KalodataImportAndCaptureService:
         self.custom_capture_driver = custom_capture_driver
 
     def get_capabilities(self) -> dict:
+        if getattr(self, "kalodata_bridge", None) is not None:
+            self.kalodata_bridge.sync_from_affiliate_peng_if_changed(force=False, notify_on_change=True)
         cfg = settings.read_settings(self.connect, self.secrets)
         kcfg = cfg.get("kalodata") or {}
         has_email = bool((kcfg.get("account_email") or "").strip())

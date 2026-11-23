@@ -156,8 +156,8 @@ class GlobalShopDianshangE2ETest(unittest.TestCase):
     def test_01_security_version_masking_and_tailscale_guards(self):
         st, health = self.req("GET", "/api/health")
         self.assertEqual(st, 200)
-        self.assertEqual(health["version"], "1.0.16")
-        self.assertEqual(__version__, "1.0.16")
+        self.assertEqual(health["version"], "1.0.17")
+        self.assertEqual(__version__, "1.0.17")
         self.assertEqual(health["schema_version"], 8)
 
         st_la, la_info = self.req("GET", "/api/system/launchagent")
@@ -1792,6 +1792,109 @@ class GlobalShopDianshangE2ETest(unittest.TestCase):
         tg_kalo = self.api.telegram_bot._build_command_reply("/kalodata", "")
         self.assertIn("Kalodata Pro (9 Trang · 0₫)", tg_kalo)
         self.assertIn("pro_kalo_vn@peng.vn", tg_kalo)
+
+    def test_13_live_kalodata_account_mirroring_from_affiliate_peng(self):
+        import os
+        import sqlite3
+        from pathlib import Path
+
+        self.req("POST", "/api/settings", {
+            "notify": {
+                "telegram_enabled": True,
+                "telegram_token": "1234567890:AAFakeSampleTokenForUnitTestOnly12345",
+                "telegram_chat_id": "5608975895",
+                "telegram_allowed_user_ids": "5608975895",
+            },
+        })
+
+        # Create a mock `affiliate-peng/local-data` with SQLite + mock secret store
+        aff_dir = Path(self.tmp.name) / "mock_affiliate_peng"
+        aff_dir.mkdir(parents=True, exist_ok=True)
+        aff_db = aff_dir / "backend.sqlite3"
+        aff_secrets = create_secret_store(aff_dir, prefer_keychain=False)
+
+        conn = sqlite3.connect(aff_db)
+        with conn:
+            conn.execute("CREATE TABLE settings (name TEXT PRIMARY KEY, value TEXT NOT NULL)")
+            conn.execute(
+                """
+                CREATE TABLE kalodata_account_rotations (
+                    rotation_id TEXT PRIMARY KEY,
+                    old_account_hint TEXT NOT NULL DEFAULT '',
+                    new_account_email TEXT NOT NULL DEFAULT '',
+                    status TEXT NOT NULL DEFAULT 'completed',
+                    kalodata_status_after TEXT NOT NULL DEFAULT '',
+                    step_logs_json TEXT NOT NULL DEFAULT '[]',
+                    kalodata_after_json TEXT NOT NULL DEFAULT '{}',
+                    telegram_sent INTEGER NOT NULL DEFAULT 0,
+                    telegram_message_id TEXT NOT NULL DEFAULT '',
+                    error_message TEXT NOT NULL DEFAULT '',
+                    created_at TEXT NOT NULL
+                )
+                """
+            )
+            conn.execute(
+                "INSERT INTO settings (name, value) VALUES ('application', ?)",
+                (json.dumps({"kalodata": {"account_email": "18613938760", "market": "VN", "currency": "VND", "default_window_days": 7}}),),
+            )
+            conn.execute(
+                "INSERT INTO kalodata_account_rotations (rotation_id, old_account_hint, new_account_email, status, created_at) VALUES (?, ?, ?, 'completed', '2026-11-21T01:54:30Z')",
+                ("klrot_step1", "jreed767@cnebw.eu.cc", "18613938760"),
+            )
+        conn.close()
+        aff_secrets.set("kalodata.password", "AffPass_Step1_Secret")
+
+        # Attach live mirror to Global Shop's Kalodata bridge
+        self.api.kalodata_bridge.affiliate_peng_root = aff_dir
+        self.api.kalodata_bridge.affiliate_peng_secret_store = aff_secrets
+        self.api.kalodata_bridge.mirror_enabled = True
+        self.api.kalodata_bridge._last_stat_sig = None
+
+        # 1) Initial sync pulls `18613938760` + password + rotation row automatically
+        _, st1 = self.req("GET", "/api/kalodata/status")
+        self.assertEqual(st1["account_email"], "18613938760")
+        self.assertEqual(self.api.secrets.get("kalodata.password"), "AffPass_Step1_Secret")
+
+        # 2) Simulate `affiliate-peng` rotating account to `13251340633` + new password
+        conn2 = sqlite3.connect(aff_db)
+        with conn2:
+            conn2.execute(
+                "UPDATE settings SET value=? WHERE name='application'",
+                (json.dumps({"kalodata": {"account_email": "13251340633", "market": "VN", "currency": "VND", "default_window_days": 30}}),),
+            )
+            conn2.execute(
+                "INSERT INTO kalodata_account_rotations (rotation_id, old_account_hint, new_account_email, status, created_at) VALUES (?, ?, ?, 'completed', '2026-11-23T03:36:11Z')",
+                ("klrot_step2", "18613938760", "13251340633"),
+            )
+        conn2.close()
+        aff_secrets.set("kalodata.password", "AffPass_Step2_Updated")
+        os.utime(aff_db, None)
+        self.api.kalodata_bridge._last_check_mono = 0.0
+
+        # Without clicking any manual sync button, `GET /api/settings` & `/api/kalodata/rotations` reflect `13251340633` immediately!
+        _, gs_set = self.req("GET", "/api/settings")
+        self.assertEqual(gs_set["settings"]["kalodata"]["account_email"], "13251340633")
+        self.assertEqual(gs_set["settings"]["kalodata"]["default_window_days"], 30)
+        self.assertEqual(self.api.secrets.get("kalodata.password"), "AffPass_Step2_Updated")
+
+        _, gs_rots = self.req("GET", "/api/kalodata/rotations")
+        rot_ids = [r["rotation_id"] for r in gs_rots["items"]]
+        self.assertIn("klrot_step1", rot_ids)
+        self.assertIn("klrot_step2", rot_ids)
+
+        # Verify GS-XXXX auto-mirror work log was recorded & pushed to Telegram!
+        self.req("POST", "/api/providers/telegram/sync-pending", {})
+        self.assertTrue(any("13251340633" in m.get("text", "") and "ánh xạ" in m.get("text", "").lower() for m in self.fake_tg.sent_messages))
+
+        # 3) Bidirectional sync: updating Kalodata in Global Shop also updates `affiliate-peng`!
+        self.req("POST", "/api/settings", {
+            "kalodata": {"account_email": "bidir_sync@peng.vn", "password": "BidirNewPass_777", "market": "VN", "currency": "VND", "default_window_days": 7}
+        })
+        conn3 = sqlite3.connect(aff_db)
+        up_after = json.loads(conn3.execute("SELECT value FROM settings WHERE name='application'").fetchone()[0])
+        conn3.close()
+        self.assertEqual(up_after["kalodata"]["account_email"], "bidir_sync@peng.vn")
+        self.assertEqual(aff_secrets.get("kalodata.password"), "BidirNewPass_777")
 
 
 if __name__ == "__main__":

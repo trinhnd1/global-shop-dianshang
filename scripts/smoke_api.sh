@@ -16,6 +16,7 @@ curl -fsS "$BASE/api/products/jev-leaderboard" | python3 -c "import sys,json; d=
 curl -fsS "$BASE/api/system/launchagent" | python3 -c "import sys,json; d=json.load(sys.stdin); assert d['label']=='com.peng.global-shop-dianshang', d; print('2j. LaunchAgent Status Endpoint OK: installed=' + str(d['installed']) + ', running=' + str(d['running']) + ', pid=' + str(d['pid']))"
 curl -fsS "$BASE/api/hunt/kalodata-vn/categories" | python3 -c "import sys,json; d=json.load(sys.stdin); assert len(d['items'])>=30, d; print('2k. Kalodata Pro 9-Page & VN Hunter Catalog OK:', len(d['items']), 'categories')"
 curl -fsS "$BASE/api/kalodata/capabilities" | python3 -c "import sys,json; d=json.load(sys.stdin); assert d['capabilities']['kalodata_pro_9_pages_cdp'] is True and d['capabilities']['import_xlsx_csv_json_zip'] is True, d; print('2l. Kalodata Import Wizard & Browser Capture Capabilities OK')"
+curl -fsS "$BASE/api/kalodata/mirror-status" | python3 -c "import sys,json; d=json.load(sys.stdin); assert d['mirror_enabled'] is True and d['account_email'], d; print('2m. Kalodata Auto-Mirror with affiliate-peng OK:', d['account_email'], 'last_synced=' + str(d['last_synced_at']))"
 for route in "/" "/kalodata-pro" "/nhap-kalodata" "/bang-xep-hang-jev" "/he-sinh-thai" "/luong-300-desk" "/apify-store" "/shop-cua-toi" "/tu-khoa" "/theo-doi" "/nguon-hang-tq" "/kho-shop" "/chien-dich" "/caidat"; do
   code=$(curl -s -o /dev/null -w "%{http_code}" "$BASE$route")
   [ "$code" = "200" ] || { echo "SPA route failed: $route ($code)"; exit 1; }

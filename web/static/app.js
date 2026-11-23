@@ -2322,7 +2322,7 @@
   }
 
   async function loadSettings() {
-    const [mv, tg, bh, mcp, d3st, kaloSt, laSt] = await Promise.all([
+    const [mv, tg, bh, mcp, d3st, kaloSt, laSt, kaloRots] = await Promise.all([
       api("/api/settings"),
       api("/api/providers/telegram/status"),
       api("/api/connections/browser"),
@@ -2330,6 +2330,7 @@
       api("/api/desk300/status").catch(() => ({ ok: false })),
       api("/api/kalodata/status").catch(() => null),
       api("/api/system/launchagent").catch(() => null),
+      api("/api/kalodata/rotations").catch(() => null),
     ]);
     renderDeskGatewayBanner(d3st);
     const st = mv.settings || {};
@@ -2361,11 +2362,24 @@
     document.getElementById("tgStatusBox").innerHTML =
       `Bot: <strong>@${esc(tg.bot_username)}</strong> · Token: ${tg.token_configured ? "✅ Đã lưu Keychain" : "❌ Chưa lưu"} · Đã gửi Telegram: <strong style="color:#6ee7b7">${tg.logs_notified ?? 0}/${tg.logs_total ?? 0} nhật ký</strong> · Allowed IDs: <code>${esc((tg.allowed_user_ids || []).join(", "))}</code> · Tailscale: <a href="${esc(tg.tailscale_url)}" target="_blank" style="color:#6ee7b7">${esc(tg.tailscale_url)}</a>`;
 
+    const mirrorLine = kaloSt?.mirror_enabled
+      ? `<br/>• 🔗 <strong style="color:#6ee7b7">Ánh xạ tự động 2 chiều với affiliate-peng: ĐANG BẬT</strong> (Khi <code>affiliate-peng</code> đổi tài khoản Kalodata, Global Shop tự động cập nhật ngay lập tức · Đồng bộ gần nhất: <code>${esc(fmtTime(kaloSt.mirror?.last_synced_at))}</code>)`
+      : "";
     const kLine = kaloSt
-      ? `<br/>• Kalodata VN (<code>${esc(kaloSt.account_email)}</code>): ${kaloSt.kalodata_session?.logged_in ? "🟢 Đã đăng nhập" : "⚪ Chờ mở tab"} · Affiliate Global Selling: ${kaloSt.affiliate_global_selling_session?.ready ? "🟢 Sẵn sàng" : "⚪ Chờ mở tab"}`
+      ? `<br/>• Kalodata VN (<code>${esc(kaloSt.account_email)}</code>): ${kaloSt.kalodata_session?.logged_in ? "🟢 Đã đăng nhập" : "⚪ Chờ mở tab"} · Affiliate Global Selling: ${kaloSt.affiliate_global_selling_session?.ready ? "🟢 Sẵn sàng" : "⚪ Chờ mở tab"}${mirrorLine}`
       : "";
     document.getElementById("browserHubBox").innerHTML =
       `Profile: <strong>${esc(bh.profile_name)}</strong> (CDP <code>127.0.0.1:${bh.cdp_port}</code>): <strong>${bh.running ? "🟢 Đang mở (" + bh.open_tabs_count + " tab)" : "⚪ Đang đóng"}</strong> · SecretStore: <code>${esc(mv.secret_backend)}</code>${kLine}`;
+
+    const rotHistEl = document.getElementById("kaloRotationHistoryBox");
+    if (rotHistEl && kaloRots?.items?.length) {
+      rotHistEl.innerHTML =
+        `<strong>🕒 Lịch sử đổi / ánh xạ tài khoản Kalodata (${kaloRots.items.length} lần gần nhất):</strong><br/>` +
+        kaloRots.items
+          .slice(0, 4)
+          .map((r) => `• <code>${esc(fmtTime(r.created_at))}</code>: ${esc(r.old_account_hint || "—")} &rarr; <strong style="color:#6ee7b7">${esc(r.new_account_email)}</strong> (<code>${esc(r.status)}</code>)`)
+          .join("<br/>");
+    }
 
     const laHtml = laSt
       ? `<br/>🔄 LaunchAgent tự khởi động (<code>${esc(laSt.label)}</code>): ${laSt.running ? `<strong style="color:#6ee7b7">🟢 Đang chạy tự động (PID ${laSt.pid || "—"} · RunAtLoad + KeepAlive)</strong>` : laSt.installed ? '<span style="color:#fcd34d">🟡 Đã cài đặt</span>' : "⚪ Chưa cài"}`

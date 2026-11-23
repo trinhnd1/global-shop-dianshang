@@ -146,6 +146,7 @@ def main():
     api.watch_scheduler.start()
     api.ecosystem_scheduler.start()
     api.hunt_scheduler.start()
+    api.kalodata_mirror_daemon.start()
     api.telegram_bot.start()
     api.daily_brief_daemon.start()
     app = WebApp(api, args.static_dir)
