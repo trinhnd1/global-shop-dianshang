@@ -93,6 +93,9 @@ class TelegramBotService:
         self.products_service = None
         self.ecosystems_service = None
         self.hunt_schedules_service = None
+        self.kalodata_bridge = None
+        self.kalodata_pro = None
+        self.kalodata_hunter = None
         self.web_port = web_port
         self._http_runner = http_runner or self._default_http_runner
         self._queue = deque(maxlen=500)
@@ -409,6 +412,7 @@ class TelegramBotService:
                 f"• /status — Tổng quan Kho SP, Hệ sinh thái, Theo dõi & Nhật ký\n"
                 f"• /last (hoặc /logs) — 8 tác vụ GS-XXXX gần nhất\n"
                 f"• /topjev (hoặc /bxh) — Top 10 Bảng Xếp Hạng Sản phẩm Jev AI\n"
+                f"• /kalodata — Trạng thái Kalodata Pro (9 Trang · 0₫) & phiên quét gần nhất\n"
                 f"• /schedules (hoặc /lichsan) — Lịch Săn SP & Painpoint lặp lại\n"
                 f"• /eco — Danh mục Hệ sinh thái & Phụ kiện SP đang theo dõi\n"
                 f"• /watches — Danh sách Từ khoá / SP / Shop đang theo dõi\n"
@@ -445,6 +449,27 @@ class TelegramBotService:
                     f"{it['title'][:58]} — {it['price_vnd']:,.0f}đ (bán {it['sold_count']})"
                 )
             lines.append(f"🌐 Xem đầy đủ BXH Jev: {self.remote_url('/bang-xep-hang-jev')}")
+            return "\n".join(lines)
+        if cmd in ("/kalodata", "/kalo") and self.kalodata_bridge:
+            st = self.kalodata_bridge.check_portal_sessions()
+            ks = st.get("kalodata_session") or {}
+            snaps = self.kalodata_pro.list_recent_snapshots(limit=4) if self.kalodata_pro else []
+            hruns = self.kalodata_hunter.list_runs(limit=3) if self.kalodata_hunter else []
+            lines = [
+                "🧭 Kalodata Pro (9 Trang · 0₫) & Trạng thái Phiên:",
+                f"• Tài khoản: {st.get('account_email') or 'Chưa cấu hình'} ({st.get('market')}/{st.get('currency')})",
+                f"• Profile Chrome: {st.get('profile_name')} (port {st.get('cdp_port') or 'offline'})",
+                f"• Phiên Kalodata: {'🟢 Đã đăng nhập' if ks.get('logged_in') else '⚠️ ' + (ks.get('note') or 'Chưa mở')}",
+            ]
+            if snaps:
+                lines.append("• Phiên Kalodata Pro gần nhất:")
+                for s in snaps:
+                    lines.append(f"  - [{s['module_kind']}] {s['target_query'] or 'VN'} ({s['items_count']} mục)")
+            if hruns:
+                lines.append("• Phiên Săn Kalodata VN gần nhất:")
+                for r in hruns:
+                    lines.append(f"  - {', '.join(r['keywords'][:2]) or r['category_id']}: {r['products_total']} SP ({r['products_suitable']} phù hợp)")
+            lines.append(f"🌐 Mở Kalodata Pro: {self.remote_url('/kalodata-pro')}")
             return "\n".join(lines)
         if cmd in ("/schedules", "/lichsan") and self.hunt_schedules_service:
             schs = self.hunt_schedules_service.list_schedules()[:8]

@@ -3,6 +3,7 @@
 Also handles 1-click / automatic Kalodata account migration from `affiliate-peng` (SQLite `account_email` + Keychain `kalodata.password`).
 Strictly read-only DOM/Fiber inspection on loopback CDP; NEVER bypasses CAPTCHAs and NEVER reads cookies or password inputs.
 """
+from datetime import datetime
 from decimal import Decimal, InvalidOperation
 import json
 from pathlib import Path
@@ -11,6 +12,7 @@ import sqlite3
 import subprocess
 import threading
 import time
+import uuid
 
 from . import settings
 from .chrome_profile_hub import (
@@ -18,6 +20,7 @@ from .chrome_profile_hub import (
     KALODATA_VIDEO_URL,
     TIKTOK_CREATOR_FIND_URL,
     _is_temp_test_dir,
+    cdp_ws_call,
     cdp_ws_eval,
 )
 from .responses import ApiError, json_object, now, safe_id_str
@@ -146,12 +149,14 @@ EXTRACT_GLOBAL_SELLING_CREATORS_JS = r"""
 
 
 class KalodataAndGlobalSellingService:
-    def __init__(self, connect, secrets, data_dir: str | Path, chrome_hub, custom_scraper=None):
+    def __init__(self, connect, secrets, data_dir: str | Path, chrome_hub, custom_scraper=None, telegram_bot=None):
         self.connect = connect
         self.secrets = secrets
         self.root = Path(data_dir)
         self.chrome_hub = chrome_hub
         self.custom_scraper = custom_scraper
+        self.telegram_bot = telegram_bot
+        self.custom_rotation_driver = None
         self._cdp_lock = threading.Lock()
         if not _is_temp_test_dir(self.root):
             try:
@@ -619,11 +624,373 @@ class KalodataAndGlobalSellingService:
             rows = extracted.get("rows") or []
             return rows[: max(1, min(40, int(max_results)))]
 
+    def inspect_kalodata_quota(self) -> dict:
+        cfg = settings.read_settings(self.connect, self.secrets)
+        kcfg = cfg.get("kalodata") or {}
+        email = str(kcfg.get("account_email") or "").strip()
+        port = self.chrome_hub.get_live_port() if self.chrome_hub else None
+        if not port:
+            return {
+                "ok": False,
+                "status": "browser_closed",
+                "plan_kind": "unauthenticated",
+                "plan_label_vi": "Chrome Chuyên Dụng chưa mở",
+                "account_email": email,
+                "has_limitation": True,
+                "limitations": ["Bấm Mở Kalodata để khởi tạo phiên trên Chrome Chuyên Dụng."],
+            }
+        tab = self.chrome_hub.open_or_focus_tab(port, ("kalodata.com",), KALODATA_PRODUCT_URL, focus=False)
+        if not tab or not tab.get("webSocketDebuggerUrl"):
+            return {
+                "ok": False,
+                "status": "no_tab",
+                "plan_kind": "unauthenticated",
+                "plan_label_vi": "Chưa mở tab Kalodata",
+                "account_email": email,
+                "has_limitation": True,
+                "limitations": ["Không mở được tab Kalodata trên Chrome Chuyên Dụng."],
+            }
+        ws = tab["webSocketDebuggerUrl"]
+        obs = cdp_ws_eval(
+            port,
+            ws,
+            r"""(() => {
+              const body = (document.body?.innerText || "").replace(/\s+/g, " ").trim().slice(0, 4000);
+              const cap = document.querySelector("[class*='captcha'], iframe[src*='captcha'], .geetest_panel");
+              const onLogin = location.pathname.startsWith("/login") || Boolean(document.querySelector("form#register, input#register_password"));
+              const trs = Array.from(document.querySelectorAll("tbody tr:not(.ant-table-measure-row)"));
+              let stars = 0;
+              trs.forEach(tr => { if ((tr.innerText || "").includes("***")) stars += 1; });
+              const isTrial = /试用版|Free\s*Trial/i.test(body) || (body.includes("更多页") && body.includes("立即升级"));
+              return JSON.stringify({url: location.href, onLogin, hasCaptcha: Boolean(cap && cap.offsetParent !== null), rows: trs.length, stars, isTrial, body});
+            })()""",
+        )
+        if obs.get("hasCaptcha"):
+            return {
+                "ok": False,
+                "status": "captcha_required",
+                "plan_kind": "captcha",
+                "plan_label_vi": "Đang chờ xác minh CAPTCHA trên Chrome",
+                "account_email": email,
+                "has_limitation": True,
+                "limitations": ["Vui lòng xác minh CAPTCHA trực tiếp trên cửa sổ Chrome Chuyên Dụng."],
+            }
+        if obs.get("onLogin"):
+            return {
+                "ok": False,
+                "status": "login_required",
+                "plan_kind": "unauthenticated",
+                "plan_label_vi": "Chưa đăng nhập / Hết hạn phiên",
+                "account_email": email,
+                "has_limitation": True,
+                "limitations": ["Phiên Kalodata đã hết hạn — bấm Cập nhật & Đổi Tài khoản để đăng nhập lại."],
+            }
+        stars = int(obs.get("stars") or 0)
+        is_trial = bool(obs.get("isTrial"))
+        if is_trial or stars > 0:
+            return {
+                "ok": False,
+                "status": "limited_regular_or_trial",
+                "plan_kind": "trial_or_regular",
+                "plan_label_vi": "Tài khoản Thường / Dùng thử (Giới hạn dòng & phân trang)",
+                "account_email": email,
+                "visible_rows": int(obs.get("rows") or 0),
+                "masked_stars_count": stars,
+                "has_limitation": True,
+                "limitations": ["Tài khoản hiện tại bị giới hạn gói dùng thử hoặc che '***'."],
+            }
+        return {
+            "ok": True,
+            "status": "ok_full",
+            "plan_kind": "paid_full",
+            "plan_label_vi": "Tài khoản Kalodata Pro Trả phí đầy đủ (0₫ API · Không khoá dòng)",
+            "account_email": email,
+            "visible_rows": int(obs.get("rows") or 0),
+            "masked_stars_count": 0,
+            "has_limitation": False,
+            "limitations": [],
+        }
+
+    def rotate_kalodata_account(self, body: dict) -> dict:
+        """Save new Kalodata credentials -> Logout ONLY `kalodata.com` on Dedicated Chrome -> Login new -> Notify Telegram."""
+        step_logs: list[str] = []
+
+        def log_step(msg: str) -> None:
+            clk = datetime.now().strftime("%H:%M:%S")
+            step_logs.append(f"[{clk}] {msg}")
+
+        cur_cfg = settings.read_settings(self.connect, self.secrets)
+        kalo_saved = cur_cfg.get("kalodata") or {}
+        old_email = str(kalo_saved.get("account_email") or "").strip()
+
+        raw_email = body.get("account_email")
+        new_email = settings.clean_account_input(str(raw_email if raw_email is not None else old_email))
+        if not new_email:
+            raise ApiError("400 Bad Request", "Vui lòng nhập Email hoặc SĐT tài khoản Kalodata cần đăng nhập!")
+
+        new_password = settings.resolve_secret(
+            body.get("password") if "password" in body else "",
+            kalo_saved.get("password", ""),
+            "Mật khẩu Kalodata",
+            reveal_last4=False,
+        )
+        if not new_password:
+            raise ApiError("400 Bad Request", "Vui lòng nhập Mật khẩu của tài khoản Kalodata!")
+
+        market = str(body.get("market") or body.get("station") or kalo_saved.get("market") or "VN").strip().upper()
+        currency = str(body.get("currency") or kalo_saved.get("currency") or "VND").strip().upper()
+        win_days = int(body.get("default_window_days") or kalo_saved.get("default_window_days") or 7)
+        suppress_tg = bool(body.get("suppress_telegram", False))
+
+        log_step(f"Bước 1/4: Lưu tài khoản Kalodata ({new_email}) & mật khẩu vào {self.secrets.backend_name}...")
+        settings.save_settings_masked(
+            self.connect,
+            self.secrets,
+            {
+                "kalodata": {
+                    "account_email": new_email,
+                    "password": new_password,
+                    "market": market,
+                    "currency": currency,
+                    "default_window_days": win_days,
+                }
+            },
+        )
+
+        rotation_id = f"klrot_{uuid.uuid4().hex[:12]}"
+        rot_status = "failed"
+        kalo_after: dict = {}
+        err_msg = ""
+        tg_sent = False
+
+        with self._cdp_lock:
+            try:
+                if self.custom_rotation_driver is not None:
+                    drv_res = self.custom_rotation_driver(new_email, new_password, market, log_step)
+                    rot_status = str(drv_res.get("status") or "completed")
+                    kalo_after = drv_res.get("kalodata_after") or {"status": "ok_full", "plan_label_vi": "Gói Kalodata Pro Trả phí đầy đủ"}
+                    err_msg = str(drv_res.get("error_message") or "")
+                else:
+                    log_step("Bước 2/4: Mở / kết nối Chrome Chuyên Dụng `peng_dedicated`...")
+                    ens = self.chrome_hub.ensure_running(want_kalodata=True, want_tiktok_creator=False, focus_domain="kalodata")
+                    if not ens.get("ok") or not ens.get("port"):
+                        raise RuntimeError(ens.get("error_message") or "Không mở được Chrome Chuyên Dụng.")
+                    port = int(ens["port"])
+                    tab = self.chrome_hub.open_or_focus_tab(port, ("kalodata.com",), KALODATA_PRODUCT_URL, focus=True)
+                    if not tab or not tab.get("webSocketDebuggerUrl"):
+                        raise RuntimeError("Không tìm thấy tab Kalodata trên Chrome Chuyên Dụng.")
+                    ws = tab["webSocketDebuggerUrl"]
+
+                    # Clear ONLY `kalodata.com` cookies + tab storage (preserving TikTok Seller / Global Selling!)
+                    ck_res = cdp_ws_call(port, ws, "Network.getAllCookies", {}, timeout=8.0)
+                    cookies = [
+                        c for c in (ck_res.get("cookies") or [])
+                        if isinstance(c, dict) and "kalodata.com" in str(c.get("domain") or "").lower()
+                    ]
+                    for ck in cookies:
+                        cdp_ws_call(
+                            port,
+                            ws,
+                            "Network.deleteCookies",
+                            {"name": ck.get("name") or "", "domain": ck.get("domain") or ".kalodata.com", "path": ck.get("path") or "/"},
+                            timeout=5.0,
+                        )
+                    cdp_ws_eval(
+                        port,
+                        ws,
+                        r"""(() => {
+                          try { localStorage.clear(); } catch {}
+                          try { sessionStorage.clear(); } catch {}
+                          location.href = "https://www.kalodata.com/login";
+                          return JSON.stringify({ok: true});
+                        })()""",
+                    )
+                    time.sleep(2.8)
+                    t_login = next((t for t in self.chrome_hub.list_tabs(port) if "kalodata.com" in str(t.get("url") or "")), tab)
+                    ws = t_login["webSocketDebuggerUrl"]
+                    log_step(f"Bước 3/4: Đã logout phiên cũ (xoá {len(cookies)} cookie kalodata.com, giữ nguyên TikTok Global Selling) & mở trang /login...")
+
+                    is_email = "@" in new_email
+                    if is_email:
+                        cdp_ws_eval(
+                            port,
+                            ws,
+                            r"""(() => {
+                              const emailBtn = Array.from(document.querySelectorAll("div.tiktok_btn, div, span, button")).find(
+                                e => e.children.length === 0 && /^(Email|邮箱|邮箱登录)$/i.test((e.innerText || "").trim())
+                              );
+                              if (emailBtn) emailBtn.click();
+                              return "{}";
+                            })()""",
+                        )
+                        time.sleep(0.5)
+                    cdp_ws_eval(
+                        port,
+                        ws,
+                        r"""(() => {
+                          if (!document.querySelector("input#register_password")) {
+                            const pwBtn = document.querySelector(".Component_ChangeLoginMode .right-text")
+                              || Array.from(document.querySelectorAll("div, span, a")).find(e => e.children.length === 0 && /(password|密码)/i.test(e.innerText || "") && !/forgot|忘记/i.test(e.innerText || ""));
+                            if (pwBtn) pwBtn.click();
+                          }
+                          return "{}";
+                        })()""",
+                    )
+                    time.sleep(0.5)
+
+                    filled = cdp_ws_eval(
+                        port,
+                        ws,
+                        f"""(() => {{
+                          const setInp = (el, v) => {{
+                            if (!el) return false;
+                            el.focus();
+                            const st = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set;
+                            if (st) st.call(el, v); else el.value = v;
+                            el.dispatchEvent(new Event("input", {{bubbles: true}}));
+                            el.dispatchEvent(new Event("change", {{bubbles: true}}));
+                            return true;
+                          }};
+                          const acc = document.querySelector({json.dumps("input#register_email" if is_email else "input#register_phone")})
+                            || document.querySelector("input#register_email, input#register_phone");
+                          const pw = document.querySelector("input#register_password");
+                          if (!acc || !pw) return JSON.stringify({{ok: false}});
+                          setInp(acc, {json.dumps(new_email)});
+                          setInp(pw, {json.dumps(new_password)});
+                          const chk = document.querySelector("input.ant-checkbox-input, input[type='checkbox']");
+                          if (chk && !chk.checked) chk.click();
+                          const sub = document.querySelector("button.submit-btn[type='submit'], button[type='submit']");
+                          if (sub) sub.click();
+                          return JSON.stringify({{ok: Boolean(sub)}});
+                        }})()""",
+                    )
+                    if not filled.get("ok"):
+                        raise RuntimeError("Không tìm thấy ô nhập Email/Mật khẩu trên trang /login của Kalodata.")
+
+                    deadline = time.monotonic() + 10.5
+                    while time.monotonic() < deadline:
+                        time.sleep(0.9)
+                        t_cur = next((t for t in self.chrome_hub.list_tabs(port) if "kalodata.com" in str(t.get("url") or "")), t_login)
+                        ws = t_cur["webSocketDebuggerUrl"]
+                        pr = cdp_ws_eval(
+                            port,
+                            ws,
+                            r"""(() => {
+                              const cap = document.querySelector("[class*='captcha'], iframe[src*='captcha'], .geetest_panel");
+                              const err = document.querySelector(".ant-message-error, .ant-form-item-explain-error");
+                              return JSON.stringify({
+                                onLogin: location.pathname.startsWith("/login"),
+                                hasCaptcha: Boolean(cap && cap.offsetParent !== null),
+                                errText: err ? (err.innerText || "").trim() : ""
+                              });
+                            })()""",
+                        )
+                        if pr.get("hasCaptcha"):
+                            rot_status = "verification_required"
+                            err_msg = "Kalodata yêu cầu xác minh CAPTCHA trên cửa sổ Chrome Chuyên Dụng — hệ thống dừng an toàn (0% tự vượt CAPTCHA) để bạn xác nhận trực tiếp."
+                            log_step(f"⏸ {err_msg}")
+                            break
+                        if not pr.get("onLogin"):
+                            rot_status = "completed"
+                            break
+                        if pr.get("errText"):
+                            err_msg = str(pr["errText"])[:180]
+
+                    if rot_status == "completed":
+                        kalo_after = self.inspect_kalodata_quota()
+                        log_step(f"Bước 4/4: ✅ Đăng nhập Kalodata mới thành công! {kalo_after.get('plan_label_vi') or ''}")
+                    elif rot_status != "verification_required" and not err_msg:
+                        err_msg = "Chưa chuyển hướng khỏi trang /login sau 10 giây — vui lòng kiểm tra mật khẩu hoặc cửa sổ Chrome."
+                        log_step(f"❌ {err_msg}")
+            except Exception as exc:
+                rot_status = "failed"
+                err_msg = str(exc)[:220]
+                log_step(f"❌ Lỗi đổi tài khoản Kalodata: {err_msg}")
+
+        if self.telegram_bot is not None and not suppress_tg:
+            try:
+                tg_msg = (
+                    f"{'✅ ĐỔI TÀI KHOẢN KALODATA THÀNH CÔNG' if rot_status == 'completed' else '⚠️ CẬP NHẬT TÀI KHOẢN KALODATA: ' + rot_status.upper()}\n"
+                    f"• Tài khoản cũ: {old_email or '—'}\n"
+                    f"• Tài khoản mới: {new_email} ({market}/{currency})\n"
+                    f"• Trạng thái gói: {kalo_after.get('plan_label_vi') or err_msg or rot_status}"
+                )
+                sent = self.telegram_bot.send_text(tg_msg)
+                tg_sent = bool(sent)
+            except Exception:
+                pass
+
+        ts = now()
+        with self.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO kalodata_account_rotations
+                (rotation_id, old_account_hint, new_account_email, status, kalodata_status_after,
+                 step_logs_json, kalodata_after_json, telegram_sent, telegram_message_id, error_message, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?)
+                """,
+                (
+                    rotation_id,
+                    old_email[:120],
+                    new_email[:120],
+                    rot_status,
+                    str(kalo_after.get("status") or ""),
+                    json.dumps(step_logs, ensure_ascii=False),
+                    json.dumps(kalo_after, ensure_ascii=False),
+                    1 if tg_sent else 0,
+                    err_msg,
+                    ts,
+                ),
+            )
+        return {
+            "ok": rot_status == "completed",
+            "rotation_id": rotation_id,
+            "status": rot_status,
+            "old_account_hint": old_email,
+            "new_account_email": new_email,
+            "market": market,
+            "currency": currency,
+            "kalodata_after": kalo_after,
+            "step_logs": step_logs,
+            "telegram_sent": tg_sent,
+            "error_message": err_msg,
+            "created_at": ts,
+        }
+
+    def list_account_rotations(self, limit: int = 15) -> list[dict]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM kalodata_account_rotations ORDER BY created_at DESC, rowid DESC LIMIT ?",
+                (max(1, min(30, int(limit))),),
+            ).fetchall()
+        return [
+            {
+                "rotation_id": r["rotation_id"],
+                "old_account_hint": r["old_account_hint"],
+                "new_account_email": r["new_account_email"],
+                "status": r["status"],
+                "kalodata_status_after": r["kalodata_status_after"],
+                "step_logs": json.loads(r["step_logs_json"] or "[]"),
+                "kalodata_after": json.loads(r["kalodata_after_json"] or "{}"),
+                "telegram_sent": bool(r["telegram_sent"]),
+                "error_message": r["error_message"],
+                "created_at": r["created_at"],
+            }
+            for r in rows
+        ]
+
     def dispatch(self, path: str, method: str, env, read_json):
         if path == "/api/kalodata/status" and method == "GET":
-            return "200 OK", self.check_portal_sessions()
+            st = self.check_portal_sessions()
+            return "200 OK", st
+        if path in ("/api/kalodata/quota", "/api/providers/kalodata/check") and method in ("GET", "POST"):
+            return "200 OK", self.inspect_kalodata_quota()
         if path == "/api/kalodata/sync-from-affiliate" and method == "POST":
             return "200 OK", self.ensure_affiliate_peng_kalodata_migrated(force=True)
+        if path in ("/api/kalodata/rotate-account", "/api/providers/kalodata/rotate-account") and method == "POST":
+            return "200 OK", self.rotate_kalodata_account(json_object(read_json, env))
+        if path in ("/api/kalodata/rotations", "/api/providers/kalodata/rotations") and method == "GET":
+            return "200 OK", {"items": self.list_account_rotations(limit=15)}
         if path == "/api/kalodata/search" and method == "POST":
             body = json_object(read_json, env)
             kw = str(body.get("keyword") or "").strip()

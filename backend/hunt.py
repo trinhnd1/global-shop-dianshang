@@ -10,6 +10,7 @@ from .responses import ApiError, json_object, now, text
 
 SOCIAL_PAINPOINT_CHANNELS = ("facebook_organic", "facebook_ads", "threads", "x", "reddit")
 MARKETPLACE_CHANNELS = (
+    "kalodata_vn",
     "shopee",
     "tiktok_shop",
     "lazada",
@@ -161,8 +162,9 @@ class HuntAndCreatorsService:
         gt_cost = 0.015 * len(terms) if "google_trends" in channels else 0.0
         social_chs = [c for c in channels if c in SOCIAL_PAINPOINT_CHANNELS]
         mkt_chs = [c for c in channels if c in MARKETPLACE_CHANNELS or c == "tiktok"]
+        paid_mkt_chs = [c for c in mkt_chs if c != "kalodata_vn"]
         social_cost = len(terms) * len(social_chs) * 0.022
-        mkt_cost = max(1, len(terms)) * max(1, len(mkt_chs)) * 0.032 if mkt_chs else 0.0
+        mkt_cost = max(1, len(terms)) * len(paid_mkt_chs) * 0.032 if paid_mkt_chs else 0.0
         jev_est = (len(terms) * 5 * 0.0006) if auto_jev else 0.0
         est_usd = round(gt_cost + social_cost + mkt_cost + jev_est, 4)
         return {
@@ -187,6 +189,40 @@ class HuntAndCreatorsService:
         shopee_filters: dict | None = None,
     ) -> list[dict]:
         found_rows: list[dict] = []
+        if channel == "kalodata_vn" and getattr(self, "kalodata_hunter", None) is not None:
+            try:
+                k_res = ctx.run_step(
+                    f"kalodata_vn:{term}",
+                    "kalodata_cdp",
+                    0.0,
+                    lambda t=term: self.kalodata_hunter.run_kalodata_vn_hunt(
+                        keywords=[t],
+                        window_spec="7d",
+                        limit_products=limit,
+                        limit_videos=min(10, limit),
+                        include_videos=True,
+                        auto_ingest_suitable=False,
+                        score_jev=False,
+                    ),
+                )
+                for p in k_res.get("products") or []:
+                    found_rows.append({
+                        "platform": "tiktok_shop",
+                        "market": "VN",
+                        "native_product_id": p.get("native_product_id") or "",
+                        "title": p.get("product_title") or "",
+                        "url": p.get("canonical_url") or "",
+                        "image_url": p.get("cover_image_url") or "",
+                        "price_vnd": float(p.get("price_vnd") or 0.0),
+                        "sold_count": int(p.get("units_sold_window") or 0),
+                        "gmv_vnd": float(p.get("gmv_total_vnd") or 0.0),
+                        "rating": float(p.get("rating") or 0.0),
+                        "kalodata": p,
+                    })
+            except Exception as exc:
+                ctx.log(f"⚠️ Kalodata VN '{term}': {exc}")
+            return found_rows
+
         base_plat, mkt, ch_code = parse_marketplace_spec(channel)
         ch_lbl = format_platform_market_label(base_plat, mkt)
         if base_plat == "shopee" and apify_toks and self.apify:

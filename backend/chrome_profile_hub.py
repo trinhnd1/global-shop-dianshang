@@ -73,8 +73,8 @@ def find_chrome_binary() -> str | None:
     return None
 
 
-def cdp_ws_eval(port: int, ws_url: str, expression: str, timeout: float = 9.0) -> dict:
-    """Pure-stdlib loopback-only (`127.0.0.1`) CDP WebSocket `Runtime.evaluate` helper."""
+def cdp_ws_call(port: int, ws_url: str, method: str, params: dict | None = None, timeout: float = 9.0) -> dict:
+    """Pure-stdlib loopback-only (`127.0.0.1`) CDP WebSocket JSON-RPC call helper."""
     parsed = urlsplit(ws_url)
     ws_path = parsed.path + (f"?{parsed.query}" if parsed.query else "")
     sock = socket.create_connection(("127.0.0.1", int(port)), timeout=timeout)
@@ -102,8 +102,8 @@ def cdp_ws_eval(port: int, ws_url: str, expression: str, timeout: float = 9.0) -
 
         msg_bytes = json.dumps({
             "id": 1,
-            "method": "Runtime.evaluate",
-            "params": {"expression": expression, "returnByValue": True, "awaitPromise": False},
+            "method": method,
+            "params": params or {},
         }).encode("utf-8")
         mask_key = os.urandom(4)
         plen = len(msg_bytes)
@@ -124,7 +124,7 @@ def cdp_ws_eval(port: int, ws_url: str, expression: str, timeout: float = 9.0) -
 
         def _read_exact(n: int) -> bytes:
             while len(stream_buf) < n:
-                ch = sock.recv(4096)
+                ch = sock.recv(8192)
                 if not ch:
                     raise RuntimeError("Luồng CDP kết thúc bất ngờ")
                 stream_buf.extend(ch)
@@ -132,7 +132,7 @@ def cdp_ws_eval(port: int, ws_url: str, expression: str, timeout: float = 9.0) -
             del stream_buf[:n]
             return out_b
 
-        for _ in range(10):
+        for _ in range(16):
             b0, b1 = _read_exact(2)
             opcode = b0 & 0x0F
             is_masked = bool(b1 & 0x80)
@@ -148,16 +148,33 @@ def cdp_ws_eval(port: int, ws_url: str, expression: str, timeout: float = 9.0) -
             if opcode == 0x1:
                 rpc = json.loads(payload.decode("utf-8"))
                 if rpc.get("id") == 1:
-                    val_str = ((rpc.get("result") or {}).get("result") or {}).get("value")
-                    return json.loads(val_str) if isinstance(val_str, str) else {}
+                    return rpc.get("result") or {}
             elif opcode == 0x8:
                 break
-        raise RuntimeError("Không nhận được kết quả đánh giá DOM từ CDP")
+        return {}
     finally:
         try:
             sock.close()
         except OSError:
             pass
+
+
+def cdp_ws_eval(port: int, ws_url: str, expression: str, timeout: float = 9.0) -> dict:
+    """Pure-stdlib loopback-only (`127.0.0.1`) CDP WebSocket `Runtime.evaluate` helper."""
+    res = cdp_ws_call(
+        port,
+        ws_url,
+        "Runtime.evaluate",
+        {"expression": expression, "returnByValue": True, "awaitPromise": False},
+        timeout=timeout,
+    )
+    val_str = (res.get("result") or {}).get("value")
+    if isinstance(val_str, str):
+        try:
+            return json.loads(val_str)
+        except ValueError:
+            return {}
+    return val_str if isinstance(val_str, dict) else {}
 
 
 def _is_temp_test_dir(p: Path) -> bool:
@@ -169,8 +186,10 @@ def _is_temp_test_dir(p: Path) -> bool:
 class DedicatedChromeHub:
     def __init__(self, data_dir: str | Path, connect=None, cdp_port: int | None = None, shared_profile_dir: Path | None = None):
         self.root = Path(data_dir)
+        self.data_dir = self.root
         self.connect = connect
         self._lock = threading.Lock()
+        self.cdp_lock = threading.RLock()
 
         cand_shared = shared_profile_dir or AFFILIATE_PENG_SHARED_PROFILE
         if not _is_temp_test_dir(self.root) and cand_shared.is_dir():
@@ -337,11 +356,54 @@ class DedicatedChromeHub:
                 )
         return self.status()
 
+    def ensure_running(
+        self,
+        *,
+        want_kalodata: bool = True,
+        want_tiktok_creator: bool = False,
+        kalodata_url: str = KALODATA_PRODUCT_URL,
+        tiktok_url: str = TIKTOK_CREATOR_FIND_URL,
+        focus_domain: str = "",
+    ) -> dict:
+        if _is_temp_test_dir(self.root):
+            return {"ok": False, "port": None, "error_message": "Chrome Profile Hub tắt trong môi trường test tạm thời"}
+        live_p = self.get_live_port()
+        if not live_p:
+            self.open_portal("kalodata" if want_kalodata else "affiliate_global_selling")
+            for _ in range(12):
+                time.sleep(0.4)
+                live_p = self.get_live_port()
+                if live_p:
+                    break
+        if not live_p:
+            return {"ok": False, "port": None, "error_message": "Không kết nối được cổng CDP Chrome Chuyên Dụng"}
+        if want_kalodata:
+            self.open_or_focus_tab(live_p, ("kalodata.com",), kalodata_url, focus=(focus_domain == "kalodata"))
+        if want_tiktok_creator:
+            self.open_or_focus_tab(
+                live_p,
+                ("affiliate.tiktokshopglobalselling.com", "seller.tiktokshopglobalselling.com"),
+                tiktok_url,
+                focus=(focus_domain == "tiktok"),
+            )
+        return {"ok": True, "port": live_p, "status": self.status()}
+
     def dispatch(self, path: str, method: str, env, read_json):
-        if path == "/api/connections/browser" and method == "GET":
-            return "200 OK", self.status()
+        if path in ("/api/connections/browser", "/api/connections/dedicated-profile") and method == "GET":
+            st = self.status()
+            return "200 OK", {**st, "dedicated_profile": st}
         if path == "/api/connections/browser/open" and method == "POST":
             body = json_object(read_json, env)
             portal = str(body.get("portal") or "kalodata")
             return "200 OK", self.open_portal(portal)
+        if path == "/api/connections/dedicated-profile/open" and method == "POST":
+            body = json_object(read_json, env)
+            ens = self.ensure_running(
+                want_kalodata=bool(body.get("open_kalodata", True)),
+                want_tiktok_creator=bool(body.get("open_tiktok_creator", False)),
+                kalodata_url=str(body.get("kalodata_url") or KALODATA_PRODUCT_URL),
+                tiktok_url=str(body.get("tiktok_url") or TIKTOK_CREATOR_FIND_URL),
+                focus_domain=str(body.get("focus_domain") or "kalodata"),
+            )
+            return "200 OK", {"launched": ens.get("ok", False), "dedicated_profile": self.status()}
         return None

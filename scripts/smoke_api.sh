@@ -14,7 +14,9 @@ curl -fsS "$BASE/api/kalodata/status" | python3 -c "import sys,json; d=json.load
 curl -fsS "$BASE/api/hunt/schedules" | python3 -c "import sys,json; d=json.load(sys.stdin); assert 'schedules' in d and 'recent_runs' in d, d; print('2h. Recurring Hunt Autopilot Schedules OK:', len(d['schedules']), 'schedules')"
 curl -fsS "$BASE/api/products/jev-leaderboard" | python3 -c "import sys,json; d=json.load(sys.stdin); assert 'kpis' in d and 'podium_top3' in d and 'items' in d, d; print('2i. Jev AI Product Leaderboard OK:', d['kpis']['total_scored'], 'scored products')"
 curl -fsS "$BASE/api/system/launchagent" | python3 -c "import sys,json; d=json.load(sys.stdin); assert d['label']=='com.peng.global-shop-dianshang', d; print('2j. LaunchAgent Status Endpoint OK: installed=' + str(d['installed']) + ', running=' + str(d['running']) + ', pid=' + str(d['pid']))"
-for route in "/" "/bang-xep-hang-jev" "/he-sinh-thai" "/luong-300-desk" "/apify-store" "/shop-cua-toi" "/tu-khoa" "/theo-doi" "/nguon-hang-tq" "/kho-shop" "/chien-dich" "/caidat"; do
+curl -fsS "$BASE/api/hunt/kalodata-vn/categories" | python3 -c "import sys,json; d=json.load(sys.stdin); assert len(d['items'])>=30, d; print('2k. Kalodata Pro 9-Page & VN Hunter Catalog OK:', len(d['items']), 'categories')"
+curl -fsS "$BASE/api/kalodata/capabilities" | python3 -c "import sys,json; d=json.load(sys.stdin); assert d['capabilities']['kalodata_pro_9_pages_cdp'] is True and d['capabilities']['import_xlsx_csv_json_zip'] is True, d; print('2l. Kalodata Import Wizard & Browser Capture Capabilities OK')"
+for route in "/" "/kalodata-pro" "/nhap-kalodata" "/bang-xep-hang-jev" "/he-sinh-thai" "/luong-300-desk" "/apify-store" "/shop-cua-toi" "/tu-khoa" "/theo-doi" "/nguon-hang-tq" "/kho-shop" "/chien-dich" "/caidat"; do
   code=$(curl -s -o /dev/null -w "%{http_code}" "$BASE$route")
   [ "$code" = "200" ] || { echo "SPA route failed: $route ($code)"; exit 1; }
 done

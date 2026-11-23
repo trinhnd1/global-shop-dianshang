@@ -156,9 +156,9 @@ class GlobalShopDianshangE2ETest(unittest.TestCase):
     def test_01_security_version_masking_and_tailscale_guards(self):
         st, health = self.req("GET", "/api/health")
         self.assertEqual(st, 200)
-        self.assertEqual(health["version"], "1.0.15")
-        self.assertEqual(__version__, "1.0.15")
-        self.assertEqual(health["schema_version"], 7)
+        self.assertEqual(health["version"], "1.0.16")
+        self.assertEqual(__version__, "1.0.16")
+        self.assertEqual(health["schema_version"], 8)
 
         st_la, la_info = self.req("GET", "/api/system/launchagent")
         self.assertEqual(st_la, 200)
@@ -1514,6 +1514,284 @@ class GlobalShopDianshangE2ETest(unittest.TestCase):
 
         tg_reply = self.api.telegram_bot._build_command_reply("/topjev", "")
         self.assertIn("🥇 Jev 8.65/10", tg_reply)
+
+    def test_12_full_kalodata_pro_hunter_import_capture_and_account_rotation(self):
+        from backend.kalodata_parser import parse_kalodata_display_cell, parse_xlsx_bytes
+
+        # 1) Parser invariants: missing/locked NEVER become 0; upper_bound & range preserved
+        self.assertIsNone(parse_kalodata_display_cell("---", expected_currency="VND")["value_decimal"])
+        self.assertEqual(parse_kalodata_display_cell("***")["value_state"], "locked")
+        self.assertIsNone(parse_kalodata_display_cell("***")["value_decimal"])
+        ub = parse_kalodata_display_cell("< 100")
+        self.assertEqual(ub["qualifier"], "upper_bound")
+        self.assertIsNone(ub["value_decimal"])
+        self.assertEqual(ub["max_decimal"], "100")
+        rng = parse_kalodata_display_cell("150K - 250K")
+        self.assertEqual(rng["qualifier"], "range")
+        self.assertEqual(rng["min_decimal"], "150000")
+        self.assertEqual(rng["max_decimal"], "250000")
+        with self.assertRaises(ValueError):
+            parse_xlsx_bytes(b"id,name\n1,fake_csv_renamed_as_xlsx")
+
+        # 2) Kalodata VN Categories Catalog & Direct Hunter ($0.00) -> Vault + Jev
+        self.req("POST", "/api/settings", {
+            "providers": {"typesafe_key": "apikey_jev_kalo_001"},
+            "notify": {
+                "telegram_enabled": True,
+                "telegram_token": "1234567890:AAFakeSampleTokenForUnitTestOnly12345",
+                "telegram_chat_id": "5608975895",
+                "telegram_allowed_user_ids": "5608975895",
+            },
+        })
+        st_cat, cats = self.req("GET", "/api/hunt/kalodata-vn/categories")
+        self.assertEqual(st_cat, 200)
+        self.assertGreaterEqual(len(cats["items"]), 30)
+
+        def fake_hunter_scraper(kind, **kwargs):
+            if kind == "categories_leaderboard":
+                return {
+                    "ok": True,
+                    "module": "category_board",
+                    "window_spec": "7d",
+                    "items_count": 1,
+                    "items": [{"rank": 1, "category_id": "600001", "category_name_vi": "Gia dụng & Đời sống hàng ngày", "icon": "🏠", "level": "L1", "gmv_total_vnd": 15000000000, "gmv_total_display": "15.00 tỷ ₫", "affiliate_share_pct": 42.5, "video_share_pct": 58.0}],
+                }
+            return {
+                "products": [
+                    {
+                        "rank": 1,
+                        "native_product_id": "1738990011223344556",
+                        "product_title": "Máy hút ẩm nhà tắm mini khử mùi thông minh",
+                        "price_vnd": 265000,
+                        "canonical_url": "https://shop.tiktok.com/view/product/1738990011223344556?region=VN",
+                        "window_spec": "7d",
+                        "gmv_total_vnd": 185000000,
+                        "gmv_total_display": "185.0 tr ₫",
+                        "gmv_growth_pct": 38.5,
+                        "units_sold_window": 698,
+                        "commission_pct": 12.0,
+                        "active_creators_count": 14,
+                        "video_gmv_vnd": 148000000,
+                        "video_gmv_display": "148.0 tr ₫",
+                        "live_gmv_vnd": 25000000,
+                        "live_gmv_display": "25.0 tr ₫",
+                        "keyword": "máy hút ẩm mini",
+                    }
+                ],
+                "videos": [
+                    {
+                        "rank": 1,
+                        "native_video_id": "7412345678901234567",
+                        "video_url": "https://www.tiktok.com/@koc_giadung/video/7412345678901234567",
+                        "caption": "Đặt máy này trong nhà tắm hết sạch ẩm mốc",
+                        "author_handle": "koc_giadung",
+                        "video_gmv_vnd": 64000000,
+                        "video_gmv_display": "64.0 tr ₫",
+                        "video_orders_count": 240,
+                        "views_count": 320000,
+                        "video_gpm_vnd": 200000,
+                        "video_gpm_display": "200,000₫",
+                        "is_ad": False,
+                    }
+                ],
+                "creators": [
+                    {
+                        "handle": "koc_giadung",
+                        "followers_count": 48000,
+                        "sum_video_gmv_vnd": 64000000,
+                        "sum_views_count": 320000,
+                        "niche_video_gpm_display": "200,000₫",
+                    }
+                ],
+                "shops": [],
+            }
+
+        self.api.kalodata_hunter.custom_scraper = fake_hunter_scraper
+        st_kh, kh_res = self.req("POST", "/api/hunt/kalodata-vn", {
+            "category_id": "600001",
+            "keywords": ["máy hút ẩm mini"],
+            "window_spec": "7d",
+            "auto_ingest_suitable": True,
+            "score_jev": True,
+        })
+        self.assertEqual(st_kh, 200)
+        self.assertEqual(kh_res["products_count"], 1)
+        self.assertEqual(kh_res["suitable_products_count"], 1)
+        self.assertEqual(len(kh_res["saved_product_ids"]), 1)
+        self.assertEqual(kh_res["jev_scored_count"], 1)
+
+        # 3) Kalodata Pro 9-Page Suite: Shops, Creators (+ Bio Zalo/Email), AI Videos & Deep Detail (+ Clean MP4 & SKU Stock)
+        def fake_pro_scraper(mod, **kwargs):
+            if mod == "shops":
+                return {
+                    "rows": [
+                        {
+                            "rowKey": "7495001122334455667",
+                            "rowOrig": {
+                                "id": "7495001122334455667",
+                                "name": "Gia Dụng Thông Minh VN Official",
+                                "seller_type": "BRAND",
+                                "revenue": "₫320000000",
+                                "affiliate_revenue": "₫160000000",
+                                "video_revenue": "₫140000000",
+                                "sale": 1450,
+                            },
+                        }
+                    ]
+                }
+            if mod == "creators":
+                return {
+                    "rows": [
+                        {
+                            "rowKey": "6800112233445566778",
+                            "rowOrig": {
+                                "id": "6800112233445566778",
+                                "handle": "review_nhadep_vn",
+                                "nickname": "Review Nhà Đẹp",
+                                "signature": "Booking Zalo: 0912.345.678 - Email: booking@nhadep.vn",
+                                "revenue": "₫95000000",
+                                "sale": 410,
+                                "followers": 52000,
+                                "views_trend": [120000, 180000],
+                            },
+                        }
+                    ]
+                }
+            if mod == "videos_advanced":
+                return {
+                    "rows": [
+                        {
+                            "rowKey": "7422334455667788990",
+                            "rowOrig": {
+                                "id": "7422334455667788990",
+                                "handle": "ai_shop_creator",
+                                "description": "Video AI bán kệ nhà tắm cực nhạy",
+                                "ai_video": True,
+                                "ad": True,
+                                "ad2Roas": "2.65",
+                                "revenue": "₫48000000",
+                                "gpm": "₫185000",
+                                "views": 260000,
+                                "sale": 310,
+                                "follower_count": 29000,
+                            },
+                        }
+                    ]
+                }
+            if mod == "video_detail":
+                return {
+                    "title": "Video test máy hút ẩm 越南 TikTok Data",
+                    "vids": ["https://live.kalocdn.com/video/7422334455667788990.mp4"],
+                    "prodImgs": ["https://img.kalocdn.com/tiktok.product/1738990011223344556/cover.jpg"],
+                    "body": "ai_shop_creator 2.9万 粉丝数 发布日期：2026-11-18 投广时间：5 天 观看次数 26万 销量 310 成交金额 ₫4800万 广告ROAS 2.65",
+                    "rowsOrig": [],
+                }
+            if mod == "product_detail":
+                return {
+                    "title": "Máy hút ẩm nhà tắm mini - 商品详情",
+                    "body": "数据最早收录时间：2026-10-01 价格：₫26.5万 佣金比例：12% 评分：4.9 销售策略 成交金额 ₫1.85亿 = 直播 ₫2500万 13.5% + 视频 ₫1.48亿 80.0% + 商品卡 6.5% 卖点 Khử ẩm nhanh, êm ái 属性 Nhựa ABS cao cấp SKU分析",
+                    "rowsOrig": [
+                        {"ro": {"sku_name": "Bản Trắng 1000ml", "sale_ratio": 0.72, "price": 265000, "stock": 430}, "tds": []},
+                        {"ro": {"sku_name": "Bản Đen Kèm Ống Xả", "sale_ratio": 0.28, "price": 299000, "stock": 185}, "tds": []},
+                    ],
+                }
+            return {"rows": []}
+
+        self.api.kalodata_pro.custom_scraper = fake_pro_scraper
+
+        st_ps, ps_res = self.req("POST", "/api/hunt/kalodata-pro/shops", {"keyword": "gia dụng", "window_spec": "7d"})
+        self.assertEqual(st_ps, 200)
+        self.assertEqual(ps_res["items_count"], 1)
+        self.assertEqual(ps_res["saved_to_vault_count"], 1)
+
+        st_pc, pc_res = self.req("POST", "/api/hunt/kalodata-pro/creators", {"keyword": "nhà đẹp"})
+        self.assertEqual(st_pc, 200)
+        self.assertEqual(pc_res["with_contact_count"], 1)
+        self.assertIn("0912345678", pc_res["items"][0]["phones_zalo"])
+        self.assertIn("booking@nhadep.vn", pc_res["items"][0]["emails"])
+
+        st_pv, pv_res = self.req("POST", "/api/hunt/kalodata-pro/videos-advanced", {"filter_mode": "ai_video"})
+        self.assertEqual(st_pv, 200)
+        self.assertEqual(pv_res["ai_videos_count"], 1)
+
+        st_dv, dv_res = self.req("POST", "/api/hunt/kalodata-pro/deep-detail", {"target": "vid:7422334455667788990"})
+        self.assertEqual(st_dv, 200)
+        self.assertTrue(dv_res["has_watermark_free_mp4"])
+        self.assertIn("kalocdn.com/video/7422334455667788990.mp4", dv_res["mp4_cdn_url"])
+
+        st_dp, dp_res = self.req("POST", "/api/hunt/kalodata-pro/deep-detail", {"target": "1738990011223344556"})
+        self.assertEqual(st_dp, 200)
+        self.assertEqual(dp_res["total_sku_stock"], 615)
+        self.assertEqual(len(dp_res["skus"]), 2)
+
+        # 4) Kalodata Import Wizard (19-digit ID safety + cross-market guard) & Bounded Browser Capture + ZIP download
+        st_prev, prev_res = self.req("POST", "/api/imports/preview", {
+            "market": "VN",
+            "currency": "VND",
+            "window": "7d",
+            "filename": "products.json",
+            "content": json.dumps([
+                {"product_id": "1729998887776665554", "product_name": "Đèn cảm biến cầu thang thông minh", "price": "89000", "gmv": "125000000", "units_sold": "1400", "market": "VN"},
+                {"product_id": "1729998887776665559", "product_name": "SP Thái Lan trộn nhầm", "price": "199", "gmv": "50000", "market": "TH"},
+            ]),
+        })
+        self.assertEqual(st_prev, 200)
+        self.assertEqual(prev_res["summary"]["products_staged"], 1)
+        self.assertEqual(prev_res["summary"]["errors_count"], 1)
+        self.assertEqual(prev_res["errors"][0]["code"], "market_mismatch_blocked")
+
+        # Strict commit refuses cross-market rows unless allow_skip_invalid=True
+        st_blk, _ = self.req("POST", f"/api/imports/{prev_res['batch_id']}/commit", {"allow_skip_invalid": False})
+        self.assertEqual(st_blk, 409)
+        st_cm, cm_res = self.req("POST", f"/api/imports/{prev_res['batch_id']}/commit", {"allow_skip_invalid": True})
+        self.assertEqual(st_cm, 200)
+        self.assertEqual(cm_res["summary"]["committed_products"], 1)
+
+        self.api.kalodata_import.custom_capture_driver = lambda max_pages=1, max_rows=100: {
+            "url": "https://www.kalodata.com/product",
+            "headers": ["商品信息", "成交金额", "销量"],
+            "rows": [
+                {"id": "1729111222333444555", "商品信息": "Bình giữ nhiệt inox 316", "成交金额": "₫98000000", "销量": "620"},
+                {"id": "1729111222333444556", "商品信息": "Dòng nhiễu cần loại bỏ", "成交金额": "***", "销量": "***"},
+            ],
+            "pages_read": 1,
+        }
+        st_cap, cap = self.req("POST", "/api/kalodata/captures/current-page", {"market": "VN", "currency": "VND", "window_spec": "7d"})
+        self.assertEqual(st_cap, 200)
+        cap_id = cap["capture_id"]
+        self.req("POST", f"/api/kalodata/captures/{cap_id}/preview", {"exclude_row_indices": [1]})
+        st_cc, cc_res = self.req("POST", f"/api/kalodata/captures/{cap_id}/commit", {})
+        self.assertEqual(st_cc, 200)
+        self.assertEqual(cc_res["summary"]["committed_products"], 1)
+
+        with urllib.request.urlopen(self.base_url + f"/api/kalodata/captures/{cap_id}/download?format=zip", timeout=5) as r_zip:
+            self.assertEqual(r_zip.headers.get("Content-Type"), "application/zip")
+            self.assertTrue(r_zip.read().startswith(b"PK\x03\x04"))
+
+        # 5) Kalodata Account Rotation + Telegram `/kalodata` bot command
+        self.api.kalodata_bridge.custom_rotation_driver = lambda email, pw, mkt, log_cb: (
+            log_cb("Mock Chrome: đã xoá cookie kalodata.com cũ & đăng nhập tài khoản mới"),
+            {"status": "completed", "kalodata_after": {"status": "ok_full", "plan_label_vi": "Gói Kalodata Pro Trả phí đầy đủ"}},
+        )[1]
+        st_rot, rot_res = self.req("POST", "/api/kalodata/rotate-account", {
+            "account_email": "pro_kalo_vn@peng.vn",
+            "password": "SuperSecretKaloPass_DoNotLeak",
+            "market": "VN",
+            "currency": "VND",
+        })
+        self.assertEqual(st_rot, 200)
+        self.assertTrue(rot_res["ok"])
+        self.assertTrue(rot_res["telegram_sent"])
+
+        # Verify password is NEVER leaked in `/api/settings` or `/api/kalodata/rotations`
+        _, st_masked = self.req("GET", "/api/settings")
+        self.assertNotIn("SuperSecretKaloPass_DoNotLeak", json.dumps(st_masked))
+        _, rots = self.req("GET", "/api/kalodata/rotations")
+        self.assertNotIn("SuperSecretKaloPass_DoNotLeak", json.dumps(rots))
+
+        tg_kalo = self.api.telegram_bot._build_command_reply("/kalodata", "")
+        self.assertIn("Kalodata Pro (9 Trang · 0₫)", tg_kalo)
+        self.assertIn("pro_kalo_vn@peng.vn", tg_kalo)
 
 
 if __name__ == "__main__":

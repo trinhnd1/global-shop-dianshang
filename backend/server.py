@@ -25,6 +25,9 @@ from .hunt import HuntAndCreatorsService
 from .hunt_schedules import HuntScheduleService, HuntSchedulerDaemon
 from .jobs import JobManager
 from .kalodata_bridge import KalodataAndGlobalSellingService
+from .kalodata_hunter import KalodataVnHunterService
+from .kalodata_import import KalodataImportAndCaptureService
+from .kalodata_pro_suite import KalodataProSuiteService
 from .keywords import KeywordResearchService
 from .ledger import CostLedger
 from .mcp_gateway import McpGatewayService
@@ -218,6 +221,30 @@ class Application:
             self.secrets,
             self.root,
             self.chrome_hub,
+            telegram_bot=self.telegram_bot,
+        )
+        self.kalodata_hunter = KalodataVnHunterService(
+            self.connect,
+            self.secrets,
+            self.products,
+            self.chrome_hub,
+            shops=self.shops,
+            desk_pipeline=self.desk_pipeline,
+            jev=self.jev,
+        )
+        self.hunt.kalodata_hunter = self.kalodata_hunter
+        self.kalodata_pro = KalodataProSuiteService(
+            self.connect,
+            self.kalodata_hunter,
+            products=self.products,
+            shops=self.shops,
+        )
+        self.kalodata_import = KalodataImportAndCaptureService(
+            self.connect,
+            self.secrets,
+            self.products,
+            self.chrome_hub,
+            shops=self.shops,
         )
         self.ecosystems = EcosystemPlaybookService(
             self.connect,
@@ -242,6 +269,9 @@ class Application:
         self.telegram_bot.watches_service = self.watches
         self.telegram_bot.ecosystems_service = self.ecosystems
         self.telegram_bot.hunt_schedules_service = self.hunt_schedules
+        self.telegram_bot.kalodata_bridge = self.kalodata_bridge
+        self.telegram_bot.kalodata_pro = self.kalodata_pro
+        self.telegram_bot.kalodata_hunter = self.kalodata_hunter
         self.watches.history_logs = self.history_logs
         self.ecosystems.history_logs = self.history_logs
         self.campaigns.history_logs = self.history_logs
@@ -249,6 +279,9 @@ class Application:
         self.handlers = [
             self.mcp_gateway,
             self.ecosystems,
+            self.kalodata_pro,
+            self.kalodata_hunter,
+            self.kalodata_import,
             self.kalodata_bridge,
             self.apify_catalog,
             self.desk_pipeline,

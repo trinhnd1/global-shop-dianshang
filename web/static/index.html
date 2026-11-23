@@ -20,11 +20,13 @@
     <aside class="side" id="sidebar">
       <div class="brand">
         <h1 style="display:flex;align-items:center;gap:8px"><img src="/favicon.svg?v=1.0.11" alt="GS" width="24" height="24" style="border-radius:6px;flex-shrink:0" /><span>Global Shop Dianshang</span></h1>
-        <div class="sub">Apify #1 · Treg #2 · 300+desk · Jev (<span id="sideVer">v1.0.15</span>)</div>
+        <div class="sub">Apify #1 · Treg #2 · 300+desk · Jev (<span id="sideVer">v1.0.16</span>)</div>
       </div>
 
       <div class="nav-sec">1 · Nghiên cứu, 300+desk &amp; Shop của tôi</div>
       <button class="nav-btn active" data-tab="hunt" data-route="/san-sp"><span>🔎 Săn SP &amp; Painpoint</span></button>
+      <button class="nav-btn" data-tab="kalopro" data-route="/kalodata-pro" style="border:1px solid rgba(16,185,129,0.45);background:rgba(16,185,129,0.10)"><span style="color:#6ee7b7;font-weight:700">🧭 Kalodata Pro (9 Trang · 0₫)</span><em class="ncount" id="cntKaloProSnaps">0</em></button>
+      <button class="nav-btn" data-tab="kalodata" data-route="/nhap-kalodata"><span>📥 Nhập Kalodata &amp; Chụp Bảng</span><em class="ncount" id="cntKaloImports">0</em></button>
       <button class="nav-btn" data-tab="ecosystems" data-route="/he-sinh-thai"><span>🎯 Hệ sinh thái &amp; Phụ kiện SP</span><em class="ncount" id="cntEcosystems">0</em></button>
       <button class="nav-btn" data-tab="deskflow" data-route="/luong-300-desk"><span>🤖 Xử lý SP 300+desk &rarr; Jev</span><em class="ncount" id="cntDeskRuns">0</em></button>
       <button class="nav-btn" data-tab="keywords" data-route="/tu-khoa"><span>🔑 Tra cứu Từ khoá Shopee/TT</span></button>
@@ -60,9 +62,10 @@
         <div class="row">
           <button class="btn btn-sm menu-btn" data-action="toggle-menu">☰ Menu</button>
           <span class="badge green" id="topStatusBadge">🟢 Sẵn sàng</span>
-          <span class="badge blue" id="topVerBadge">📦 v1.0.15</span>
+          <span class="badge blue" id="topVerBadge">📦 v1.0.16</span>
         </div>
         <div class="row">
+          <button class="btn btn-sm" style="border-color:#10b981;color:#6ee7b7;background:rgba(16,185,129,0.12)" data-action="jump-kalopro">🧭 Kalodata Pro (0₫)</button>
           <button class="btn btn-sm btn-gold" data-action="jump-jevrank">🏆 BXH Jev (<span id="topJevCnt">0</span>)</button>
           <button class="btn btn-sm btn-gold" data-action="jump-ecosystems">🎯 Hệ sinh thái SP (<span id="topEcoCnt">0</span>)</button>
           <button class="btn btn-sm btn-pri" data-action="jump-deskflow">🤖 300+desk &rarr; Jev</button>
@@ -136,6 +139,7 @@
                     <label><input type="checkbox" class="hunt-ch" value="tiktok_shop_th" /> 🇹🇭 TikTokShop TH</label>
                   </div>
                   <div class="row" style="gap:10px">
+                    <label style="color:#6ee7b7;font-weight:600"><input type="checkbox" class="hunt-ch" value="kalodata_vn" checked /> 📊 Kalodata VN (0₫ · Full GMV/Video)</label>
                     <label><input type="checkbox" class="hunt-ch" value="lazada" /> 📦 Lazada VN</label>
                     <label style="color:#fcd34d"><input type="checkbox" id="huntUse300Desk" checked /> 🤖 Xử lý SP qua 300+desk (OPi SOCKS5)</label>
                     <label><input type="checkbox" id="huntAutoJev" checked /> 🎯 Jev AI Ra quyết định</label>
@@ -261,6 +265,75 @@
             <div id="huntSchedulesListBox"></div>
           </div>
 
+          <!-- ROW 1C: DIRECT KALODATA VN CATEGORY & KEYWORD HUNTER ($0.00 CDP) -->
+          <div class="card" id="kalodataVnHunterCard" style="border-color:rgba(16,185,129,0.55);background:linear-gradient(135deg,#07221b 0%,#0b1726 100%)">
+            <div class="row" style="justify-content:space-between;margin-bottom:8px">
+              <div>
+                <h3 style="margin:0;color:#6ee7b7">📊 1C. Săn &amp; Phân Loại Trực Tiếp Kalodata VN — Theo 30 Ngành Hàng &amp; Từ Khoá (0₫ · 20 Trường SP + 17 Trường Video GPM/ROAS)</h3>
+                <div style="font-size:12px;color:var(--muted)">Quét trực tiếp từ phiên Kalodata Pro trên Chrome Chuyên Dụng <code>peng_dedicated</code>: tự động nạp Kho SP, lưu KOC/Video chuyển đổi cao, xử lý từ khoá 1688 qua <strong>300+desk</strong> &amp; chấm điểm <strong>Jev AI</strong>.</div>
+              </div>
+              <div class="row">
+                <select id="kaloHuntHistorySelect" style="width:auto;max-width:230px;font-size:12px">
+                  <option value="">🕒 Lịch sử quét Kalodata VN...</option>
+                </select>
+                <button class="btn btn-sm" style="border-color:#38bdf8;color:#7dd3fc" data-action="kalo-cat-leaderboard">🗺️ BXH Toàn Ngành VN</button>
+                <button class="btn btn-sm btn-pri" data-action="jump-kalopro">🧭 Mở Kalodata Pro Đủ 9 Trang &rarr;</button>
+              </div>
+            </div>
+
+            <div class="chips" style="margin-bottom:8px">
+              <button type="button" class="chip" data-action="kalo-preset-cat" data-cat="873352">📂 🌱 Làm vườn &amp; Cây cảnh</button>
+              <button type="button" class="chip" data-action="kalo-preset-cat" data-cat="600001">📂 🏠 Gia dụng &amp; Đời sống</button>
+              <button type="button" class="chip" data-action="kalo-preset-cat" data-cat="601450">📂 💄 Làm đẹp &amp; Cá nhân</button>
+              <button type="button" class="chip" data-action="kalo-preset-cat" data-cat="601739">📂 📱 Điện thoại &amp; Phụ kiện số</button>
+              <button type="button" class="chip" data-action="kalo-preset-cat" data-cat="700645">📂 💊 Sức khoẻ &amp; TPCN</button>
+              <button type="button" class="chip" data-action="kalo-preset-kw" data-kw="quạt cầm tay sò lạnh">🔎 quạt cầm tay sò lạnh</button>
+              <button type="button" class="chip" data-action="kalo-preset-kw" data-kw="kệ nhà tắm hút chân không">🔎 kệ nhà tắm hút chân không</button>
+            </div>
+
+            <div class="grid4" style="margin-bottom:8px">
+              <div class="field" style="margin:0">
+                <label>Ngành hàng Kalodata VN (30 ngành chuẩn)</label>
+                <select id="kaloHuntCategorySelect">
+                  <option value="">📂 Tất cả Ngành hàng (Không lọc ngành)</option>
+                </select>
+              </div>
+              <div class="field" style="margin:0">
+                <label>Từ khoá ngách (để trống nếu quét cả Ngành)</label>
+                <input type="text" id="kaloHuntInput" placeholder="VD: máy xay tỏi ớt, tai nghe bluetooth..." />
+              </div>
+              <div class="field" style="margin:0">
+                <label>Kỳ dữ liệu &amp; Số lượng SP</label>
+                <div class="row" style="flex-wrap:nowrap">
+                  <select id="kaloHuntWindow">
+                    <option value="7d" selected>7 ngày (7d)</option>
+                    <option value="30d">30 ngày (30d)</option>
+                  </select>
+                  <select id="kaloHuntLimitProducts">
+                    <option value="15">15 SP</option>
+                    <option value="25" selected>25 SP</option>
+                    <option value="50">50 SP</option>
+                    <option value="100">100 SP</option>
+                  </select>
+                </div>
+              </div>
+              <div class="field" style="margin:0">
+                <label>Tự động nạp Kho &amp; Chấm AI</label>
+                <div class="row" style="padding-top:5px;font-size:12px;gap:8px">
+                  <label><input type="checkbox" id="kaloHuntVideosChk" checked /> 🎬 Video GPM</label>
+                  <label><input type="checkbox" id="kaloHuntAutoIngestChk" checked /> 📦 Nạp Kho</label>
+                  <label style="color:#fcd34d"><input type="checkbox" id="kaloHuntDeskChk" /> 🤖 300+desk</label>
+                  <label><input type="checkbox" id="kaloHuntScoreJevChk" checked /> 🎯 Jev</label>
+                </div>
+              </div>
+            </div>
+
+            <div class="row" style="justify-content:flex-end">
+              <button class="btn btn-pri" style="background:#059669;border-color:#10b981" data-action="kalo-hunt-run">📊 Quét Kalodata VN &amp; Phân Loại Ngay (0₫)</button>
+            </div>
+            <div id="kalodataHuntResultBox" style="margin-top:10px"></div>
+          </div>
+
           <!-- ROW 2: GOOGLE TRENDS BREAKOUT WORKBENCH -->
           <div class="card" style="border-color:rgba(56,189,248,0.4)">
             <div class="row" style="justify-content:space-between;margin-bottom:8px">
@@ -353,6 +426,214 @@
             </div>
             <div id="huntPastDetailBox" style="margin-bottom:10px"></div>
             <div id="huntRecentRunsBox"></div>
+          </div>
+        </section>
+
+        <!-- VIEW 1.1K1: KALODATA PRO 9-PAGE INTELLIGENCE SUITE ($0.00 CDP) -->
+        <section class="view" id="view-kalopro">
+          <div class="page-head">
+            <div>
+              <h2>🧭 Khai Thác Sâu Kalodata Pro — Trọn Bộ 9 Phân Trang Thực Chiến (0₫ · Chuyển từ Affiliate by Peng)</h2>
+              <p>Đọc trực tiếp dữ liệu gốc TanStack React Fiber từ phiên <strong>Kalodata Pro Trả Phí</strong> trên Chrome Chuyên Dụng <code>peng_dedicated</code>: <strong>Shop mở Affiliate &amp; GMV cao · Thương hiệu &amp; Ngân sách Ads · Săn KOC + Tự bóc SĐT/Zalo/Email trong Bio · Video AI ra đơn · Video Ads ROAS cao · Kênh nhỏ nổ đơn · Phòng LIVE · BXH Toàn Ngành &amp; Mổ xẻ sâu SKU tồn kho + Lấy MP4 sạch không logo (0₫)</strong>.</p>
+            </div>
+            <div class="row">
+              <span class="badge green" id="kaloProPlanBadge">✅ Kalodata Pro · Chrome peng_dedicated</span>
+              <button class="btn btn-sm" data-action="kalopro-reload-history">↻ Làm mới lịch sử</button>
+              <button class="btn btn-sm btn-blue" data-action="jump-kalodata-import">📥 Mở Wizard Nhập File / Chụp Bảng</button>
+            </div>
+          </div>
+
+          <div class="card" style="border:1px solid #059669;background:linear-gradient(135deg,#07221b 0%,#0b1726 100%)">
+            <div class="grid4" style="margin-bottom:10px">
+              <div class="field" style="margin:0">
+                <label>Ngành hàng TikTok Shop VN</label>
+                <select id="kaloProPageCatSelect">
+                  <option value="">📂 Tất cả Ngành hàng TikTok Shop VN</option>
+                </select>
+              </div>
+              <div class="field" style="grid-column:span 2;margin:0">
+                <label>Từ khoá ngách (để trống để lấy BXH Toàn Sàn VN)</label>
+                <input type="text" id="kaloProPageKwInput" placeholder="VD: quạt cầm tay, kệ nhà tắm, túi xách, phụ kiện điện thoại..." />
+              </div>
+              <div class="field" style="margin:0">
+                <label>Kỳ dữ liệu &amp; Số dòng</label>
+                <div class="row" style="flex-wrap:nowrap">
+                  <select id="kaloProPageWindow">
+                    <option value="7d" selected>📅 7 ngày (Chuẩn)</option>
+                    <option value="30d">📅 30 ngày</option>
+                  </select>
+                  <select id="kaloProPageLimit">
+                    <option value="15">15 dòng</option>
+                    <option value="25" selected>25 dòng</option>
+                    <option value="50">50 dòng</option>
+                    <option value="100">100 dòng</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <div style="margin-bottom:6px;font-size:12px;color:#a7f3d0;font-weight:700">⚡ Bước 1 — Chọn phân trang Kalodata Pro cần quét trực tiếp ($0.00):</div>
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:8px;margin-bottom:12px">
+              <button type="button" class="btn" data-action="kalopro-act" data-mod="shops_aff" style="justify-content:flex-start;border-color:#10b981;color:#6ee7b7;background:rgba(16,185,129,0.12)">🏪 <strong>Shop Đối Thủ &amp; Affiliate</strong> <small style="opacity:.8">(/shop)</small></button>
+              <button type="button" class="btn" data-action="kalopro-act" data-mod="brands" style="justify-content:flex-start;border-color:#38bdf8;color:#7dd3fc;background:rgba(56,189,248,0.10)">🏷️ <strong>Thương Hiệu &amp; Ads</strong> <small style="opacity:.8">(/brand)</small></button>
+              <button type="button" class="btn" data-action="kalopro-act" data-mod="creators" style="justify-content:flex-start;border-color:#f59e0b;color:#fde68a;background:rgba(245,158,11,0.12)">👤 <strong>Săn KOC + Bóc Zalo/SĐT</strong> <small style="opacity:.8">(/creator)</small></button>
+              <button type="button" class="btn" data-action="kalopro-act" data-mod="ai_videos" style="justify-content:flex-start;border-color:#c084fc;color:#e9d5ff;background:rgba(192,132,252,0.12)">🤖 <strong>Video AI Ra Đơn</strong> <small style="opacity:.8">(ai_video=1)</small></button>
+              <button type="button" class="btn" data-action="kalopro-act" data-mod="roas_videos" style="justify-content:flex-start;border-color:#fb7185;color:#fda4af;background:rgba(251,113,133,0.12)">📣 <strong>Video Ads ROAS Cao</strong> <small style="opacity:.8">(&ge;1.8x)</small></button>
+              <button type="button" class="btn" data-action="kalopro-act" data-mod="low_fan_videos" style="justify-content:flex-start;border-color:#2dd4bf;color:#99f6e4;background:rgba(45,212,191,0.12)">🚀 <strong>Kênh Nhỏ Nổ Đơn</strong> <small style="opacity:.8">(&le;60K fan)</small></button>
+              <button type="button" class="btn" data-action="kalopro-act" data-mod="livestreams" style="justify-content:flex-start;border-color:#f87171;color:#fecaca;background:rgba(248,113,113,0.12)">🔴 <strong>Phòng LIVE Nổ Đơn</strong> <small style="opacity:.8">(/livestream)</small></button>
+              <button type="button" class="btn" data-action="kalopro-act" data-mod="category_board" style="justify-content:flex-start;border-color:#60a5fa;color:#bfdbfe;background:rgba(96,165,250,0.12)">🗺️ <strong>BXH Toàn Ngành VN</strong> <small style="opacity:.8">(/category)</small></button>
+            </div>
+
+            <div style="padding:10px;border-radius:8px;background:rgba(9,21,38,0.85);border:1px dashed rgba(56,189,248,0.5)">
+              <div style="font-size:12px;color:#7dd3fc;font-weight:700;margin-bottom:6px">🔬 Phân trang #9 — Mổ Xẻ Sâu Sản Phẩm (<code>/product/detail</code>: Tồn kho SKU, Tỷ trọng kênh, Điểm bán hàng AI) hoặc Video (<code>/video/detail</code>: Lấy Link MP4 Không Watermark 0₫):</div>
+              <div class="row">
+                <input type="text" id="kaloProDeepInput" placeholder="Nhập ID 19 chữ số hoặc Link Sản phẩm / Video TikTok hoặc Kalodata (VD: 1737751826628970270 hoặc link video)..." style="flex:1;min-width:260px" />
+                <button type="button" class="btn btn-blue" data-action="kalopro-deep-inspect">🔬 Mổ Xẻ Sâu &amp; Lấy MP4 Sạch 0₫</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="row" style="justify-content:space-between;margin-bottom:8px">
+              <h3 style="margin:0">🕒 Các phiên quét Kalodata Pro đã lưu trong SQLite (Bấm để xem lại ngay)</h3>
+              <span style="font-size:12px;color:var(--muted)">Tự động đồng bộ Shop vào Kho Shop, KOC vào Kho Creator &amp; Video vào Kho Video</span>
+            </div>
+            <div class="chips" id="kaloProHistoryPills"><span style="color:var(--muted);font-size:12px">Đang tải lịch sử phiên quét...</span></div>
+          </div>
+
+          <div class="card" id="kaloProDedicatedResultBox" style="min-height:180px">
+            <div style="color:var(--muted);font-size:13px">Chọn 1 trong 8 nút phân hệ phía trên, nhập ID mổ xẻ sâu hoặc bấm vào một phiên quét gần nhất để xem bảng dữ liệu chi tiết.</div>
+          </div>
+        </section>
+
+        <!-- VIEW 1.1K2: KALODATA IMPORT WIZARD (.XLSX/.CSV/.JSON/.ZIP) & BOUNDED BROWSER TABLE CAPTURE -->
+        <section class="view" id="view-kalodata">
+          <div class="page-head">
+            <div>
+              <h2>📥 Kalodata Import Wizard (<code>.xlsx</code> · <code>.csv</code> · <code>.json</code> · <code>.zip</code>) &amp; Chụp Bảng Trình Duyệt Trực Tiếp</h2>
+              <p>Nhập tệp xuất từ <strong>Kalodata PC</strong> (Preview &rarr; Kiểm tra chống trộn chéo thị trường &amp; bảo toàn ID 19 chữ số &rarr; Commit nguyên tử vào Kho SP / Kho Shop / Kho Creator / Kho Video) hoặc <strong>Chụp trực tiếp bảng Kalodata đang mở</strong> trên Chrome Chuyên Dụng.</p>
+            </div>
+            <div class="row">
+              <button class="btn btn-sm btn-pri" data-action="jump-kalopro">🧭 Sang Kalodata Pro (9 Trang · 0₫)</button>
+            </div>
+          </div>
+
+          <div class="grid2">
+            <div class="card">
+              <h3>1. Cấu hình Phạm vi &amp; Tải Tệp Xuất Kalodata (<code>.xlsx</code> / <code>.csv</code> / <code>.json</code> / <code>.zip</code>)</h3>
+              <div class="grid3">
+                <div class="field">
+                  <label>Thị trường (Market)</label>
+                  <select id="impMarket">
+                    <option value="VN" selected>🇻🇳 VN (Việt Nam)</option>
+                    <option value="TH">🇹🇭 TH (Thái Lan)</option>
+                    <option value="PH">🇵🇭 PH (Philippines)</option>
+                    <option value="SG">🇸🇬 SG (Singapore)</option>
+                    <option value="MY">🇲🇾 MY (Malaysia)</option>
+                    <option value="ID">🇮🇩 ID (Indonesia)</option>
+                    <option value="US">🇺🇸 US (Hoa Kỳ)</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label>Đơn vị tiền tệ</label>
+                  <select id="impCurrency">
+                    <option value="VND" selected>VND (₫)</option>
+                    <option value="USD">USD ($)</option>
+                    <option value="THB">THB (฿)</option>
+                    <option value="PHP">PHP (₱)</option>
+                    <option value="SGD">SGD (S$)</option>
+                    <option value="MYR">MYR (RM)</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label>Cửa sổ dữ liệu</label>
+                  <select id="impWindow">
+                    <option value="7d" selected>7 ngày (7d)</option>
+                    <option value="30d">30 ngày (30d)</option>
+                    <option value="90d">90 ngày (90d)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="grid2">
+                <div class="field">
+                  <label>Loại thực thể (nếu dán lẻ 1 bảng)</label>
+                  <select id="impEntityType">
+                    <option value="">Tự động nhận diện theo tên tệp</option>
+                    <option value="products">Products (Sản phẩm)</option>
+                    <option value="creators">Creators / Affiliates (KOC)</option>
+                    <option value="videos">Videos (Video bán hàng)</option>
+                    <option value="shops">Shops (Gian hàng đối thủ)</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label>Chọn tệp <code>.xlsx</code> / <code>.csv</code> / <code>.json</code> / <code>.zip</code> (&le;15MB)</label>
+                  <input type="file" id="impFiles" multiple accept=".xlsx,.csv,.json,.md,.zip" />
+                </div>
+              </div>
+
+              <div class="field">
+                <label>Hoặc dán trực tiếp nội dung JSON / CSV:</label>
+                <textarea id="impRawText" rows="4" placeholder='[{"product_id":"1729483920192837465","product_name":"Quạt cầm tay sò lạnh","price":"189000","gmv":"145000000","video_gmv":"128000000","units_sold":"760","commission_pct":"12"}]'></textarea>
+              </div>
+
+              <div class="field">
+                <label>Ánh xạ cột tuỳ chỉnh JSON (tuỳ chọn, để trống nếu dùng header mặc định Việt/Anh/Trung):</label>
+                <input type="text" id="impMappingJson" placeholder='VD: {"product_id":"Mã SP","gmv":"Doanh thu 7 ngày"}' />
+              </div>
+
+              <div class="row">
+                <button class="btn btn-pri" data-action="kimp-preview">🔍 1. Xem trước &amp; Kiểm tra Hợp lệ</button>
+                <button class="btn btn-sm" data-action="kimp-fill-sample">📋 Điền mẫu thử (VN 7d)</button>
+              </div>
+            </div>
+
+            <div class="card">
+              <h3>2. Kết quả Kiểm tra Trước Commit (Preview &amp; Chống Trùng Lặp SHA-256)</h3>
+              <div id="impPreviewBox" style="color:var(--muted);font-size:12.5px">
+                Tải tệp lên hoặc bấm <strong>Điền mẫu thử</strong> &rarr; <strong>Xem trước</strong> để kiểm tra khớp ID sản phẩm 19 chữ số, xung đột thị trường và mã băm SHA-256 trước khi ghi vào Kho.
+              </div>
+              <div class="row" style="margin-top:10px">
+                <button class="btn btn-gold" id="btnCommitKaloImport" data-action="kimp-commit" disabled>✅ 2. Commit Nguyên tử vào Kho Nghiên cứu</button>
+              </div>
+              <hr style="border:0;border-top:1px solid var(--border);margin:14px 0" />
+              <h4 style="margin:0 0 8px">📜 Lịch sử các Lô Import Kalodata gần đây</h4>
+              <div id="impBatchesList" style="font-size:12px;color:var(--muted)">Chưa có lô import nào.</div>
+            </div>
+          </div>
+
+          <div class="card" style="border-color:rgba(56,189,248,0.45)">
+            <div class="row" style="justify-content:space-between;margin-bottom:8px">
+              <div>
+                <h3 style="margin:0;color:#7dd3fc">3. 🌐 Chụp Bảng Kalodata Trực Tiếp Trên Chrome Chuyên Dụng (1 Trang hoặc Đa Trang Có Giới Hạn)</h3>
+                <div style="font-size:12px;color:var(--muted)">Khi gói tài khoản không cho xuất file Excel, mở sẵn bảng bất kỳ trên tab Kalodata của Chrome <code>peng_dedicated</code> rồi bấm chụp trực tiếp bên dưới, xem trước loại bỏ dòng lỗi, Commit vào Kho &amp; tải gói <code>.zip</code> / <code>.csv</code>.</div>
+              </div>
+              <button class="btn btn-sm btn-gold" data-action="open-browser" data-portal="kalodata">🌐 Mở Tab Kalodata trên Chrome</button>
+            </div>
+
+            <div class="row" style="margin-bottom:10px">
+              <select id="klCapEntity" style="width:auto">
+                <option value="">Tự nhận diện theo URL tab</option>
+                <option value="products">Products (Sản phẩm)</option>
+                <option value="videos">Videos (Video)</option>
+                <option value="creators">Creators (KOC)</option>
+                <option value="shops">Shops (Gian hàng)</option>
+              </select>
+              <select id="klCapWindow" style="width:auto">
+                <option value="7d" selected>7d (7 ngày)</option>
+                <option value="30d">30d (30 ngày)</option>
+              </select>
+              <button class="btn btn-pri" data-action="kcap-current">📄 Đọc trang hiện tại (1 trang)</button>
+              <span style="color:var(--muted)">|</span>
+              <label style="font-size:12px">Tối đa trang:</label>
+              <input type="number" id="klCapMaxPages" value="3" min="1" max="25" style="width:68px" />
+              <label style="font-size:12px">Tối đa dòng:</label>
+              <input type="number" id="klCapMaxRows" value="50" min="1" max="500" style="width:78px" />
+              <button class="btn btn-blue" data-action="kcap-bounded">📚 Đọc nhiều trang (Có giới hạn)</button>
+            </div>
+
+            <div id="klCapturePreviewBox" style="margin-bottom:10px"></div>
+            <div id="klCapturesHistoryBox"></div>
           </div>
         </section>
 
@@ -1538,13 +1819,49 @@
                 <button class="btn btn-sm" data-action="open-browser" data-portal="china_1688_taobao">🇨🇳 Mở 1688/Taobao</button>
               </div>
               <div class="grid2">
-                <div class="field"><label>Email Tài khoản Kalodata VN</label><input type="text" id="setKaloEmail" placeholder="jreed767@cnebw.eu.cc" /></div>
+                <div class="field"><label>Email / SĐT Tài khoản Kalodata</label><input type="text" id="setKaloEmail" placeholder="jreed767@cnebw.eu.cc" /></div>
                 <div class="field"><label>Mật khẩu Kalodata (lưu Keychain)</label><input type="password" id="setKaloPassword" placeholder="••••••••" /></div>
               </div>
-              <div class="row">
-                <button class="btn btn-sm btn-pri" data-action="kalo-sync-affiliate">📥 Đồng bộ nguyên Tài khoản Kalodata từ affiliate-peng</button>
-                <button class="btn btn-sm" data-action="eco-check-portals">🔌 Kiểm tra Phiên Kalodata &amp; Global Selling</button>
+              <div class="grid3">
+                <div class="field">
+                  <label>Thị trường mặc định</label>
+                  <select id="setKaloMarket">
+                    <option value="VN" selected>🇻🇳 Việt Nam (VN)</option>
+                    <option value="TH">🇹🇭 Thái Lan (TH)</option>
+                    <option value="PH">🇵🇭 Philippines (PH)</option>
+                    <option value="SG">🇸🇬 Singapore (SG)</option>
+                    <option value="MY">🇲🇾 Malaysia (MY)</option>
+                    <option value="ID">🇮🇩 Indonesia (ID)</option>
+                    <option value="US">🇺🇸 Hoa Kỳ (US)</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label>Tiền tệ Kalodata</label>
+                  <select id="setKaloCurrency">
+                    <option value="VND" selected>VND (₫)</option>
+                    <option value="USD">USD ($)</option>
+                    <option value="THB">THB (฿)</option>
+                    <option value="PHP">PHP (₱)</option>
+                    <option value="SGD">SGD (S$)</option>
+                    <option value="MYR">MYR (RM)</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label>Kỳ mặc định (ngày)</label>
+                  <select id="setKaloWindow">
+                    <option value="7" selected>7 ngày</option>
+                    <option value="30">30 ngày</option>
+                    <option value="90">90 ngày</option>
+                  </select>
+                </div>
               </div>
+              <div class="row" style="flex-wrap:wrap">
+                <button class="btn btn-sm" style="background:#059669;border-color:#10b981;color:#fff" data-action="kalo-rotate-account">🔄 Cập nhật &amp; Đổi Tài khoản trên Chrome (Logout cũ &rarr; Login mới &rarr; Báo Telegram)</button>
+                <button class="btn btn-sm btn-pri" data-action="kalo-sync-affiliate">📥 Đồng bộ từ affiliate-peng</button>
+                <button class="btn btn-sm btn-gold" data-action="kalo-check-quota">⚡ Kiểm tra Gói &amp; Hạn mức Kalodata</button>
+                <button class="btn btn-sm" data-action="eco-check-portals">🔌 Kiểm tra Phiên Chrome</button>
+              </div>
+              <div id="kaloRotateLogsBox" style="margin-top:8px;font-size:12px;color:#a7f3d0"></div>
               <div id="browserHubBox" style="margin-top:8px;font-size:12px;color:var(--muted)"></div>
             </div>
 

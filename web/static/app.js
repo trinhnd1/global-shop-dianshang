@@ -3,6 +3,9 @@
   const ROUTE_TO_TAB = {
     "/": "hunt",
     "/san-sp": "hunt",
+    "/kalodata-pro": "kalopro",
+    "/nhap-kalodata": "kalodata",
+    "/kalodata": "kalodata",
     "/he-sinh-thai": "ecosystems",
     "/luong-300-desk": "deskflow",
     "/tu-khoa": "keywords",
@@ -390,6 +393,8 @@
   async function refreshTab(tab) {
     await syncSidebarCountsAndRefs();
     if (tab === "hunt") await loadHuntRecentRuns();
+    else if (tab === "kalopro") await loadKalodataProTab();
+    else if (tab === "kalodata") await loadKalodataImportTab();
     else if (tab === "ecosystems") await loadEcosystemsTab();
     else if (tab === "deskflow") await loadDesk300Tab();
     else if (tab === "myshops") await loadMyShops();
@@ -797,7 +802,7 @@
   }
 
   async function loadHuntRecentRuns() {
-    await Promise.all([loadGoogleTrendsHistory(), loadPainpoints(), loadHuntSchedules()]);
+    await Promise.all([loadGoogleTrendsHistory(), loadPainpoints(), loadHuntSchedules(), loadKalodataCategoriesAndHuntHistory()]);
     const box = document.getElementById("huntRecentRunsBox");
     if (!box) return;
     const data = await api("/api/history-logs?module=hunt");
@@ -2334,6 +2339,9 @@
     document.getElementById("setJevKey").value = st.providers?.typesafe_key || "";
     if (document.getElementById("setKaloEmail")) document.getElementById("setKaloEmail").value = st.kalodata?.account_email || "";
     if (document.getElementById("setKaloPassword")) document.getElementById("setKaloPassword").value = st.kalodata?.password || "";
+    if (document.getElementById("setKaloMarket")) document.getElementById("setKaloMarket").value = st.kalodata?.market || "VN";
+    if (document.getElementById("setKaloCurrency")) document.getElementById("setKaloCurrency").value = st.kalodata?.currency || "VND";
+    if (document.getElementById("setKaloWindow")) document.getElementById("setKaloWindow").value = String(st.kalodata?.default_window_days || 7);
     document.getElementById("setCnyRate").value = st.sourcing?.cny_to_vnd_rate ?? 3650;
     document.getElementById("setShipKg").value = st.sourcing?.cn_shipping_per_kg_vnd ?? 28000;
     document.getElementById("setPackVnd").value = st.sourcing?.packaging_cost_vnd ?? 3500;
@@ -2388,6 +2396,14 @@
       loadJevLeaderboard();
     } else if (["histFilterMod", "histFilterStatus"].includes(ev.target.id)) {
       loadHistoryAndJobs();
+    } else if (ev.target.id === "kaloHuntHistorySelect" && ev.target.value) {
+      api(`/api/hunt/kalodata-vn/${encodeURIComponent(ev.target.value)}`).then((r) => renderKalodataHuntResult(r)).catch((e) => toast(e.message, true));
+    } else if (ev.target.classList.contains("kcap-excl-chk")) {
+      const capId = ev.target.dataset.capid;
+      const excl = [...document.querySelectorAll(`.kcap-excl-chk[data-capid="${capId}"]:not(:checked)`)].map((c) => Number(c.dataset.ridx));
+      api(`/api/kalodata/captures/${encodeURIComponent(capId)}/preview`, "POST", { exclude_row_indices: excl })
+        .then((cap) => renderKalodataCapturePreview(cap))
+        .catch((e) => toast(e.message, true));
     } else if (ev.target.id === "msPlatform") {
       const p = ev.target.value;
       if (DEFAULT_FEES_BY_PLAT[p] !== undefined && !document.getElementById("msEditId").value) {
@@ -2457,6 +2473,10 @@
         closeModal();
       } else if (act === "jump-ecosystems") {
         showTab("ecosystems", "/he-sinh-thai");
+      } else if (act === "jump-kalopro") {
+        showTab("kalopro", "/kalodata-pro");
+      } else if (act === "jump-kalodata-import") {
+        showTab("kalodata", "/nhap-kalodata");
       } else if (act === "jump-jevrank") {
         showTab("jevrank", "/bang-xep-hang-jev");
       } else if (act === "jump-deskflow") {
@@ -3211,6 +3231,9 @@
           kalodata: {
             account_email: document.getElementById("setKaloEmail")?.value || "",
             password: document.getElementById("setKaloPassword")?.value || "",
+            market: document.getElementById("setKaloMarket")?.value || "VN",
+            currency: document.getElementById("setKaloCurrency")?.value || "VND",
+            default_window_days: Number(document.getElementById("setKaloWindow")?.value || 7),
           },
           notify: {
             telegram_token: document.getElementById("setTgToken").value,
@@ -3468,11 +3491,664 @@
         const res = await api(`/api/products/${actEl.dataset.id}/score-jev`, "POST", {});
         toast(res.summary);
         await loadJevLeaderboard();
+      } else if (act === "kalo-preset-cat") {
+        const sel = document.getElementById("kaloHuntCategorySelect");
+        if (sel) sel.value = actEl.dataset.cat || "";
+        toast("Đã chọn Ngành hàng Kalodata — bấm «Quét Kalodata VN» để chạy!");
+      } else if (act === "kalo-preset-kw") {
+        const inp = document.getElementById("kaloHuntInput");
+        if (inp) inp.value = actEl.dataset.kw || "";
+      } else if (act === "kalo-cat-leaderboard") {
+        const win = document.getElementById("kaloHuntWindow")?.value || "7d";
+        document.getElementById("kalodataHuntResultBox").innerHTML = `<div class="card">⏳ Đang quét BXH Toàn Ngành TikTok Shop VN trên Kalodata ($0.00)...</div>`;
+        const res = await api(`/api/hunt/kalodata-vn/category-leaderboard?window_spec=${encodeURIComponent(win)}&limit=25`);
+        renderKalodataProResult(res, "kalodataHuntResultBox");
+      } else if (act === "kalo-hunt-run") {
+        const catId = document.getElementById("kaloHuntCategorySelect")?.value || "";
+        const kw = document.getElementById("kaloHuntInput")?.value.trim() || "";
+        const win = document.getElementById("kaloHuntWindow")?.value || "7d";
+        const lim = Number(document.getElementById("kaloHuntLimitProducts")?.value || 25);
+        document.getElementById("kalodataHuntResultBox").innerHTML = `<div class="card">⏳ Đang quét trực tiếp Kalodata VN ($0.00 CDP) &amp; phân loại SP / Video / KOC...</div>`;
+        const res = await api("/api/hunt/kalodata-vn", "POST", {
+          category_id: catId,
+          keywords: kw ? [kw] : [],
+          window_spec: win,
+          limit_products: lim,
+          limit_videos: 15,
+          include_videos: document.getElementById("kaloHuntVideosChk")?.checked ?? true,
+          auto_ingest_suitable: document.getElementById("kaloHuntAutoIngestChk")?.checked ?? true,
+          use_300desk: document.getElementById("kaloHuntDeskChk")?.checked ?? false,
+          score_jev: document.getElementById("kaloHuntScoreJevChk")?.checked ?? true,
+        });
+        renderKalodataHuntResult(res);
+        await loadKalodataCategoriesAndHuntHistory();
+        await syncSidebarCountsAndRefs();
+        toast(`Kalodata VN hoàn tất: ${res.products_count} SP (${res.suitable_products_count} phù hợp) · ${res.videos_count} Video!`);
+      } else if (act === "kalopro-reload-history") {
+        await loadKalodataProTab(true);
+      } else if (act === "kalopro-open-snap") {
+        const snap = await api(`/api/hunt/kalodata-pro/snapshot/${encodeURIComponent(actEl.dataset.id)}`);
+        renderKalodataProResult(snap, "kaloProDedicatedResultBox");
+      } else if (act === "kalopro-act") {
+        const mod = actEl.dataset.mod;
+        const catId = document.getElementById("kaloProPageCatSelect")?.value || "";
+        const kw = document.getElementById("kaloProPageKwInput")?.value.trim() || "";
+        const win = document.getElementById("kaloProPageWindow")?.value || "7d";
+        const lim = Number(document.getElementById("kaloProPageLimit")?.value || 25);
+        document.getElementById("kaloProDedicatedResultBox").innerHTML = `<div style="color:#6ee7b7">⏳ Đang quét trực tiếp phân trang Kalodata Pro (${esc(mod)}) trên Chrome Chuyên Dụng ($0.00)...</div>`;
+        let res;
+        if (mod === "shops_aff") {
+          res = await api("/api/hunt/kalodata-pro/shops", "POST", { keyword: kw, category_id: catId, window_spec: win, preset: "all", limit: lim });
+        } else if (mod === "brands") {
+          res = await api("/api/hunt/kalodata-pro/brands", "POST", { keyword: kw, category_id: catId, window_spec: win, limit: lim });
+        } else if (mod === "creators") {
+          res = await api("/api/hunt/kalodata-pro/creators", "POST", { keyword: kw, category_id: catId, window_spec: win, auto_save_vault: true, limit: lim });
+        } else if (mod === "livestreams") {
+          res = await api("/api/hunt/kalodata-pro/livestreams", "POST", { keyword: kw, category_id: catId, window_spec: win, limit: lim });
+        } else if (mod === "category_board") {
+          res = await api(`/api/hunt/kalodata-vn/category-leaderboard?window_spec=${encodeURIComponent(win)}&limit=${lim}`);
+        } else {
+          const fm = mod === "ai_videos" ? "ai_video" : mod === "roas_videos" ? "high_roas_ads" : "low_follower_viral";
+          res = await api("/api/hunt/kalodata-pro/videos-advanced", "POST", { keyword: kw, category_id: catId, window_spec: win, filter_mode: fm, limit: lim });
+        }
+        renderKalodataProResult(res, "kaloProDedicatedResultBox");
+        await loadKalodataProTab(false);
+        await syncSidebarCountsAndRefs();
+        toast(`Đã quét xong ${res.items_count || 0} mục từ Kalodata Pro ($0.00)!`);
+      } else if (act === "kalopro-deep-inspect") {
+        const tgt = actEl.dataset.target || document.getElementById("kaloProDeepInput")?.value.trim() || "";
+        if (!tgt) {
+          toast("Hãy nhập ID 19 chữ số hoặc Link Sản phẩm / Video TikTok!", true);
+          return;
+        }
+        if (actEl.dataset.target && document.getElementById("kaloProDeepInput")) {
+          document.getElementById("kaloProDeepInput").value = tgt;
+          if (CURRENT_TAB !== "kalopro") showTab("kalopro", "/kalodata-pro");
+        }
+        document.getElementById("kaloProDedicatedResultBox").innerHTML = `<div style="color:#7dd3fc">🔬 Đang mổ xẻ sâu <code>${esc(tgt)}</code> trên Kalodata Pro &amp; trích xuất SKU tồn kho / MP4 không logo ($0.00)...</div>`;
+        const res = await api("/api/hunt/kalodata-pro/deep-detail", "POST", { target: tgt, save_to_vault: true });
+        renderKalodataProResult(res, "kaloProDedicatedResultBox");
+        await loadKalodataProTab(false);
+        await syncSidebarCountsAndRefs();
+      } else if (act === "kalo-send-sourcing") {
+        const q = actEl.dataset.q || "";
+        showTab("sourcing", "/nguon-hang-tq");
+        const inp = document.getElementById("srcQuery");
+        if (inp) inp.value = q;
+        toast("Đã chuyển tên SP sang tab Tìm Nguồn 1688 · PDD · Taobao!");
+      } else if (act === "kalo-send-videojev") {
+        const u = actEl.dataset.url || "";
+        showTab("videojev", "/video-jev");
+        const inp = document.getElementById("vjUrl");
+        if (inp) inp.value = u;
+        toast("Đã nạp Link Video sang tab Đánh giá Video Jev AI!");
+      } else if (act === "kalo-rotate-account") {
+        const box = document.getElementById("kaloRotateLogsBox");
+        if (box) box.innerHTML = "⏳ Đang logout phiên Kalodata cũ trên Chrome Chuyên Dụng, đăng nhập tài khoản mới & đồng bộ Telegram...";
+        const res = await api("/api/kalodata/rotate-account", "POST", {
+          account_email: document.getElementById("setKaloEmail")?.value || "",
+          password: document.getElementById("setKaloPassword")?.value || "",
+          market: document.getElementById("setKaloMarket")?.value || "VN",
+          currency: document.getElementById("setKaloCurrency")?.value || "VND",
+          default_window_days: Number(document.getElementById("setKaloWindow")?.value || 7),
+        });
+        if (box) {
+          box.innerHTML = `<pre class="codebox" style="margin:0;max-height:160px">${esc((res.step_logs || []).join("\n"))}</pre>`;
+        }
+        toast(res.ok ? "✅ Đổi tài khoản Kalodata thành công & đã báo Telegram!" : (res.error_message || res.status), !res.ok);
+        await loadSettings();
+      } else if (act === "kalo-check-quota") {
+        const q = await api("/api/kalodata/quota");
+        toast(`${q.plan_label_vi || q.status} (${q.account_email || "—"})`, !q.ok);
+      } else if (act === "kimp-fill-sample") {
+        document.getElementById("impRawText").value = JSON.stringify(
+          [
+            {
+              product_id: "1729483920192837465",
+              product_name: "Quạt cầm tay mini sò lạnh 100 cấp độ gió",
+              price: "189000",
+              gmv: "245000000",
+              video_gmv: "198000000",
+              units_sold: "1290",
+              commission_pct: "12",
+              creators_count: "18",
+            },
+            {
+              product_id: "1729483920192837466",
+              product_name: "Kệ góc nhà tắm hút chân không xoay 360",
+              price: "115000",
+              gmv: "132000000",
+              video_gmv: "110000000",
+              units_sold: "1140",
+              commission_pct: "15",
+              creators_count: "11",
+            },
+          ],
+          null,
+          2
+        );
+        toast("Đã điền dữ liệu mẫu Kalodata VN 7d — bấm «1. Xem trước»!");
+      } else if (act === "kimp-preview") {
+        await runKalodataImportPreview();
+      } else if (act === "kimp-commit") {
+        if (!CURRENT_KALO_IMPORT_BATCH_ID) return;
+        const res = await api(`/api/imports/${encodeURIComponent(CURRENT_KALO_IMPORT_BATCH_ID)}/commit`, "POST", { allow_skip_invalid: true });
+        document.getElementById("btnCommitKaloImport").disabled = true;
+        toast(`✅ Đã commit lô ${res.batch_id}: +${res.summary?.committed_products || 0} SP, +${res.summary?.committed_creators || 0} KOC, +${res.summary?.committed_videos || 0} Video!`);
+        await loadKalodataImportTab();
+        await syncSidebarCountsAndRefs();
+      } else if (act === "kcap-current" || act === "kcap-bounded") {
+        const bounded = act === "kcap-bounded";
+        document.getElementById("klCapturePreviewBox").innerHTML = `<div style="color:#7dd3fc">⏳ Đang đọc bảng Kalodata trên Chrome Chuyên Dụng (${bounded ? "Đa trang" : "1 trang"})...</div>`;
+        const cap = await api(bounded ? "/api/kalodata/captures/bounded-pages" : "/api/kalodata/captures/current-page", "POST", {
+          entity_type: document.getElementById("klCapEntity")?.value || "",
+          window_spec: document.getElementById("klCapWindow")?.value || "7d",
+          market: document.getElementById("impMarket")?.value || "VN",
+          currency: document.getElementById("impCurrency")?.value || "VND",
+          max_pages: Number(document.getElementById("klCapMaxPages")?.value || 3),
+          max_rows: Number(document.getElementById("klCapMaxRows")?.value || 50),
+        });
+        renderKalodataCapturePreview(cap);
+        await loadKalodataImportTab();
+      } else if (act === "kcap-open") {
+        const cap = await api(`/api/kalodata/captures/${encodeURIComponent(actEl.dataset.id)}`);
+        renderKalodataCapturePreview(cap);
+      } else if (act === "kcap-commit") {
+        const res = await api(`/api/kalodata/captures/${encodeURIComponent(actEl.dataset.id)}/commit`, "POST", {});
+        toast(`✅ Đã nạp bảng chụp vào Kho (Lô ${res.committed_batch_id})!`);
+        renderKalodataCapturePreview(res.capture);
+        await loadKalodataImportTab();
+        await syncSidebarCountsAndRefs();
       }
     } catch (err) {
       toast(err.message || "Có lỗi xảy ra", true);
     }
   });
+
+  // --- KALODATA PRO 9-PAGE, DIRECT HUNTER, IMPORT WIZARD & BROWSER CAPTURE ---
+  let KALO_CATS_LOADED = false;
+  let CURRENT_KALO_IMPORT_BATCH_ID = "";
+
+  async function loadKalodataCategoriesAndHuntHistory() {
+    try {
+      const [catRes, histRes] = await Promise.all([
+        KALO_CATS_LOADED ? Promise.resolve(null) : api("/api/hunt/kalodata-vn/categories"),
+        api("/api/hunt/kalodata-vn/history"),
+      ]);
+      if (catRes?.items) {
+        const opts = catRes.items
+          .map((c) => `<option value="${esc(c.id)}">${esc(c.icon)} [${esc(c.level)}] ${esc(c.vi)} (${esc(c.zh)})</option>`)
+          .join("");
+        const s1 = document.getElementById("kaloHuntCategorySelect");
+        if (s1) s1.innerHTML = `<option value="">📂 Tất cả Ngành hàng (Không lọc ngành)</option>` + opts;
+        const s2 = document.getElementById("kaloProPageCatSelect");
+        if (s2) s2.innerHTML = `<option value="">📂 Tất cả Ngành hàng TikTok Shop VN</option>` + opts;
+        KALO_CATS_LOADED = true;
+      }
+      const hSel = document.getElementById("kaloHuntHistorySelect");
+      if (hSel && histRes?.items) {
+        hSel.innerHTML =
+          `<option value="">🕒 Lịch sử quét Kalodata VN (${histRes.items.length})...</option>` +
+          histRes.items
+            .map(
+              (r) =>
+                `<option value="${esc(r.run_id)}">${esc((r.keywords || []).join(", ") || r.category_id)} · ${r.products_total} SP (${r.window_spec})</option>`
+            )
+            .join("");
+      }
+    } catch (_) {}
+  }
+
+  function renderKalodataHuntResult(r) {
+    const box = document.getElementById("kalodataHuntResultBox");
+    if (!box || !r) return;
+    const prods = r.products || [];
+    const vids = r.videos || [];
+    const crs = r.creators || [];
+    box.innerHTML = `
+      <div style="padding:10px;border-radius:8px;background:#081221;border:1px solid var(--border)">
+        <div class="row" style="justify-content:space-between;margin-bottom:8px">
+          <div class="row">
+            <span class="badge green">📊 ${r.products_count || prods.length} SP (${r.suitable_products_count || 0} phù hợp)</span>
+            <span class="badge blue">🎬 ${r.videos_count || vids.length} Video GPM/ROAS</span>
+            <span class="badge gold">👤 ${r.creators_count || crs.length} KOC</span>
+            ${r.desk300_nnn ? `<span class="badge gold">🤖 300+desk #${esc(r.desk300_nnn)}</span>` : ""}
+            ${r.jev_scored_count ? `<span class="badge green">🎯 Đã chấm Jev: ${r.jev_scored_count} SP</span>` : ""}
+          </div>
+          <button class="btn btn-sm btn-pri" data-action="jump-kho-all">🗂 Mở Kho SP (${(r.saved_product_ids || []).length} đã lưu)</button>
+        </div>
+        ${prods.length ? `
+          <table class="tbl">
+            <thead><tr><th>#</th><th>Sản phẩm TikTok Shop VN</th><th>Giá bán</th><th>GMV (${esc(r.window_spec)})</th><th>Đơn bán</th><th>Video / Live GMV</th><th>HH / KOC</th><th>Phân loại</th><th>Thao tác</th></tr></thead>
+            <tbody>
+              ${prods.slice(0, 30).map((p) => `
+                <tr>
+                  <td>${p.rank}</td>
+                  <td>
+                    <a href="${esc(p.canonical_url)}" target="_blank" style="color:#93c5fd;font-weight:600">${esc(p.product_title)}</a>
+                    <div style="font-size:11px;color:var(--muted)">ID: <code>${esc(p.native_product_id)}</code> ${p.gmv_growth_pct != null ? `· Tăng trưởng: <strong>${p.gmv_growth_pct > 0 ? "+" : ""}${p.gmv_growth_pct}%</strong>` : ""}</div>
+                  </td>
+                  <td>${p.price_vnd ? vnd(p.price_vnd) : "—"}</td>
+                  <td><strong style="color:#6ee7b7">${esc(p.gmv_total_display)}</strong></td>
+                  <td>${p.units_sold_window ?? "—"}</td>
+                  <td style="font-size:11.5px">🎬 ${esc(p.video_gmv_display)}<br/>🔴 ${esc(p.live_gmv_display)}</td>
+                  <td style="font-size:11.5px">${p.commission_pct != null ? `${p.commission_pct}%` : "—"} · ${p.active_creators_count ?? "—"} KOC</td>
+                  <td style="font-size:11.5px">${esc(p.classification?.suitability_label || "")}</td>
+                  <td>
+                    <div class="row" style="gap:4px">
+                      <button class="btn btn-sm btn-blue" data-action="kalopro-deep-inspect" data-target="${esc(p.native_product_id)}">🔬 Mổ SKU</button>
+                      <button class="btn btn-sm" data-action="kalo-send-sourcing" data-q="${esc(p.product_title)}">🇨🇳 1688</button>
+                    </div>
+                  </td>
+                </tr>`).join("")}
+            </tbody>
+          </table>` : `<div style="color:var(--muted)">Không tìm thấy sản phẩm phù hợp.</div>`}
+      </div>`;
+  }
+
+  async function loadKalodataProTab(forceRenderLatest = false) {
+    await loadKalodataCategoriesAndHuntHistory();
+    try {
+      const [hist, qSt] = await Promise.all([
+        api("/api/hunt/kalodata-pro/history"),
+        api("/api/kalodata/status").catch(() => null),
+      ]);
+      const snaps = hist.items || [];
+      const elCnt = document.getElementById("cntKaloProSnaps");
+      if (elCnt) elCnt.textContent = snaps.length;
+      const badge = document.getElementById("kaloProPlanBadge");
+      if (badge && qSt) {
+        badge.textContent = qSt.kalodata_session?.logged_in
+          ? `✅ Đã kết nối Kalodata (${qSt.account_email || "peng_dedicated"})`
+          : `⚪ Chrome peng_dedicated (${qSt.account_email || "bấm Mở Kalodata"})`;
+      }
+      const pills = document.getElementById("kaloProHistoryPills");
+      if (pills) {
+        pills.innerHTML = snaps.length
+          ? snaps
+              .map(
+                (s) =>
+                  `<button type="button" class="chip" data-action="kalopro-open-snap" data-id="${esc(s.snap_id)}">📌 [${esc(s.module_kind)}] ${esc(s.target_query || "Toàn sàn VN")} (${s.items_count})</button>`
+              )
+              .join("")
+          : `<span style="color:var(--muted);font-size:12px">Chưa có phiên quét nào — hãy bấm chọn 1 phân trang phía trên!</span>`;
+      }
+      if ((forceRenderLatest || document.getElementById("kaloProDedicatedResultBox")?.children.length <= 1) && hist.latest) {
+        renderKalodataProResult(hist.latest, "kaloProDedicatedResultBox");
+      }
+    } catch (_) {}
+  }
+
+  function renderKalodataProResult(data, targetBoxId) {
+    const box = document.getElementById(targetBoxId);
+    if (!box || !data) return;
+
+    if (data.detail_kind === "video") {
+      box.innerHTML = `
+        <div>
+          <div class="row" style="justify-content:space-between;margin-bottom:10px">
+            <h3 style="margin:0;color:#7dd3fc">🔬 Mổ Xẻ Sâu Video Bán Hàng #<code>${esc(data.video_id)}</code> (@${esc(data.author_handle || "_")})</h3>
+            <div class="row">
+              ${data.mp4_cdn_url ? `<a class="btn btn-sm btn-pri" href="${esc(data.mp4_cdn_url)}" target="_blank">⬇️ Mở / Tải MP4 Không Watermark (0₫)</a>` : ""}
+              <button class="btn btn-sm btn-gold" data-action="eco-send-to-clone" data-url="${esc(data.mp4_cdn_url || data.tiktok_url)}" data-prod="${esc(data.caption || "")}">⚡ Đưa sang Clone Video 15s</button>
+              <button class="btn btn-sm" data-action="kalo-send-videojev" data-url="${esc(data.mp4_cdn_url || data.tiktok_url)}">🎬 Chấm Video Jev</button>
+            </div>
+          </div>
+          <div class="row" style="margin-bottom:10px">
+            <span class="badge green">GMV: ${esc(data.gmv_display)}</span>
+            <span class="badge blue">Đơn bán: ${data.units_sold ?? "—"} · Views: ${data.views_count ?? "—"}</span>
+            <span class="badge gold">Ads ROAS: ${data.ad_roas ?? "—"} · Chi Ads: ${esc(data.ad_spend_display)} (${data.ad_flight_days || 0} ngày)</span>
+          </div>
+          <p style="font-size:12.5px;color:#cbd5e1">${esc(data.caption || "")}</p>
+          ${(data.linked_products || []).length ? `
+            <h4>🛒 Sản phẩm gắn trong Video (${data.linked_products.length})</h4>
+            <table class="tbl">
+              <thead><tr><th>Mã SP</th><th>Tên sản phẩm</th><th>Giá</th><th>GMV</th><th>Tỷ trọng</th><th>Mổ xẻ</th></tr></thead>
+              <tbody>${data.linked_products.map((lp) => `
+                <tr>
+                  <td><code>${esc(lp.product_id)}</code></td>
+                  <td>${esc(lp.title)}</td>
+                  <td>${lp.price_vnd ? vnd(lp.price_vnd) : "—"}</td>
+                  <td>${esc(lp.gmv_display)}</td>
+                  <td>${lp.share_pct != null ? `${lp.share_pct}%` : "—"}</td>
+                  <td><button class="btn btn-sm btn-blue" data-action="kalopro-deep-inspect" data-target="${esc(lp.product_id)}">🔬 Mổ SP</button></td>
+                </tr>`).join("")}
+              </tbody>
+            </table>` : ""}
+        </div>`;
+      return;
+    }
+
+    if (data.detail_kind === "product") {
+      const cs = data.channel_split || {};
+      box.innerHTML = `
+        <div>
+          <div class="row" style="justify-content:space-between;margin-bottom:10px">
+            <h3 style="margin:0;color:#6ee7b7">🔬 Mổ Xẻ Sâu Sản Phẩm #<code>${esc(data.product_id)}</code> — ${esc(data.title)}</h3>
+            <div class="row">
+              <button class="btn btn-sm btn-pri" data-action="kalo-send-sourcing" data-q="${esc(data.title)}">🇨🇳 Tìm Nguồn 1688 / Taobao</button>
+              ${data.vault_product_id ? `<button class="btn btn-sm btn-gold" data-action="jr-rescore-one" data-id="${data.vault_product_id}">🎯 Chấm Jev SP #${data.vault_product_id}</button>` : ""}
+              <a class="btn btn-sm" href="${esc(data.tiktok_shop_url)}" target="_blank">🛒 Mở TikTok Shop</a>
+            </div>
+          </div>
+          <div class="row" style="margin-bottom:10px">
+            <span class="badge green">GMV 7d: ${esc(data.gmv_7d_display)}</span>
+            <span class="badge blue">Giá: ${data.price_vnd ? vnd(data.price_vnd) : "—"} · HH: ${data.commission_pct != null ? `${data.commission_pct}%` : "—"}</span>
+            <span class="badge gold">Tỷ trọng: 🎬 Video ${cs.video_pct ?? "—"}% · 🔴 Live ${cs.live_pct ?? "—"}% · 🏬 Thẻ SP ${cs.product_card_pct ?? "—"}%</span>
+            ${data.total_sku_stock != null ? `<span class="badge green">📦 Tổng tồn kho SKU: ${Number(data.total_sku_stock).toLocaleString("vi-VN")}</span>` : ""}
+          </div>
+          ${data.ai_selling_points ? `<div style="padding:8px 10px;border-radius:8px;background:#081221;margin-bottom:10px;font-size:12.5px">💡 <strong>Điểm bán hàng AI (Kalodata):</strong> ${esc(data.ai_selling_points)}</div>` : ""}
+          ${(data.skus || []).length ? `
+            <h4>📦 Phân tích Biến thể SKU &amp; Tồn kho (${data.skus.length} SKU)</h4>
+            <table class="tbl" style="margin-bottom:12px">
+              <thead><tr><th>Tên phân loại SKU</th><th>Tỷ trọng bán (%)</th><th>Giá bán</th><th>Tồn kho hiện tại</th></tr></thead>
+              <tbody>${data.skus.map((s) => `
+                <tr>
+                  <td><strong>${esc(s.sku_name)}</strong></td>
+                  <td>${s.sales_share_pct != null ? `${s.sales_share_pct}%` : "—"}</td>
+                  <td>${s.price_vnd ? vnd(s.price_vnd) : "—"}</td>
+                  <td><strong>${s.stock_count != null ? Number(s.stock_count).toLocaleString("vi-VN") : "—"}</strong></td>
+                </tr>`).join("")}
+              </tbody>
+            </table>` : ""}
+          ${(data.top_videos || []).length ? `
+            <h4>🎬 Top Video kéo đơn của Sản phẩm (${data.top_videos.length})</h4>
+            <table class="tbl">
+              <thead><tr><th>Video ID</th><th>Nội dung</th><th>GMV</th><th>Đơn bán</th><th>Lượt xem</th><th>Lấy MP4 sạch</th></tr></thead>
+              <tbody>${data.top_videos.map((v) => `
+                <tr>
+                  <td><code>${esc(v.video_id)}</code></td>
+                  <td>${esc(v.description)}</td>
+                  <td><strong style="color:#6ee7b7">${esc(v.gmv_display)}</strong></td>
+                  <td>${v.units_sold ?? "—"}</td>
+                  <td>${v.views_count ?? "—"}</td>
+                  <td><button class="btn btn-sm btn-blue" data-action="kalopro-deep-inspect" data-target="vid:${esc(v.video_id)}">⬇️ Mổ Video &amp; MP4</button></td>
+                </tr>`).join("")}
+              </tbody>
+            </table>` : ""}
+        </div>`;
+      return;
+    }
+
+    const mod = data.module || data.module_kind || "";
+    const items = data.items || [];
+    if (mod === "shops") {
+      box.innerHTML = `
+        <div class="row" style="justify-content:space-between;margin-bottom:8px">
+          <h3 style="margin:0;color:#6ee7b7">🏪 BXH Shop Đối Thủ &amp; Mở Affiliate (${items.length} Shop · Đã đồng bộ vào Kho Shop Đối thủ)</h3>
+          <button class="btn btn-sm" data-action="jump-tab" data-tab="shops">🎯 Mở Kho Shop Đối thủ</button>
+        </div>
+        <table class="tbl">
+          <thead><tr><th>#</th><th>Tên Gian Hàng</th><th>Loại</th><th>GMV (${esc(data.window_spec || "7d")})</th><th>Đơn bán</th><th>% Affiliate / Video</th><th>Chiến lược</th><th>Link</th></tr></thead>
+          <tbody>${items.map((s) => `
+            <tr>
+              <td>${s.rank}</td>
+              <td><strong>${esc(s.shop_name)}</strong> ${s.is_overseas ? '<span class="badge gold">✈️ Quốc tế</span>' : ""}</td>
+              <td><code>${esc(s.seller_type)}</code></td>
+              <td><strong style="color:#6ee7b7">${esc(s.gmv_display)}</strong> ${s.growth_pct != null ? `<small>(${s.growth_pct > 0 ? "+" : ""}${s.growth_pct}%)</small>` : ""}</td>
+              <td>${s.units_sold ?? "—"}</td>
+              <td>🤝 ${s.affiliate_share_pct ?? "—"}% · 🎬 ${s.video_share_pct ?? "—"}%</td>
+              <td>${esc(s.strategy_label_vi)}</td>
+              <td><a href="${esc(s.kalodata_url)}" target="_blank" style="color:#93c5fd">Kalodata &rarr;</a></td>
+            </tr>`).join("")}
+          </tbody>
+        </table>`;
+      return;
+    }
+
+    if (mod === "brands") {
+      box.innerHTML = `
+        <h3 style="margin:0 0 8px;color:#7dd3fc">🏷️ BXH Thương Hiệu, Thị Phần &amp; Ngân Sách Ads (${items.length} Brand)</h3>
+        <table class="tbl">
+          <thead><tr><th>#</th><th>Thương hiệu</th><th>Ngành</th><th>GMV</th><th>Chi tiêu Ads</th><th>Thị phần</th><th>Số KOC / Video</th></tr></thead>
+          <tbody>${items.map((b) => `
+            <tr>
+              <td>${b.rank}</td>
+              <td><strong>${esc(b.brand_name)}</strong></td>
+              <td style="font-size:11.5px">${esc((b.categories_vi || []).join(", "))}</td>
+              <td><strong style="color:#6ee7b7">${esc(b.gmv_display)}</strong></td>
+              <td style="color:#fda4af">${esc(b.ad_spend_display)}</td>
+              <td>${b.market_share_pct != null ? `${b.market_share_pct}%` : "—"}</td>
+              <td>${b.creator_count ?? "—"} KOC · ${b.video_count ?? "—"} Video</td>
+            </tr>`).join("")}
+          </tbody>
+        </table>`;
+      return;
+    }
+
+    if (mod === "creators") {
+      box.innerHTML = `
+        <div class="row" style="justify-content:space-between;margin-bottom:8px">
+          <h3 style="margin:0;color:#fde68a">👤 Săn KOC/Creator Ra Đơn + Tự Bóc Zalo/SĐT/Email (${items.length} KOC · ${data.with_contact_count || 0} có SĐT/Email)</h3>
+          <button class="btn btn-sm" data-action="jump-tab" data-tab="shopspy">👥 Mở Kho Creator Leads</button>
+        </div>
+        <table class="tbl">
+          <thead><tr><th>#</th><th>KOC / Handle</th><th>Follow</th><th>GMV (${esc(data.window_spec || "7d")})</th><th>Đơn bán</th><th>Zalo / SĐT / Email bóc từ Bio</th><th>Bio</th></tr></thead>
+          <tbody>${items.map((c) => `
+            <tr>
+              <td>${c.rank}</td>
+              <td><a href="${esc(c.tiktok_url)}" target="_blank" style="color:#93c5fd;font-weight:600">@${esc(c.handle)}</a><div style="font-size:11px;color:var(--muted)">${esc(c.nickname)}</div></td>
+              <td>${c.followers_count ? Number(c.followers_count).toLocaleString("vi-VN") : "—"}</td>
+              <td><strong style="color:#6ee7b7">${esc(c.gmv_display)}</strong></td>
+              <td>${c.units_sold ?? "—"}</td>
+              <td>
+                ${(c.phones_zalo || []).map((p) => `<span class="badge green">📞 ${esc(p)}</span>`).join(" ")}
+                ${(c.emails || []).map((em) => `<span class="badge blue">✉️ ${esc(em)}</span>`).join(" ")}
+                ${!c.has_contact ? '<span style="color:var(--muted)">—</span>' : ""}
+              </td>
+              <td style="font-size:11.5px;max-width:240px">${esc(c.bio_signature)}</td>
+            </tr>`).join("")}
+          </tbody>
+        </table>`;
+      return;
+    }
+
+    if (mod === "videos_advanced") {
+      box.innerHTML = `
+        <h3 style="margin:0 0 8px;color:#e9d5ff">🎬 Danh Sách Video Thực Chiến (${esc(data.filter_mode)} · ${items.length} Video · AI=${data.ai_videos_count || 0} · Ads=${data.ad_videos_count || 0})</h3>
+        <table class="tbl">
+          <thead><tr><th>#</th><th>Video / Kênh</th><th>Nhãn AI / Ads</th><th>GMV</th><th>Đơn / Views</th><th>GPM / ROAS</th><th>Thao tác 1-Click</th></tr></thead>
+          <tbody>${items.map((v) => `
+            <tr>
+              <td>${v.rank}</td>
+              <td>
+                <a href="${esc(v.tiktok_url)}" target="_blank" style="color:#93c5fd">@${esc(v.handle || "_")}</a> (${v.followers_count ? Number(v.followers_count).toLocaleString("vi-VN") + " fan" : "—"})
+                <div style="font-size:11.5px;color:#cbd5e1;max-width:300px">${esc(v.description)}</div>
+              </td>
+              <td>
+                ${v.is_ai_video ? '<span class="badge blue">🤖 AI Video</span> ' : ""}
+                ${v.is_ad ? '<span class="badge gold">📣 Ads</span>' : '<span class="badge green">🌿 Organic</span>'}
+              </td>
+              <td><strong style="color:#6ee7b7">${esc(v.gmv_display)}</strong></td>
+              <td>${v.units_sold ?? "—"} đơn<br/><small>${v.views_count ?? "—"} views</small></td>
+              <td>GPM: ${esc(v.gpm_display)}<br/>ROAS: <strong>${v.ad_roas ?? "—"}</strong></td>
+              <td>
+                <div class="row" style="gap:4px">
+                  <button class="btn btn-sm btn-blue" data-action="kalopro-deep-inspect" data-target="vid:${esc(v.video_id)}">⬇️ MP4 sạch</button>
+                  <button class="btn btn-sm btn-gold" data-action="eco-send-to-clone" data-url="${esc(v.tiktok_url)}" data-prod="${esc(v.description)}">⚡ Clone 15s</button>
+                </div>
+              </td>
+            </tr>`).join("")}
+          </tbody>
+        </table>`;
+      return;
+    }
+
+    if (mod === "livestreams") {
+      box.innerHTML = `
+        <h3 style="margin:0 0 8px;color:#fecaca">🔴 Radar Phòng LIVE Nổ Đơn Mạnh Nhất (${items.length} phòng LIVE)</h3>
+        <table class="tbl">
+          <thead><tr><th>#</th><th>Phòng LIVE</th><th>Kênh</th><th>GMV</th><th>Đơn bán</th><th>Lượt xem</th><th>GPM</th></tr></thead>
+          <tbody>${items.map((rm) => `
+            <tr>
+              <td>${rm.rank}</td>
+              <td><a href="${esc(rm.kalodata_url)}" target="_blank" style="color:#93c5fd">${esc(rm.title)}</a></td>
+              <td>@${esc(rm.handle || "—")}</td>
+              <td><strong style="color:#6ee7b7">${esc(rm.gmv_display)}</strong></td>
+              <td>${rm.units_sold ?? "—"}</td>
+              <td>${rm.views_count ?? "—"}</td>
+              <td>${esc(rm.gpm_display)}</td>
+            </tr>`).join("")}
+          </tbody>
+        </table>`;
+      return;
+    }
+
+    if (mod === "category_board" || items[0]?.category_name_vi) {
+      box.innerHTML = `
+        <h3 style="margin:0 0 8px;color:#bfdbfe">🗺️ Bảng Xếp Hạng Toàn Ngành TikTok Shop VN (${items.length} Ngành · Kỳ ${esc(data.window_spec || "7d")})</h3>
+        <table class="tbl">
+          <thead><tr><th>#</th><th>Ngành hàng</th><th>GMV Toàn Ngành</th><th>Tăng trưởng</th><th>Số Shop</th><th>% Affiliate</th><th>% Video</th><th>Top 10 Shop</th><th>Quét sâu</th></tr></thead>
+          <tbody>${items.map((c) => `
+            <tr>
+              <td>${c.rank}</td>
+              <td><strong>${esc(c.icon)} ${esc(c.category_name_vi)}</strong> <small style="color:var(--muted)">(${esc(c.level)})</small></td>
+              <td><strong style="color:#6ee7b7">${esc(c.gmv_total_display)}</strong></td>
+              <td>${c.gmv_growth_pct != null ? `${c.gmv_growth_pct > 0 ? "+" : ""}${c.gmv_growth_pct}%` : "—"}</td>
+              <td>${c.active_shops_count ?? "—"}</td>
+              <td>${c.affiliate_share_pct != null ? `${c.affiliate_share_pct}%` : "—"}</td>
+              <td>${c.video_share_pct != null ? `${c.video_share_pct}%` : "—"}</td>
+              <td>${c.top10_shops_share_pct != null ? `${c.top10_shops_share_pct}%` : "—"}</td>
+              <td><button class="btn btn-sm btn-pri" data-action="kalo-preset-cat" data-cat="${esc(c.category_id)}">🔎 Chọn ngành</button></td>
+            </tr>`).join("")}
+          </tbody>
+        </table>`;
+      return;
+    }
+
+    box.innerHTML = `<pre class="codebox">${esc(JSON.stringify(data, null, 2))}</pre>`;
+  }
+
+  function readFileAsEntry(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      const low = file.name.toLowerCase();
+      if (low.endsWith(".xlsx") || low.endsWith(".zip")) {
+        reader.onload = () => {
+          const b64 = String(reader.result || "").split(",")[1] || "";
+          resolve({ name: file.name, base64: b64, isZip: low.endsWith(".zip") });
+        };
+        reader.onerror = () => reject(new Error(`Không đọc được tệp ${file.name}`));
+        reader.readAsDataURL(file);
+      } else {
+        reader.onload = () => resolve({ name: file.name, content: String(reader.result || ""), isZip: false });
+        reader.onerror = () => reject(new Error(`Không đọc được tệp ${file.name}`));
+        reader.readAsText(file);
+      }
+    });
+  }
+
+  async function runKalodataImportPreview() {
+    const fileInp = document.getElementById("impFiles");
+    const rawTxt = document.getElementById("impRawText")?.value.trim() || "";
+    const mapTxt = document.getElementById("impMappingJson")?.value.trim() || "";
+    let mapping = {};
+    if (mapTxt) {
+      mapping = JSON.parse(mapTxt);
+    }
+    const payload = {
+      market: document.getElementById("impMarket")?.value || "VN",
+      currency: document.getElementById("impCurrency")?.value || "VND",
+      window: document.getElementById("impWindow")?.value || "7d",
+      entity_type: document.getElementById("impEntityType")?.value || "",
+      mapping_profile: mapping,
+      files: [],
+    };
+    if (fileInp?.files?.length) {
+      for (const f of fileInp.files) {
+        const ent = await readFileAsEntry(f);
+        if (ent.isZip) payload.zip_base64 = ent.base64;
+        else payload.files.push(ent);
+      }
+    } else if (rawTxt) {
+      payload.content = rawTxt;
+      payload.filename = `${payload.entity_type || "products"}.${rawTxt.startsWith("[") || rawTxt.startsWith("{") ? "json" : "csv"}`;
+    } else {
+      toast("Vui lòng chọn tệp .xlsx/.csv/.json/.zip hoặc dán nội dung vào ô!", true);
+      return;
+    }
+
+    const res = await api("/api/imports/preview", "POST", payload);
+    CURRENT_KALO_IMPORT_BATCH_ID = res.batch_id;
+    const s = res.summary || {};
+    document.getElementById("btnCommitKaloImport").disabled = !s.can_commit;
+    document.getElementById("impPreviewBox").innerHTML = `
+      <div style="padding:10px;border-radius:8px;background:#081221;border:1px solid var(--border)">
+        <div class="row" style="margin-bottom:6px">
+          <span class="badge blue">Lô: ${esc(res.batch_id)}</span>
+          <span class="badge green">SP: ${s.products_staged || 0}</span>
+          <span class="badge gold">KOC: ${s.creators_staged || 0}</span>
+          <span class="badge blue">Video: ${s.videos_staged || 0} · Shop: ${s.shops_staged || 0}</span>
+          ${s.errors_count ? `<span class="badge red">Cảnh báo/Lỗi: ${s.errors_count}</span>` : ""}
+        </div>
+        <div style="font-size:11.5px;color:var(--muted)">SHA-256: <code>${esc((s.bundle_hash || "").slice(0, 24))}...</code> ${s.duplicate_of_committed_batch ? `<strong style="color:#fcd34d">(Trùng với lô đã lưu ${esc(s.duplicate_of_committed_batch)})</strong>` : ""}</div>
+        ${(res.errors || []).length ? `<div style="margin-top:6px;color:#fca5a5;font-size:12px">${res.errors.slice(0, 5).map((e) => `• [${esc(e.code)}] Dòng ${e.row}: ${esc(e.message)}`).join("<br/>")}</div>` : ""}
+      </div>`;
+  }
+
+  function renderKalodataCapturePreview(cap) {
+    const box = document.getElementById("klCapturePreviewBox");
+    if (!box || !cap) return;
+    const exclSet = new Set(cap.excluded_row_indices || []);
+    const rows = cap.normalized || [];
+    box.innerHTML = `
+      <div style="padding:10px;border-radius:8px;background:#081221;border:1px solid var(--border)">
+        <div class="row" style="justify-content:space-between;margin-bottom:8px">
+          <div class="row">
+            <span class="badge blue">${esc(cap.capture_id)} (${esc(cap.entity_type)})</span>
+            <span class="badge green">${rows.length} dòng chụp (${rows.length - exclSet.size} dòng giữ lại)</span>
+            <span class="badge ${cap.status === "committed" ? "green" : "gold"}">${esc(cap.status)}</span>
+          </div>
+          <div class="row">
+            ${cap.status !== "committed" ? `<button class="btn btn-sm btn-gold" data-action="kcap-commit" data-id="${esc(cap.capture_id)}">✅ Commit Bảng Chụp vào Kho</button>` : `<span class="badge green">Đã lưu (${esc(cap.committed_batch_id)})</span>`}
+            <a class="btn btn-sm" href="/api/kalodata/captures/${encodeURIComponent(cap.capture_id)}/download?format=zip">⬇️ Tải .ZIP</a>
+            <a class="btn btn-sm" href="/api/kalodata/captures/${encodeURIComponent(cap.capture_id)}/download?format=csv">⬇️ Tải .CSV</a>
+          </div>
+        </div>
+        <table class="tbl">
+          <thead><tr><th>Giữ</th><th>#</th><th>Mã ID 19 số</th><th>Tên / Nội dung</th><th>GMV</th><th>Đơn bán</th></tr></thead>
+          <tbody>${rows.slice(0, 30).map((r) => `
+            <tr>
+              <td><input type="checkbox" class="kcap-excl-chk" data-capid="${esc(cap.capture_id)}" data-ridx="${r.row_index}" ${exclSet.has(r.row_index) ? "" : "checked"} /></td>
+              <td>${r.row_index + 1}</td>
+              <td><code>${esc(r.native_id || "—")}</code></td>
+              <td>${esc(r.display_title)} ${r.locked ? '<span class="badge red">🔒 ***</span>' : ""}</td>
+              <td>${esc(r.gmv_raw || "—")}</td>
+              <td>${r.units_sold ?? "—"}</td>
+            </tr>`).join("")}
+          </tbody>
+        </table>
+      </div>`;
+  }
+
+  async function loadKalodataImportTab() {
+    try {
+      const [impRes, capRes] = await Promise.all([api("/api/imports"), api("/api/kalodata/captures")]);
+      const batches = impRes.items || [];
+      const caps = capRes.items || [];
+      const elCnt = document.getElementById("cntKaloImports");
+      if (elCnt) elCnt.textContent = batches.length + caps.length;
+      const bBox = document.getElementById("impBatchesList");
+      if (bBox) {
+        bBox.innerHTML = batches.length
+          ? `<table class="tbl"><thead><tr><th>Lô Import</th><th>Nguồn</th><th>Phạm vi</th><th>Trạng thái</th><th>SP / KOC / Video</th></tr></thead><tbody>${batches.slice(0, 10).map((b) => `
+              <tr>
+                <td><code>${esc(b.batch_id)}</code></td>
+                <td>${esc(b.source_type)}</td>
+                <td>${esc(b.market)} · ${esc(b.window_spec)}</td>
+                <td><span class="badge ${b.status === "committed" ? "green" : "gold"}">${esc(b.status)}</span></td>
+                <td>${b.summary?.committed_products ?? b.summary?.products_staged ?? 0} SP · ${b.summary?.committed_creators ?? b.summary?.creators_staged ?? 0} KOC · ${b.summary?.committed_videos ?? b.summary?.videos_staged ?? 0} Video</td>
+              </tr>`).join("")}</tbody></table>`
+          : `Chưa có lô import nào.`;
+      }
+      const cBox = document.getElementById("klCapturesHistoryBox");
+      if (cBox) {
+        cBox.innerHTML = caps.length
+          ? `<div class="chips">${caps.slice(0, 10).map((c) => `<button type="button" class="chip" data-action="kcap-open" data-id="${esc(c.capture_id)}">📸 ${esc(c.capture_id)} (${esc(c.entity_type)} · ${c.coverage?.rows_captured || 0} dòng · ${esc(c.status)})</button>`).join("")}</div>`
+          : "";
+      }
+    } catch (_) {}
+  }
 
   async function initRoute() {
     const path = window.location.pathname;

@@ -661,6 +661,101 @@ MIGRATIONS: list[tuple[int, str, list[str]]] = [
             "CREATE INDEX IF NOT EXISTS idx_hunt_sched_runs ON hunt_schedule_runs(schedule_id, created_at DESC)",
         ],
     ),
+    (
+        8,
+        "v8_kalodata_full_suite",
+        [
+            """
+            CREATE TABLE IF NOT EXISTS kalodata_hunt_runs (
+                run_id TEXT PRIMARY KEY,
+                keywords_json TEXT NOT NULL DEFAULT '[]',
+                category_id TEXT NOT NULL DEFAULT '',
+                market TEXT NOT NULL DEFAULT 'VN',
+                window_spec TEXT NOT NULL DEFAULT '7d',
+                include_videos INTEGER NOT NULL DEFAULT 1,
+                products_total INTEGER NOT NULL DEFAULT 0,
+                products_suitable INTEGER NOT NULL DEFAULT 0,
+                videos_total INTEGER NOT NULL DEFAULT 0,
+                creators_total INTEGER NOT NULL DEFAULT 0,
+                saved_product_ids_json TEXT NOT NULL DEFAULT '[]',
+                saved_creators_count INTEGER NOT NULL DEFAULT 0,
+                jev_scored INTEGER NOT NULL DEFAULT 0,
+                desk300_nnn TEXT NOT NULL DEFAULT '',
+                cost_usd REAL NOT NULL DEFAULT 0.0,
+                result_json TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL
+            )
+            """,
+            "CREATE INDEX IF NOT EXISTS idx_kalo_hunt_runs_created ON kalodata_hunt_runs(created_at DESC)",
+            """
+            CREATE TABLE IF NOT EXISTS kalodata_pro_snapshots (
+                snap_id TEXT PRIMARY KEY,
+                module_kind TEXT NOT NULL,
+                target_query TEXT NOT NULL DEFAULT '',
+                window_spec TEXT NOT NULL DEFAULT '7d',
+                items_count INTEGER NOT NULL DEFAULT 0,
+                payload_json TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL
+            )
+            """,
+            "CREATE INDEX IF NOT EXISTS idx_kalo_pro_mod_ts ON kalodata_pro_snapshots(module_kind, created_at DESC)",
+            """
+            CREATE TABLE IF NOT EXISTS kalodata_import_batches (
+                batch_id TEXT PRIMARY KEY,
+                source_type TEXT NOT NULL DEFAULT 'kalodata_wizard',
+                market TEXT NOT NULL DEFAULT 'VN',
+                currency TEXT NOT NULL DEFAULT 'VND',
+                window_spec TEXT NOT NULL DEFAULT '7d',
+                bundle_hash TEXT NOT NULL DEFAULT '',
+                status TEXT NOT NULL DEFAULT 'preview',
+                staging_json TEXT NOT NULL DEFAULT '{}',
+                summary_json TEXT NOT NULL DEFAULT '{}',
+                errors_json TEXT NOT NULL DEFAULT '[]',
+                created_at TEXT NOT NULL,
+                committed_at TEXT NOT NULL DEFAULT ''
+            )
+            """,
+            "CREATE INDEX IF NOT EXISTS idx_kalo_imp_batches ON kalodata_import_batches(created_at DESC)",
+            """
+            CREATE TABLE IF NOT EXISTS kalodata_capture_runs (
+                capture_id TEXT PRIMARY KEY,
+                capture_mode TEXT NOT NULL DEFAULT 'current_page',
+                entity_type TEXT NOT NULL DEFAULT 'products',
+                market TEXT NOT NULL DEFAULT 'VN',
+                currency TEXT NOT NULL DEFAULT 'VND',
+                window_spec TEXT NOT NULL DEFAULT '7d',
+                page_url TEXT NOT NULL DEFAULT '',
+                status TEXT NOT NULL DEFAULT 'staged_preview',
+                manifest_json TEXT NOT NULL DEFAULT '{}',
+                raw_rows_json TEXT NOT NULL DEFAULT '[]',
+                normalized_json TEXT NOT NULL DEFAULT '[]',
+                excluded_row_indices_json TEXT NOT NULL DEFAULT '[]',
+                coverage_json TEXT NOT NULL DEFAULT '{}',
+                errors_json TEXT NOT NULL DEFAULT '[]',
+                committed_batch_id TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """,
+            "CREATE INDEX IF NOT EXISTS idx_kalo_captures_created ON kalodata_capture_runs(created_at DESC)",
+            """
+            CREATE TABLE IF NOT EXISTS kalodata_account_rotations (
+                rotation_id TEXT PRIMARY KEY,
+                old_account_hint TEXT NOT NULL DEFAULT '',
+                new_account_email TEXT NOT NULL DEFAULT '',
+                status TEXT NOT NULL DEFAULT 'completed',
+                kalodata_status_after TEXT NOT NULL DEFAULT '',
+                step_logs_json TEXT NOT NULL DEFAULT '[]',
+                kalodata_after_json TEXT NOT NULL DEFAULT '{}',
+                telegram_sent INTEGER NOT NULL DEFAULT 0,
+                telegram_message_id TEXT NOT NULL DEFAULT '',
+                error_message TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL
+            )
+            """,
+            "CREATE INDEX IF NOT EXISTS idx_kalo_rotations_created ON kalodata_account_rotations(created_at DESC)",
+        ],
+    ),
 ]
 
 

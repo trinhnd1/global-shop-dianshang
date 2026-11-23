@@ -41,7 +41,7 @@ MODULE_LABELS = {
 MODULE_ROUTES = {
     "hunt": "/san-sp",
     "ecosystems": "/he-sinh-thai",
-    "kalodata": "/he-sinh-thai",
+    "kalodata": "/kalodata-pro",
     "desk300": "/luong-300-desk",
     "apify_store": "/apify-store",
     "keywords": "/tu-khoa",
@@ -92,8 +92,14 @@ def scrub_for_history(obj, depth: int = 0):
 def classify_http_module(path: str) -> tuple[str, str] | None:
     if path.startswith("/api/ecosystems"):
         return ("ecosystems", "Hệ sinh thái & Phụ kiện SP")
-    if path.startswith("/api/kalodata") or path.startswith("/api/browser"):
-        return ("kalodata", "Kalodata & Affiliate Global Selling")
+    if (
+        path.startswith("/api/kalodata")
+        or path.startswith("/api/hunt/kalodata-")
+        or path.startswith("/api/imports")
+        or path.startswith("/api/providers/kalodata")
+        or path.startswith("/api/browser")
+    ):
+        return ("kalodata", "Kalodata Pro · Hunter & Import")
     if path.startswith("/api/apify-store"):
         return ("apify_store", "Kho API Apify Store")
     if path.startswith("/api/settings") or path.startswith("/api/providers/") or path.startswith("/api/connections/"):
@@ -141,6 +147,21 @@ def describe_http_title(method: str, path: str, req_body, default_label: str) ->
         return f"Gọi Actor Apify Store: {act_s}" if act_s else "Gọi Actor Apify Store"
     if path == "/api/kalodata/sync-from-affiliate":
         return "Đồng bộ Tài khoản Kalodata & Profile peng_dedicated"
+    if path in ("/api/kalodata/rotate-account", "/api/providers/kalodata/rotate-account"):
+        return f"Đổi Tài khoản Kalodata trên Chrome ({b.get('account_email') or 'mới'})"
+    if path == "/api/hunt/kalodata-vn":
+        tgt = b.get("keywords") or b.get("category_id") or "VN"
+        return f"Quét Trực Tiếp Kalodata VN ($0.00): {tgt}"
+    if path.startswith("/api/hunt/kalodata-pro/"):
+        mod_k = path.rsplit("/", 1)[-1]
+        q_k = str(b.get("keyword") or b.get("target") or b.get("category_id") or b.get("filter_mode") or "").strip()
+        return f"Kalodata Pro ({mod_k}): {q_k}" if q_k else f"Kalodata Pro ({mod_k})"
+    if path == "/api/imports/preview":
+        return f"Xem trước Import Kalodata ({b.get('market') or 'VN'} · {b.get('window') or '7d'})"
+    if path.startswith("/api/imports/") and path.endswith("/commit"):
+        return f"Commit Lô Import Kalodata vào Kho ({path.split('/')[3]})"
+    if path.startswith("/api/kalodata/captures/"):
+        return f"Chụp Bảng Kalodata Trình Duyệt ({path.split('/')[-1]})"
     if path == "/api/keywords/research":
         kw = str(b.get("keyword") or "").strip()
         pl = str(b.get("platform") or "").strip()
