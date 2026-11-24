@@ -14,6 +14,8 @@ Hard Security & Data Hygiene Invariants:
 """
 from __future__ import annotations
 
+import csv
+import io
 import json
 import re
 import threading
@@ -24,7 +26,7 @@ import uuid
 from .chrome_profile_hub import _is_temp_test_dir, cdp_ws_eval
 from .kalodata_parser import parse_kalodata_display_cell
 from .products import infer_industry
-from .responses import ApiError, json_object, now, safe_id_str
+from .responses import ApiError, Raw, json_object, now, safe_csv_cell, safe_id_str
 
 KALODATA_PRODUCT_URL = "https://www.kalodata.com/product"
 KALODATA_VIDEO_URL = "https://www.kalodata.com/video"
@@ -454,7 +456,7 @@ class KalodataVnHunterService:
             )
             ws = tab["webSocketDebuggerUrl"]
 
-        deadline = time.time() + 5.0
+        deadline = time.time() + 9.0
         state = {}
         while time.time() < deadline:
             state = cdp_ws_eval(
@@ -498,39 +500,77 @@ class KalodataVnHunterService:
         pat = win_patterns.get(window_spec)
         if not pat:
             return
-        clicked_open = cdp_ws_eval(
+        cur_check = cdp_ws_eval(
             port,
             ws,
             r"""(() => {
-              const btn = Array.from(document.querySelectorAll("div, span, button"))
-                .find(el => el.children.length <= 2 && /过去\d+天|Last \d+ days/i.test((el.innerText || "").trim()));
-              if (!btn) return JSON.stringify({cur: ""});
-              const cur = (btn.innerText || "").trim();
-              btn.click();
-              return JSON.stringify({cur});
+              const badges = Array.from(document.querySelectorAll("span[data-slot='badge'], div.cursor-pointer, button"))
+                .filter(el => /过去\d+天|Last \d+ days/i.test((el.innerText || "").trim()) && (el.innerText || "").length < 60)
+                .map(el => (el.innerText || "").replace(/\s+/g, " ").trim());
+              return JSON.stringify({cur: badges.join(" | ")});
             })()""",
         )
-        cur_txt = str(clicked_open.get("cur") or "")
-        if (window_spec == "7d" and "7" in cur_txt) or (window_spec == "30d" and "30" in cur_txt):
-            cdp_ws_eval(port, ws, "document.body.click(); '{}'")
+        cur_txt = str(cur_check.get("cur") or "")
+        if (
+            (window_spec == "7d" and ("过去7天" in cur_txt or "Last 7" in cur_txt))
+            or (window_spec == "30d" and ("过去30天" in cur_txt or "Last 30" in cur_txt))
+            or (window_spec == "90d" and ("过去90天" in cur_txt or "Last 90" in cur_txt))
+        ):
             return
-        time.sleep(0.35)
+
+        opened = cdp_ws_eval(
+            port,
+            ws,
+            r"""(() => {
+              const btn = Array.from(document.querySelectorAll("div.cursor-pointer, button, div"))
+                .find(el => el.offsetParent !== null && /过去\d+天\s*\(|Last \d+ days\s*\(/i.test((el.innerText || "").trim()) && (el.innerText || "").length < 55)
+                || Array.from(document.querySelectorAll("button, div, span"))
+                .find(el => el.offsetParent !== null && el.children.length <= 2 && !/^日期[:：]/.test((el.innerText || "").trim()) && /过去\d+天|Last \d+ days/i.test((el.innerText || "").trim()));
+              if (!btn) return JSON.stringify({opened: false});
+              btn.click();
+              return JSON.stringify({opened: true});
+            })()""",
+        )
+        if not opened.get("opened"):
+            return
+        time.sleep(0.45)
         cdp_ws_eval(
             port,
             ws,
             f"""(() => {{
               const re = new RegExp({json.dumps(pat)}, "i");
               const opt = Array.from(document.querySelectorAll("div, span, li, button"))
-                .find(el => el.offsetParent !== null && el.children.length <= 1 && re.test((el.innerText || "").trim()));
+                .find(el => el.offsetParent !== null && el.children.length <= 2 && re.test((el.innerText || "").trim()) && (el.innerText || "").length < 36);
               if (opt) opt.click();
               else document.body.click();
               return "{{}}";
             }})()""",
         )
-        time.sleep(1.4)
+        time.sleep(0.45)
+        sub = cdp_ws_eval(
+            port,
+            ws,
+            r"""(() => {
+              const b = Array.from(document.querySelectorAll("button"))
+                .find(el => el.offsetParent !== null && !el.disabled && /^(提交|Apply|Submit)$/i.test((el.innerText || "").trim()));
+              if (b) { b.click(); return JSON.stringify({submitted: true}); }
+              return JSON.stringify({submitted: false});
+            })()""",
+        )
+        time.sleep(2.4 if sub.get("submitted") else 1.8)
 
     @staticmethod
     def _run_ime_safe_search(port: int, ws: str, keyword: str) -> None:
+        pre = cdp_ws_eval(
+            port,
+            ws,
+            r"""(() => {
+              const tr = document.querySelector("table tbody tr:not(.ant-table-measure-row)");
+              const sig = (tr?.innerText || "").replace(/\s+/g, " ").trim().slice(0, 140);
+              return JSON.stringify({sig});
+            })()""",
+        )
+        before_sig = str(pre.get("sig") or "")
         cdp_ws_eval(
             port,
             ws,
@@ -546,13 +586,14 @@ class KalodataVnHunterService:
               return "{{}}";
             }})()""",
         )
-        time.sleep(0.38)
+        time.sleep(0.35)
         cdp_ws_eval(
             port,
             ws,
             r"""(() => {
               const inp = document.querySelector("input[placeholder*='输入'], input[placeholder*='搜索'], input[placeholder*='Search'], input[placeholder*='Enter'], .ant-input-affix-wrapper input.ant-input");
-              const rpKey = inp && Object.keys(inp).find(k => k.startsWith("__reactProps"));
+              if (!inp) return "{}";
+              const rpKey = Object.keys(inp).find(k => k.startsWith("__reactProps"));
               if (rpKey && inp[rpKey]?.onKeyDown) {
                 inp[rpKey].onKeyDown({
                   key: "Enter", code: "Enter", keyCode: 13, which: 13,
@@ -561,10 +602,38 @@ class KalodataVnHunterService:
                   preventDefault: () => {}, stopPropagation: () => {}
                 });
               }
+              const wrap = inp.parentElement?.parentElement || inp.parentElement;
+              const sbtn = wrap ? Array.from(wrap.querySelectorAll("button")).find(b => !b.disabled) : null;
+              if (sbtn) sbtn.click();
               return "{}";
             })()""",
         )
-        time.sleep(3.1)
+        time.sleep(1.3)
+        dl = time.time() + 14.0
+        while time.time() < dl:
+            chk = cdp_ws_eval(
+                port,
+                ws,
+                r"""(() => {
+                  const loading = Boolean(document.querySelector(".ant-spin-spinning, [class*='animate-spin']"));
+                  const bodyTxt = document.querySelector("table")?.innerText || document.body?.innerText || "";
+                  const isEmpty = /暂无数据|暂无查询结果|No data|未找到/i.test(bodyTxt);
+                  const trs = Array.from(document.querySelectorAll("table tbody tr:not(.ant-table-measure-row)"))
+                    .filter(r => r.querySelectorAll("td").length >= 5);
+                  const sig = (trs[0]?.innerText || "").replace(/\s+/g, " ").trim().slice(0, 140);
+                  const hasHl = Boolean(document.querySelector(".kalo-highlight"));
+                  const hasPag = document.querySelectorAll("button[data-slot='pagination-link'], .ant-pagination-item").length > 0;
+                  return JSON.stringify({loading, isEmpty, rc: trs.length, sig, hasHl, hasPag});
+                })()""",
+            )
+            if not chk.get("loading"):
+                if chk.get("isEmpty"):
+                    break
+                rc = int(chk.get("rc") or 0)
+                sig = str(chk.get("sig") or "")
+                if rc >= 1 and (sig != before_sig or chk.get("hasHl")) and (chk.get("hasPag") or rc < 50):
+                    break
+            time.sleep(0.5)
 
     @staticmethod
     def _clear_search_box(port: int, ws: str) -> None:
@@ -593,10 +662,11 @@ class KalodataVnHunterService:
             port,
             ws,
             r"""(() => {
-              const btn = Array.from(document.querySelectorAll("div, span, button"))
-                .find(e => e.offsetParent !== null && e.children.length <= 2 && /^\d+\s*\/\s*(页|page)$/i.test((e.innerText || "").trim()));
+              const clean = s => (s || "").replace(/[\uE000-\uF8FF]/g, "").replace(/\s+/g, " ").trim();
+              const btn = Array.from(document.querySelectorAll("button[data-slot='select-trigger'], div, span, button"))
+                .find(e => e.offsetParent !== null && e.children.length <= 3 && /^\d+\s*\/\s*(页|page)$/i.test(clean(e.innerText)));
               if (!btn) return JSON.stringify({cur: 10, found: false});
-              const m = (btn.innerText || "").match(/(\d+)/);
+              const m = clean(btn.innerText).match(/(\d+)/);
               const cur = m ? parseInt(m[1], 10) : 10;
               return JSON.stringify({cur, found: true});
             })()""",
@@ -609,8 +679,9 @@ class KalodataVnHunterService:
             port,
             ws,
             r"""(() => {
-              const btn = Array.from(document.querySelectorAll("div, span, button"))
-                .find(e => e.offsetParent !== null && e.children.length <= 2 && /^\d+\s*\/\s*(页|page)$/i.test((e.innerText || "").trim()));
+              const clean = s => (s || "").replace(/[\uE000-\uF8FF]/g, "").replace(/\s+/g, " ").trim();
+              const btn = Array.from(document.querySelectorAll("button[data-slot='select-trigger'], div, span, button"))
+                .find(e => e.offsetParent !== null && e.children.length <= 3 && /^\d+\s*\/\s*(页|page)$/i.test(clean(e.innerText)));
               if (btn) btn.click();
               return "{}";
             })()""",
@@ -620,9 +691,10 @@ class KalodataVnHunterService:
             port,
             ws,
             f"""(() => {{
+              const clean = s => (s || "").replace(/[\\uE000-\\uF8FF]/g, "").replace(/\\s+/g, " ").trim();
               const re = /^{want_ps}\\s*\\/\\s*(页|page)$/i;
-              const opt = Array.from(document.querySelectorAll("div, span, li"))
-                .filter(e => e.offsetParent !== null && e.children.length <= 1 && re.test((e.innerText || "").trim()))
+              const opt = Array.from(document.querySelectorAll("[data-slot='select-item'], div[role='option'], div, span, li"))
+                .filter(e => e.offsetParent !== null && e.children.length <= 2 && re.test(clean(e.innerText)))
                 .pop();
               if (opt) opt.click();
               else document.body.click();
@@ -634,17 +706,53 @@ class KalodataVnHunterService:
             return want_ps
         return cur_ps
 
+    @staticmethod
+    def _reset_stale_filters_if_no_category(port: int, ws: str) -> None:
+        """Clear sticky Kalodata filter pills (e.g. `类目: 花园用品`) from prior sessions when searching across all categories."""
+        res = cdp_ws_eval(
+            port,
+            ws,
+            r"""(() => {
+              const badges = Array.from(document.querySelectorAll("span[data-slot='badge']"))
+                .map(b => (b.innerText || "").trim());
+              const hasStale = badges.some(t => t && !/^日期[:：]/.test(t));
+              const bodyTxt = (document.body?.innerText || "").slice(0, 2600);
+              if (!hasStale && !/(类目[:：]|Category[:：])/i.test(bodyTxt)) return JSON.stringify({reset: false});
+              const rst = Array.from(document.querySelectorAll("button, span, div")).find(
+                e => e.offsetParent !== null && e.children.length === 0 && /^(重置|Reset)$/i.test((e.innerText || "").trim())
+              );
+              if (rst) {
+                (rst.closest("button") || rst).click();
+                return JSON.stringify({reset: true});
+              }
+              return JSON.stringify({reset: false});
+            })()""",
+        )
+        if res.get("reset"):
+            time.sleep(0.5)
+            cdp_ws_eval(
+                port,
+                ws,
+                r"""(() => {
+                  const b = Array.from(document.querySelectorAll("button"))
+                    .find(el => el.offsetParent !== null && !el.disabled && /^(提交|Apply|Submit)$/i.test((el.innerText || "").trim()));
+                  if (b) b.click();
+                  return "{}";
+                })()""",
+            )
+            time.sleep(2.4)
+
     @classmethod
     def _collect_paginated_table_rows(cls, port: int, ws: str, limit: int) -> dict:
-        target_limit = max(1, min(100, int(limit)))
-        wait_deadline = time.time() + 6.0
+        target_limit = max(1, min(1000, int(limit)))
+        wait_deadline = time.time() + 7.5
         while time.time() < wait_deadline:
             ready = cdp_ws_eval(
                 port,
                 ws,
                 r"""(() => {
                   const bodyTxt = document.querySelector("table")?.innerText || "";
-                  const isEmpty = /暂无数据|No data|未找到/i.test(bodyTxt);
+                  const isEmpty = /暂无数据|暂无查询结果|No data|未找到/i.test(document.body?.innerText || bodyTxt);
                   const rc = Array.from(document.querySelectorAll("table tbody tr:not(.ant-table-measure-row)"))
                     .filter(r => r.querySelectorAll("td").length >= 5).length;
                   return JSON.stringify({rc, isEmpty});
@@ -655,7 +763,41 @@ class KalodataVnHunterService:
             time.sleep(0.45)
 
         eff_ps = cls._set_page_size_if_needed(port, ws, target_limit)
-        max_pages = max(1, min(10, (target_limit + eff_ps - 1) // max(1, eff_ps)))
+        max_pages = max(1, min(25, (target_limit + eff_ps - 1) // max(1, eff_ps)))
+
+        # Reset pagination to Page 1 if Kalodata persisted a higher page (e.g. rank 51 or 151)
+        reset_p1 = cdp_ws_eval(
+            port,
+            ws,
+            r"""(() => {
+              const tr = document.querySelector("table tbody tr:not(.ant-table-measure-row)");
+              const sig = (tr?.innerText || "").replace(/\s+/g, " ").trim().slice(0, 120);
+              const mRank = sig.match(/^(\d+)\b/);
+              const rankGt1 = mRank && parseInt(mRank[1], 10) > 1;
+              const p1 = Array.from(document.querySelectorAll("button[data-slot='pagination-link']"))
+                .find(b => (b.innerText || "").trim() === "1");
+              if (!p1) return JSON.stringify({clicked: false, sig});
+              const isAct = p1.getAttribute("data-active") === "true" || p1.getAttribute("aria-current") === "page";
+              if (isAct && !rankGt1) return JSON.stringify({clicked: false, sig});
+              p1.click();
+              return JSON.stringify({clicked: true, sig});
+            })()""",
+        )
+        if reset_p1.get("clicked"):
+            old_sig = str(reset_p1.get("sig") or "")
+            p1_dl = time.time() + 12.0
+            while time.time() < p1_dl:
+                time.sleep(0.45)
+                c1 = cdp_ws_eval(
+                    port,
+                    ws,
+                    r"""(() => {
+                      const tr = document.querySelector("table tbody tr:not(.ant-table-measure-row)");
+                      return JSON.stringify({sig: (tr?.innerText || "").replace(/\s+/g, " ").trim().slice(0, 120)});
+                    })()""",
+                )
+                if c1.get("sig") and c1.get("sig") != old_sig:
+                    break
 
         ths: list[str] = []
         collected: list[dict] = []
@@ -668,9 +810,10 @@ class KalodataVnHunterService:
                 r"""(() => {
                   const ths = Array.from(document.querySelectorAll("table thead th")).map(th => (th.innerText || "").replace(/\s+/g, " ").trim());
                   const bodyTxt = document.querySelector("table")?.innerText || "";
-                  if (/暂无数据|No data|未找到/i.test(bodyTxt)) return JSON.stringify({ths, rows: []});
+                  if (/暂无数据|No data|未找到/i.test(bodyTxt)) return JSON.stringify({ths, rows: [], firstSig: ""});
                   const trs = Array.from(document.querySelectorAll("table tbody tr:not(.ant-table-measure-row)"))
                     .filter(r => r.querySelectorAll("td").length >= 5);
+                  const firstSig = (trs[0]?.innerText || "").replace(/\s+/g, " ").trim().slice(0, 120);
                   const rows = trs.map(tr => {
                     const tds = Array.from(tr.querySelectorAll("td")).map(td => (td.innerText || "").replace(/\s+/g, " ").trim());
                     const bgImgs = Array.from(tr.querySelectorAll('*'))
@@ -698,7 +841,7 @@ class KalodataVnHunterService:
                     } catch {}
                     return {rowKey, tds, bgImgs, rowOrig};
                   });
-                  return JSON.stringify({ths, rows});
+                  return JSON.stringify({ths, rows, firstSig});
                 })()""",
             )
             if not ths and snap.get("ths"):
@@ -706,7 +849,7 @@ class KalodataVnHunterService:
             page_rows = snap.get("rows") or []
             if not page_rows:
                 break
-            first_key_before = page_rows[0].get("rowKey") or (page_rows[0].get("tds") or [""])[0]
+            first_sig_before = str(snap.get("firstSig") or "")
             added_this_page = 0
             for r in page_rows:
                 dedup_k = r.get("rowKey") or ("|".join((r.get("tds") or [])[:3]))
@@ -721,39 +864,52 @@ class KalodataVnHunterService:
                 break
 
             next_p = page_num + 1
+            # Wait briefly if pagination bar is still mounting on full page
+            if len(page_rows) >= eff_ps:
+                for _ in range(4):
+                    has_pb = cdp_ws_eval(
+                        port,
+                        ws,
+                        "JSON.stringify({n: document.querySelectorAll(\"button[data-slot='pagination-link']\").length})",
+                    )
+                    if int(has_pb.get("n") or 0) > 0:
+                        break
+                    time.sleep(0.45)
+
             moved = cdp_ws_eval(
                 port,
                 ws,
                 f"""(() => {{
-                  const isDisabled = b => !b || b.disabled || /(^|\\s)pointer-events-none(\\s|$)/.test(b.className || "");
+                  const isDisabled = b => !b || b.disabled || b.getAttribute("aria-disabled") === "true" || /(^|\\s)pointer-events-none(\\s|$)/.test(b.className || "");
                   const pBtns = Array.from(document.querySelectorAll("button[data-slot='pagination-link']"));
                   let target = pBtns.find(b => (b.innerText || "").trim() === "{next_p}" && !isDisabled(b));
                   if (!target) {{
                     target = document.querySelector("button[aria-label='下一页'], button[aria-label*='Next']");
                     if (isDisabled(target)) target = null;
                   }}
-                  if (target) target.click();
+                  if (target) {{
+                    try {{ target.scrollIntoView({{block: "center"}}); }} catch {{}}
+                    target.click();
+                  }}
                   return JSON.stringify({{moved: Boolean(target)}});
                 }})()""",
             )
             if not moved.get("moved"):
                 break
-            dl = time.time() + 8.0
+            dl = time.time() + 16.0
             while time.time() < dl:
                 time.sleep(0.55)
                 chk = cdp_ws_eval(
                     port,
                     ws,
                     r"""(() => {
+                      const loading = Boolean(document.querySelector(".ant-spin-spinning, [class*='animate-spin']"));
                       const tr = document.querySelector("table tbody tr:not(.ant-table-measure-row)");
-                      if (!tr) return JSON.stringify({k: ""});
-                      const fk = Object.keys(tr).find(k => k.startsWith("__reactFiber"));
-                      let cur = fk ? tr[fk] : null, rk = "";
-                      for (let d = 0; d < 14 && cur; d++) { if (cur.key && /^\d{15,22}$/.test(String(cur.key))) { rk = String(cur.key); break; } cur = cur.return; }
-                      return JSON.stringify({k: rk || (tr.querySelector("td")?.innerText || "").trim()});
+                      if (!tr) return JSON.stringify({loading, sig: ""});
+                      return JSON.stringify({loading, sig: (tr.innerText || "").replace(/\s+/g, " ").trim().slice(0, 120)});
                     })()""",
                 )
-                if chk.get("k") and chk.get("k") != first_key_before:
+                if not chk.get("loading") and chk.get("sig") and chk.get("sig") != first_sig_before:
                     break
 
         return {"ths": ths, "rows": collected[:target_limit]}
@@ -771,10 +927,12 @@ class KalodataVnHunterService:
         target_url = f"{KALODATA_PRODUCT_URL}?cateValue={cate_q}" if cate_q else KALODATA_PRODUCT_URL
         port, ws = self._ensure_kalodata_tab(target_url)
         try:
+            if not category_meta:
+                self._reset_stale_filters_if_no_category(port, ws)
             self._select_window_if_needed(port, ws, window_spec)
             if clean_kw:
                 self._run_ime_safe_search(port, ws, clean_kw)
-            raw = self._collect_paginated_table_rows(port, ws, limit=max(1, min(100, int(limit))))
+            raw = self._collect_paginated_table_rows(port, ws, limit=max(1, min(1000, int(limit))))
         finally:
             if clean_kw:
                 self._clear_search_box(port, ws)
@@ -893,10 +1051,12 @@ class KalodataVnHunterService:
         target_url = f"{KALODATA_VIDEO_URL}?cateValue={cate_q}" if cate_q else KALODATA_VIDEO_URL
         port, ws = self._ensure_kalodata_tab(target_url)
         try:
+            if not category_meta:
+                self._reset_stale_filters_if_no_category(port, ws)
             self._select_window_if_needed(port, ws, window_spec)
             if clean_kw:
                 self._run_ime_safe_search(port, ws, clean_kw)
-            raw = self._collect_paginated_table_rows(port, ws, limit=max(1, min(100, int(limit))))
+            raw = self._collect_paginated_table_rows(port, ws, limit=max(1, min(1000, int(limit))))
         finally:
             if clean_kw:
                 self._clear_search_box(port, ws)
@@ -1132,6 +1292,7 @@ class KalodataVnHunterService:
         shops_list: list[dict],
         *,
         auto_ingest_suitable: bool = True,
+        ingest_all: bool = False,
         use_300desk: bool = False,
         score_jev: bool = True,
         jev_limit: int = 12,
@@ -1142,10 +1303,10 @@ class KalodataVnHunterService:
         saved_shops = 0
         ts = now()
 
-        if auto_ingest_suitable:
+        if auto_ingest_suitable or ingest_all:
             for p in products:
                 cls_info = p.get("classification") or {}
-                if not cls_info.get("suitable_for_system", True):
+                if not ingest_all and not cls_info.get("suitable_for_system", True):
                     continue
                 db_item = self.products.upsert_product(
                     {
@@ -1202,7 +1363,7 @@ class KalodataVnHunterService:
                     )
 
         with self.connect() as conn:
-            for c in creators[:40]:
+            for c in creators[:1000]:
                 h = str(c.get("handle") or "").strip().lstrip("@")
                 if not h:
                     continue
@@ -1234,7 +1395,7 @@ class KalodataVnHunterService:
                 )
                 saved_creators += 1
 
-            for v in videos[:40]:
+            for v in videos[:1000]:
                 vid = str(v.get("native_video_id") or v.get("video_id") or "").strip()
                 if not vid:
                     continue
@@ -1262,7 +1423,7 @@ class KalodataVnHunterService:
                 )
                 saved_videos += 1
 
-            for sh in shops_list[:25]:
+            for sh in shops_list[:500]:
                 sname = str(sh.get("shop_name") or "").strip()
                 nsid = str(sh.get("native_shop_id") or sh.get("shop_id") or "").strip()
                 if not sname and not nsid:
@@ -1335,12 +1496,18 @@ class KalodataVnHunterService:
         window_spec: str = "7d",
         limit_products: int = 20,
         limit_videos: int = 15,
+        fetch_all: bool = False,
         include_videos: bool = True,
         auto_ingest_suitable: bool = True,
+        ingest_all: bool = False,
         use_300desk: bool = False,
         score_jev: bool = True,
         jev_limit: int = 12,
     ) -> dict:
+        if fetch_all or int(limit_products or 0) >= 500:
+            limit_products = 1000 if fetch_all else max(500, int(limit_products or 1000))
+            limit_videos = 1000 if fetch_all else max(500, int(limit_videos or 500))
+            ingest_all = True
         clean_kws = [str(k).strip() for k in (keywords or []) if str(k).strip()][:8]
         cat_meta = resolve_kalodata_category(category_id) if str(category_id or "").strip() else None
         if not clean_kws and not cat_meta:
@@ -1413,6 +1580,7 @@ class KalodataVnHunterService:
             all_creators,
             all_shops,
             auto_ingest_suitable=auto_ingest_suitable,
+            ingest_all=ingest_all,
             use_300desk=use_300desk,
             score_jev=score_jev,
             jev_limit=jev_limit,
@@ -1520,6 +1688,43 @@ class KalodataVnHunterService:
             return None
         return json.loads(row["result_json"] or "{}")
 
+    def export_run_csv(self, run_id: str) -> tuple[str, Raw]:
+        run = self.get_run(run_id)
+        if not run:
+            raise ApiError("404 Not Found", f"Không tìm thấy phiên quét {run_id}")
+        buf = io.StringIO()
+        w = csv.writer(buf)
+        w.writerow([
+            "rank", "native_product_id", "product_title", "price_vnd", "gmv_total_vnd", "gmv_total_display",
+            "gmv_growth_pct", "units_sold_window", "video_gmv_vnd", "live_gmv_vnd", "mall_card_gmv_vnd",
+            "commission_pct", "active_creators_count", "creator_conversion_rate_pct", "rating", "launch_date",
+            "suitability_label", "canonical_url", "kalodata_detail_url",
+        ])
+        for p in run.get("products") or []:
+            w.writerow([
+                p.get("rank"),
+                safe_csv_cell(p.get("native_product_id")),
+                safe_csv_cell(p.get("product_title")),
+                p.get("price_vnd"),
+                p.get("gmv_total_vnd"),
+                safe_csv_cell(p.get("gmv_total_display")),
+                p.get("gmv_growth_pct"),
+                p.get("units_sold_window"),
+                p.get("video_gmv_vnd"),
+                p.get("live_gmv_vnd"),
+                p.get("mall_card_gmv_vnd"),
+                p.get("commission_pct"),
+                p.get("active_creators_count"),
+                p.get("creator_conversion_rate_pct"),
+                p.get("rating"),
+                safe_csv_cell(p.get("launch_date")),
+                safe_csv_cell((p.get("classification") or {}).get("suitability_label")),
+                safe_csv_cell(p.get("canonical_url")),
+                safe_csv_cell(p.get("kalodata_detail_url")),
+            ])
+        data = buf.getvalue().encode("utf-8-sig")
+        return "200 OK", Raw(data, [("Content-Type", "text/csv; charset=utf-8"), ("Content-Disposition", f'attachment; filename="{run_id}_kalodata_products.csv"')])
+
     def dispatch(self, path: str, method: str, env, read_json):
         if path == "/api/hunt/kalodata-vn/categories" and method == "GET":
             return "200 OK", {"items": self.list_categories_catalog()}
@@ -1544,20 +1749,27 @@ class KalodataVnHunterService:
                 kws = [str(s).strip() for s in raw_kws if str(s).strip()]
             else:
                 kws = []
+            lim_p = int(b.get("limit_products") or 20)
+            lim_v = int(b.get("limit_videos") or (lim_p if lim_p >= 100 else 15))
             return "200 OK", self.run_kalodata_vn_hunt(
                 keywords=kws,
                 category_id=str(b.get("category_id") or ""),
                 window_spec=str(b.get("window_spec") or "7d"),
-                limit_products=int(b.get("limit_products") or 20),
-                limit_videos=int(b.get("limit_videos") or 15),
+                limit_products=lim_p,
+                limit_videos=lim_v,
+                fetch_all=bool(b.get("fetch_all", False)),
                 include_videos=bool(b.get("include_videos", True)),
                 auto_ingest_suitable=bool(b.get("auto_ingest_suitable", True)),
+                ingest_all=bool(b.get("ingest_all", False)),
                 use_300desk=bool(b.get("use_300desk", False)),
                 score_jev=bool(b.get("score_jev", True)),
                 jev_limit=int(b.get("jev_limit") or 12),
             )
         if path == "/api/hunt/kalodata-vn/history" and method == "GET":
             return "200 OK", {"items": self.list_runs(limit=25)}
+        if path.startswith("/api/hunt/kalodata-vn/") and path.endswith("/export.csv") and method == "GET":
+            rid = path.split("/")[4]
+            return self.export_run_csv(rid)
         if path.startswith("/api/hunt/kalodata-vn/") and method == "GET":
             rid = path.rsplit("/", 1)[-1].strip()
             if rid and rid not in ("categories", "history", "categories-leaderboard", "category-leaderboard"):

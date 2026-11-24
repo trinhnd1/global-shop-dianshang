@@ -179,10 +179,12 @@ class KalodataProSuiteService:
         with self.hunter._lock_ref():
             port, ws = self.hunter._ensure_kalodata_tab(target_url, require_search_input=bool(clean_kw or require_search_input))
             try:
+                if not cat_meta:
+                    self.hunter._reset_stale_filters_if_no_category(port, ws)
                 self.hunter._select_window_if_needed(port, ws, window_spec if window_spec in ("7d", "30d", "90d") else "7d")
                 if clean_kw:
                     self.hunter._run_ime_safe_search(port, ws, clean_kw)
-                raw = self.hunter._collect_paginated_table_rows(port, ws, limit=max(1, min(100, int(limit or 20))))
+                raw = self.hunter._collect_paginated_table_rows(port, ws, limit=max(1, min(1000, int(limit or 20))))
             finally:
                 if clean_kw:
                     self.hunter._clear_search_box(port, ws)
@@ -203,7 +205,7 @@ class KalodataProSuiteService:
         if self.custom_scraper is not None:
             raw = self.custom_scraper("shops", keyword=keyword, category_id=category_id, window_spec=window_spec, limit=limit)
         else:
-            fetch_lim = min(100, max(int(limit or 25), int(limit or 25) * 2 if preset != "all" else int(limit or 25)))
+            fetch_lim = min(1000, max(int(limit or 25), int(limit or 25) * 2 if preset != "all" else int(limit or 25)))
             raw = self._scrape_tanstack_route(
                 KALODATA_SHOP_URL,
                 keyword=keyword,

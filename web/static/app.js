@@ -3729,13 +3729,16 @@
             ${r.desk300_nnn ? `<span class="badge gold">🤖 300+desk #${esc(r.desk300_nnn)}</span>` : ""}
             ${r.jev_scored_count ? `<span class="badge green">🎯 Đã chấm Jev: ${r.jev_scored_count} SP</span>` : ""}
           </div>
-          <button class="btn btn-sm btn-pri" data-action="jump-kho-all">🗂 Mở Kho SP (${(r.saved_product_ids || []).length} đã lưu)</button>
+          <div class="row">
+            ${r.run_id ? `<a class="btn btn-sm btn-gold" href="/api/hunt/kalodata-vn/${encodeURIComponent(r.run_id)}/export.csv">⬇️ Tải CSV Toàn Bộ (${prods.length} SP)</a>` : ""}
+            <button class="btn btn-sm btn-pri" data-action="jump-kho-all">🗂 Mở Kho SP (${(r.saved_product_ids || []).length} đã lưu)</button>
+          </div>
         </div>
         ${prods.length ? `
           <table class="tbl">
             <thead><tr><th>#</th><th>Sản phẩm TikTok Shop VN</th><th>Giá bán</th><th>GMV (${esc(r.window_spec)})</th><th>Đơn bán</th><th>Video / Live GMV</th><th>HH / KOC</th><th>Phân loại</th><th>Thao tác</th></tr></thead>
             <tbody>
-              ${prods.slice(0, 30).map((p) => `
+              ${prods.slice(0, 150).map((p) => `
                 <tr>
                   <td>${p.rank}</td>
                   <td>

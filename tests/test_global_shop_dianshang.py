@@ -156,8 +156,8 @@ class GlobalShopDianshangE2ETest(unittest.TestCase):
     def test_01_security_version_masking_and_tailscale_guards(self):
         st, health = self.req("GET", "/api/health")
         self.assertEqual(st, 200)
-        self.assertEqual(health["version"], "1.0.17")
-        self.assertEqual(__version__, "1.0.17")
+        self.assertEqual(health["version"], "1.0.18")
+        self.assertEqual(__version__, "1.0.18")
         self.assertEqual(health["schema_version"], 8)
 
         st_la, la_info = self.req("GET", "/api/system/launchagent")
