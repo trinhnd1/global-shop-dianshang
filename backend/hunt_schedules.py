@@ -21,6 +21,7 @@ from .hunt import MARKETPLACE_CHANNELS, SOCIAL_PAINPOINT_CHANNELS
 from .markets import parse_marketplace_spec
 from .products import BUCKETS, parse_ids_from_url
 from .responses import ApiError, json_object, now, safe_id_str, text
+from .watches import is_auto_rescan_paused
 
 HHMM_RE = re.compile(r"^([01]?\d|2[0-3]):([0-5]\d)$")
 
@@ -777,6 +778,8 @@ class HuntScheduleService:
             lock.release()
 
     def run_due_schedules(self) -> int:
+        if is_auto_rescan_paused(self.connect):
+            return 0
         ts = now()
         with self.connect() as conn:
             due = conn.execute(

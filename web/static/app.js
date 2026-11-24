@@ -1265,12 +1265,32 @@
   async function loadWatches() {
     const data = await api("/api/watches");
     const ws = data.watches || [];
+    const ar = data.auto_rescan || {};
+    const barEl = document.getElementById("watchesAutoRescanBar");
+    if (barEl) {
+      barEl.innerHTML = ar.paused
+        ? `<div class="row" style="justify-content:space-between;padding:10px 12px;border-radius:8px;background:rgba(245,158,11,0.12);border:1px solid rgba(245,158,11,0.45)">
+            <div>
+              <strong style="color:#fcd34d">⏸ ĐANG TẠM DỪNG TOÀN BỘ QUÉT LẠI TỰ ĐỘNG</strong>
+              <span style="font-size:12.5px;color:var(--muted);margin-left:8px">(${ar.paused_watches_count || 0} mục đang giữ nguyên, chỉ quét khi bạn bấm tay hoặc báo bật lại)</span>
+            </div>
+            <button class="btn btn-sm btn-pri" data-action="watch-resume-all">▶️ Bật lại Quét định kỳ</button>
+          </div>`
+        : `<div class="row" style="justify-content:space-between;padding:10px 12px;border-radius:8px;background:rgba(16,185,129,0.10);border:1px solid rgba(16,185,129,0.35)">
+            <div>
+              <strong style="color:#6ee7b7">🟢 Đang bật quét định kỳ tự động</strong>
+              <span style="font-size:12.5px;color:var(--muted);margin-left:8px">(Đang chạy: ${ar.active_watches_count || 0} mục · Tạm dừng: ${ar.paused_watches_count || 0} mục)</span>
+            </div>
+            <button class="btn btn-sm btn-danger" data-action="watch-pause-all">⏸ Tạm dừng toàn bộ Quét lại</button>
+          </div>`;
+    }
     document.getElementById("watchesListBox").innerHTML = ws.length
       ? `<table class="tbl">
-          <thead><tr><th>Loại</th><th>Sàn</th><th>Mục tiêu theo dõi</th><th>Kết quả lần check gần nhất</th><th>Check lúc</th><th>Thao tác</th></tr></thead>
+          <thead><tr><th>Loại</th><th>Sàn</th><th>Mục tiêu theo dõi</th><th>Trạng thái</th><th>Kết quả lần check gần nhất</th><th>Check lúc</th><th>Thao tác</th></tr></thead>
           <tbody>${ws.map((w) => {
             const sm = w.last_summary || {};
             const wsf = sm.shopee_filters || {};
+            const isPaused = w.status === "paused" || ar.paused;
             return `<tr>
               <td>
                 <span class="badge ${w.is_special ? "gold" : "blue"}">${w.is_special ? "⭐ ĐẶC BIỆT · " : ""}${esc(w.watch_type.toUpperCase())}</span>
@@ -1281,10 +1301,12 @@
                 ${wsf.shipped_from ? `<span class="badge gold" style="margin-left:4px">✈️ ${esc(wsf.shipped_from)}</span>` : ""}
                 <div style="font-size:11.5px;color:var(--muted)">${esc(w.target_key)}</div>
               </td>
+              <td>${isPaused ? `<span class="badge gold">⏸ Tạm dừng</span>` : `<span class="badge green">🟢 Định kỳ ${w.interval_hours}h</span>`}</td>
               <td>${esc(sm.headline || "Chưa chạy lần đầu")}</td>
               <td>${fmtTime(w.last_checked_at)}</td>
               <td class="row">
                 <button class="btn btn-sm btn-pri" data-action="watch-check" data-id="${esc(w.watch_id)}">🔄 Check &amp; So sánh</button>
+                <button class="btn btn-sm" data-action="watch-toggle" data-id="${esc(w.watch_id)}" data-next="${w.status === "paused" ? "resume" : "pause"}">${w.status === "paused" ? "▶️ Bật" : "⏸ Dừng"}</button>
                 <button class="btn btn-sm btn-danger" data-action="watch-delete" data-id="${esc(w.watch_id)}">Xoá</button>
               </td>
             </tr>`;
@@ -2817,6 +2839,19 @@
         toast(res.summary);
         loadWatches();
         syncSidebarCountsAndRefs();
+      } else if (act === "watch-pause-all") {
+        const res = await api("/api/watches/pause-all", "POST", {});
+        toast(res.summary);
+        loadWatches();
+      } else if (act === "watch-resume-all") {
+        const res = await api("/api/watches/resume-all", "POST", { resume_items: true });
+        toast(res.summary);
+        loadWatches();
+      } else if (act === "watch-toggle") {
+        const nextAct = actEl.dataset.next === "resume" ? "resume" : "pause";
+        await api(`/api/watches/${actEl.dataset.id}/${nextAct}`, "POST", {});
+        toast(nextAct === "resume" ? "Đã bật lại theo dõi mục này!" : "Đã tạm dừng theo dõi mục này!");
+        loadWatches();
       } else if (act === "watch-delete") {
         await api(`/api/watches/${actEl.dataset.id}`, "DELETE");
         loadWatches();

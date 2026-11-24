@@ -23,6 +23,7 @@ import uuid
 from . import settings
 from .markets import format_platform_market_label, parse_marketplace_spec
 from .responses import ApiError, json_object, now, safe_id_str, text
+from .watches import is_auto_rescan_paused
 
 ADDON_CN_KEYWORDS = (
     "保护套", "保护壳", "壳", "皮套", "膜", "类纸膜", "钢化膜", "收纳", "包", "挂绳", "支架",
@@ -831,6 +832,8 @@ class EcosystemPlaybookService:
         return {"deleted": True, "collection_id": collection_id}
 
     def run_due_daily_collections(self) -> int:
+        if is_auto_rescan_paused(self.connect):
+            return 0
         ts = now()
         with self.connect() as conn:
             due = conn.execute(

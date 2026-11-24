@@ -416,6 +416,8 @@ class TelegramBotService:
                 f"• /schedules (hoặc /lichsan) — Lịch Săn SP & Painpoint lặp lại\n"
                 f"• /eco — Danh mục Hệ sinh thái & Phụ kiện SP đang theo dõi\n"
                 f"• /watches — Danh sách Từ khoá / SP / Shop đang theo dõi\n"
+                f"• /tamdung — Tạm dừng toàn bộ quét lại tự động (chỉ quét khi báo)\n"
+                f"• /tieptuc — Bật lại quét định kỳ tự động\n"
                 f"• /gs GS-0001 — Xem chi tiết 1 mã công việc\n\n"
                 f"🌐 Tailscale: {rem}\n"
                 f"🖥 Local: {loc}"
@@ -502,15 +504,24 @@ class TelegramBotService:
                 lines.append(f"• [{it['gs_code']}] ({it['status']}) {it['title']} — {it['summary'][:90]}")
             lines.append(f"🌐 Xem đầy đủ: {self.remote_url('/nhat-ky')}")
             return "\n".join(lines)
+        if cmd in ("/tamdung", "/pauseall") and self.watches_service:
+            res = self.watches_service.pause_all_rescans(reason="Tạm dừng qua lệnh Telegram /tamdung")
+            return res["summary"]
+        if cmd in ("/tieptuc", "/resumeall") and self.watches_service:
+            res = self.watches_service.resume_all_rescans(resume_items=True)
+            return res["summary"]
         if cmd == "/watches" and self.watches_service:
             ws = self.watches_service.list_watches()[:8]
+            ar = self.watches_service.dispatch("/api/watches/auto-rescan", "GET", {}, lambda _e: {})[1]["auto_rescan"]
+            hdr = "⏸ ĐANG TẠM DỪNG QUÉT LẠI TỰ ĐỘNG (chỉ quét khi báo)" if ar.get("paused") else "🟢 Đang bật quét định kỳ"
             if not ws:
-                return f"Chưa có mục theo dõi nào. Thêm tại: {self.remote_url('/theo-doi')}"
-            lines = ["🔭 Đang theo dõi Từ khoá / SP / Shop:"]
+                return f"{hdr}\nChưa có mục theo dõi nào. Thêm tại: {self.remote_url('/theo-doi')}"
+            lines = [f"🔭 Danh sách Từ khoá / SP / Shop ({hdr}):"]
             for w in ws:
                 sm = w.get("last_summary") or {}
                 new_c = sm.get("new_items_count", 0)
-                lines.append(f"• [{w['watch_type'].upper()} · {w['platform']}] {w['title']} (Mới: +{new_c})")
+                st_ic = "⏸" if w.get("status") == "paused" else "🟢"
+                lines.append(f"• {st_ic} [{w['watch_type'].upper()} · {w['platform']}] {w['title']} (Mới: +{new_c})")
             return "\n".join(lines)
         if cmd == "/gs" or cmd.upper().startswith("GS-"):
             target = arg if cmd == "/gs" else cmd

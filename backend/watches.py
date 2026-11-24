@@ -15,6 +15,131 @@ def _future_iso(hours: float) -> str:
     return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def read_auto_rescan_state(connect) -> dict:
+    """Read global auto-rescan pause state across Watches, Ecosystem Daily Checks & Hunt Schedules."""
+    paused = False
+    updated_at = ""
+    reason = ""
+    active_watches = 0
+    paused_watches = 0
+    active_ecosystems = 0
+    active_schedules = 0
+    with connect() as conn:
+        row = conn.execute("SELECT value FROM settings WHERE name='auto_rescan_control'").fetchone()
+        if row:
+            try:
+                obj = json.loads(row["value"] or "{}")
+                paused = bool(obj.get("paused", False))
+                updated_at = str(obj.get("updated_at") or "")
+                reason = str(obj.get("reason") or "")
+            except ValueError:
+                pass
+        active_watches = conn.execute("SELECT COUNT(*) FROM watches WHERE status='active'").fetchone()[0]
+        paused_watches = conn.execute("SELECT COUNT(*) FROM watches WHERE status='paused'").fetchone()[0]
+        try:
+            active_ecosystems = conn.execute("SELECT COUNT(*) FROM ecosystem_collections WHERE daily_schedule_enabled=1").fetchone()[0]
+        except Exception:
+            pass
+        try:
+            active_schedules = conn.execute("SELECT COUNT(*) FROM hunt_schedules WHERE status='active'").fetchone()[0]
+        except Exception:
+            pass
+    return {
+        "paused": paused,
+        "updated_at": updated_at,
+        "reason": reason,
+        "active_watches_count": active_watches,
+        "paused_watches_count": paused_watches,
+        "active_ecosystems_count": active_ecosystems,
+        "active_schedules_count": active_schedules,
+    }
+
+
+def is_auto_rescan_paused(connect) -> bool:
+    try:
+        with connect() as conn:
+            row = conn.execute("SELECT value FROM settings WHERE name='auto_rescan_control'").fetchone()
+            if not row:
+                return False
+            return bool(json.loads(row["value"] or "{}").get("paused", False))
+    except Exception:
+        return False
+
+
+def set_auto_rescan_paused(connect, paused: bool, *, reason: str = "", resume_items: bool = True) -> dict:
+    ts = now()
+    meta = {
+        "paused": bool(paused),
+        "updated_at": ts,
+        "reason": str(reason or ("Tạm dừng quét lại tự động theo yêu cầu người dùng" if paused else "Bật lại quét định kỳ")),
+    }
+    watches_changed = 0
+    ecosystems_changed = 0
+    schedules_changed = 0
+    jobs_cancelled = 0
+    with connect() as conn:
+        conn.execute(
+            "INSERT INTO settings(name, value) VALUES('auto_rescan_control', ?) ON CONFLICT(name) DO UPDATE SET value=excluded.value",
+            (json.dumps(meta, ensure_ascii=False),),
+        )
+        if paused:
+            cur_w = conn.execute("UPDATE watches SET status='paused', updated_at=? WHERE status='active'", (ts,))
+            watches_changed = cur_w.rowcount
+            try:
+                cur_e = conn.execute(
+                    "UPDATE ecosystem_collections SET daily_schedule_enabled=0, next_run_at='', updated_at=? WHERE daily_schedule_enabled=1",
+                    (ts,),
+                )
+                ecosystems_changed = cur_e.rowcount
+            except Exception:
+                pass
+            try:
+                cur_s = conn.execute("UPDATE hunt_schedules SET status='paused', updated_at=? WHERE status='active'", (ts,))
+                schedules_changed = cur_s.rowcount
+            except Exception:
+                pass
+            try:
+                cur_j = conn.execute("UPDATE jobs SET status='cancelled', updated_at=? WHERE status IN ('queued', 'running')", (ts,))
+                jobs_cancelled = cur_j.rowcount
+            except Exception:
+                pass
+        elif resume_items:
+            cur_w = conn.execute(
+                "UPDATE watches SET status='active', next_check_at=?, updated_at=? WHERE status='paused'",
+                (_future_iso(12.0), ts),
+            )
+            watches_changed = cur_w.rowcount
+            try:
+                cur_e = conn.execute(
+                    "UPDATE ecosystem_collections SET daily_schedule_enabled=1, next_run_at=?, updated_at=? WHERE daily_schedule_enabled=0",
+                    (_future_iso(24.0), ts),
+                )
+                ecosystems_changed = cur_e.rowcount
+            except Exception:
+                pass
+            try:
+                cur_s = conn.execute("UPDATE hunt_schedules SET status='active', updated_at=? WHERE status='paused'", (ts,))
+                schedules_changed = cur_s.rowcount
+            except Exception:
+                pass
+
+    st = read_auto_rescan_state(connect)
+    summary = (
+        f"⏸ Đã tạm dừng toàn bộ quét lại tự động ({watches_changed} mục theo dõi, {ecosystems_changed} hệ sinh thái, {schedules_changed} lịch săn, {jobs_cancelled} tiến trình đang chạy) — chỉ quét khi bạn yêu cầu."
+        if paused
+        else f"▶️ Đã bật lại quét định kỳ ({watches_changed} mục theo dõi, {ecosystems_changed} hệ sinh thái, {schedules_changed} lịch săn)."
+    )
+    return {
+        "ok": True,
+        "auto_rescan": st,
+        "watches_changed": watches_changed,
+        "ecosystems_changed": ecosystems_changed,
+        "schedules_changed": schedules_changed,
+        "jobs_cancelled": jobs_cancelled,
+        "summary": summary,
+    }
+
+
 def _item_key(it: dict) -> str:
     pid = safe_id_str(it.get("native_product_id") or "")
     if pid:
@@ -139,6 +264,7 @@ class WatchesService:
         init_summary = {"shopee_filters": shopee_filters} if shopee_filters else {}
         wid = f"wt_{uuid.uuid4().hex[:10]}"
         ts = now()
+        init_status = "paused" if is_auto_rescan_paused(self.connect) else "active"
 
         with self.connect() as conn:
             conn.execute(
@@ -147,7 +273,7 @@ class WatchesService:
                 (watch_id, watch_type, platform, market, target_key, title, target_url, status, interval_hours,
                  linked_product_id, linked_shop_id, is_special, collection_id, last_checked_at, next_check_at,
                  last_summary_json, baseline_snapshot_json, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, '', ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?, ?, ?)
                 """,
                 (
                     wid,
@@ -157,6 +283,7 @@ class WatchesService:
                     target_key,
                     title,
                     target_url,
+                    init_status,
                     interval_hours,
                     int(linked_pid) if linked_pid else None,
                     str(linked_sid),
@@ -498,6 +625,8 @@ class WatchesService:
         return self.get_watch(watch_id) or {"watch_id": watch_id, "status": status}
 
     def run_due_watches(self) -> int:
+        if is_auto_rescan_paused(self.connect):
+            return 0
         ts = now()
         with self.connect() as conn:
             due = conn.execute(
@@ -513,6 +642,12 @@ class WatchesService:
                 with self.connect() as conn:
                     conn.execute("UPDATE watches SET next_check_at=? WHERE watch_id=?", (_future_iso(4.0), r["watch_id"]))
         return count
+
+    def pause_all_rescans(self, reason: str = "") -> dict:
+        return set_auto_rescan_paused(self.connect, True, reason=reason)
+
+    def resume_all_rescans(self, resume_items: bool = True) -> dict:
+        return set_auto_rescan_paused(self.connect, False, resume_items=resume_items)
 
     @staticmethod
     def _format_watch(r) -> dict:
@@ -541,7 +676,19 @@ class WatchesService:
 
     def dispatch(self, path: str, method: str, env, read_json):
         if path == "/api/watches" and method == "GET":
-            return "200 OK", {"watches": self.list_watches(), "recent_runs": self.list_runs(limit=20)}
+            return "200 OK", {
+                "watches": self.list_watches(),
+                "recent_runs": self.list_runs(limit=20),
+                "auto_rescan": read_auto_rescan_state(self.connect),
+            }
+        if path == "/api/watches/auto-rescan" and method == "GET":
+            return "200 OK", {"auto_rescan": read_auto_rescan_state(self.connect)}
+        if path == "/api/watches/pause-all" and method == "POST":
+            body = json_object(read_json, env)
+            return "200 OK", self.pause_all_rescans(reason=str(body.get("reason") or ""))
+        if path == "/api/watches/resume-all" and method == "POST":
+            body = json_object(read_json, env)
+            return "200 OK", self.resume_all_rescans(resume_items=bool(body.get("resume_items", True)))
         if path == "/api/watches" and method == "POST":
             body = json_object(read_json, env)
             res = self.create_watch(body)

@@ -156,8 +156,8 @@ class GlobalShopDianshangE2ETest(unittest.TestCase):
     def test_01_security_version_masking_and_tailscale_guards(self):
         st, health = self.req("GET", "/api/health")
         self.assertEqual(st, 200)
-        self.assertEqual(health["version"], "1.0.19")
-        self.assertEqual(__version__, "1.0.19")
+        self.assertEqual(health["version"], "1.0.20")
+        self.assertEqual(__version__, "1.0.20")
         self.assertEqual(health["schema_version"], 8)
 
         st_la, la_info = self.req("GET", "/api/system/launchagent")
@@ -273,6 +273,19 @@ class GlobalShopDianshangE2ETest(unittest.TestCase):
         self.assertEqual(st_v, 200)
         self.assertEqual(len(vault["products"]), 1)
         self.assertEqual(vault["products"][0]["native_product_id"], "1729000000000000099")
+
+        # Global Auto-Rescan Pause-All & Resume-All verification
+        st_pa, res_pa = self.req("POST", "/api/watches/pause-all", {"reason": "User pause test"})
+        self.assertEqual(st_pa, 200)
+        self.assertTrue(res_pa["auto_rescan"]["paused"])
+        self.assertEqual(res_pa["auto_rescan"]["active_watches_count"], 0)
+        self.assertEqual(self.api.watches.run_due_watches(), 0)
+        self.assertEqual(self.api.ecosystems.run_due_daily_collections(), 0)
+        self.assertEqual(self.api.hunt_schedules.run_due_schedules(), 0)
+        st_ra, res_ra = self.req("POST", "/api/watches/resume-all", {"resume_items": True})
+        self.assertEqual(st_ra, 200)
+        self.assertFalse(res_ra["auto_rescan"]["paused"])
+        self.assertEqual(res_ra["auto_rescan"]["active_watches_count"], 1)
 
     def test_03_china_sourcing_landed_cost_shops_campaigns_sales_and_mcp(self):
         # VN -> CN commerce translation helper
