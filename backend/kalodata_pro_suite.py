@@ -184,7 +184,9 @@ class KalodataProSuiteService:
                 self.hunter._select_window_if_needed(port, ws, window_spec if window_spec in ("7d", "30d", "90d") else "7d")
                 if clean_kw:
                     self.hunter._run_ime_safe_search(port, ws, clean_kw)
-                raw = self.hunter._collect_paginated_table_rows(port, ws, limit=max(1, min(1000, int(limit or 20))))
+                else:
+                    self.hunter._clear_search_box(port, ws, submit_reload=True)
+                raw = self.hunter._collect_paginated_table_rows(port, ws, limit=max(1, min(2000, int(limit or 20))))
             finally:
                 if clean_kw:
                     self.hunter._clear_search_box(port, ws)

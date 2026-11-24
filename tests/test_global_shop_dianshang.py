@@ -156,8 +156,8 @@ class GlobalShopDianshangE2ETest(unittest.TestCase):
     def test_01_security_version_masking_and_tailscale_guards(self):
         st, health = self.req("GET", "/api/health")
         self.assertEqual(st, 200)
-        self.assertEqual(health["version"], "1.0.18")
-        self.assertEqual(__version__, "1.0.18")
+        self.assertEqual(health["version"], "1.0.19")
+        self.assertEqual(__version__, "1.0.19")
         self.assertEqual(health["schema_version"], 8)
 
         st_la, la_info = self.req("GET", "/api/system/launchagent")
@@ -1545,7 +1545,9 @@ class GlobalShopDianshangE2ETest(unittest.TestCase):
         })
         st_cat, cats = self.req("GET", "/api/hunt/kalodata-vn/categories")
         self.assertEqual(st_cat, 200)
-        self.assertGreaterEqual(len(cats["items"]), 30)
+        self.assertGreaterEqual(len(cats["items"]), 37)
+        cat_ids = {c["id"] for c in cats["items"]}
+        self.assertTrue({"602083", "914056", "602080", "909576", "700795"}.issubset(cat_ids))
 
         def fake_hunter_scraper(kind, **kwargs):
             if kind == "categories_leaderboard":

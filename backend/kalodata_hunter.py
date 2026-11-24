@@ -21,6 +21,7 @@ import re
 import threading
 import time
 from urllib.parse import parse_qs, quote, urlsplit
+import urllib.request
 import uuid
 
 from .chrome_profile_hub import _is_temp_test_dir, cdp_ws_eval
@@ -45,12 +46,19 @@ KALODATA_VN_CATEGORIES: list[dict] = [
     {"id": "700645", "level": "L1", "zh": "保健", "vi": "Sức khoẻ & Thực phẩm chức năng", "icon": "💊", "industry_key": "suc_khoe", "featured": True, "aliases": ("suc_khoe", "sức khoẻ", "sức khỏe", "tpcn", "health")},
     {"id": "700437", "level": "L1", "zh": "食品饮料", "vi": "Thực phẩm, Ăn vặt & Đồ uống", "icon": "🍜", "industry_key": "do_an", "featured": True, "aliases": ("do_an", "thực phẩm", "ăn vặt", "đồ ăn", "đồ uống", "food")},
     {"id": "601739", "level": "L1", "zh": "手机与数码", "vi": "Điện thoại & Phụ kiện số", "icon": "📱", "industry_key": "cong_nghe", "featured": True, "aliases": ("cong_nghe", "điện thoại", "phụ kiện số", "công nghệ", "phone")},
+    {"id": "602083", "parent_id": "909576", "path": ("601739", "909576", "602083"), "level": "L3", "zh": "智能手表 & 手环", "vi": "Đồng hồ thông minh & Vòng đeo thông minh", "icon": "⌚", "industry_key": "cong_nghe", "featured": True, "aliases": ("đồng hồ thông minh", "smartwatch", "smart watch", "602083")},
+    {"id": "914056", "parent_id": "909576", "path": ("601739", "909576", "914056"), "level": "L3", "zh": "智能手环", "vi": "Vòng đeo tay thông minh (Smart Band)", "icon": "⌚", "industry_key": "cong_nghe", "featured": True, "aliases": ("vòng đeo tay thông minh", "smart band", "mi band", "914056")},
+    {"id": "602080", "parent_id": "909576", "path": ("601739", "909576", "602080"), "level": "L3", "zh": "智能穿戴设备配件", "vi": "Phụ kiện Đồng hồ thông minh & Thiết bị đeo", "icon": "🔌", "industry_key": "cong_nghe", "featured": True, "aliases": ("phụ kiện đồng hồ thông minh", "dây đồng hồ thông minh", "cáp sạc đồng hồ", "602080")},
+    {"id": "909576", "parent_id": "601739", "path": ("601739", "909576"), "level": "L2", "zh": "智能及穿戴设备", "vi": "Thiết bị thông minh & Đeo tay (Tổng hợp L2)", "icon": "⌚", "industry_key": "cong_nghe", "featured": True, "aliases": ("thiết bị đeo thông minh", "wearables", "909576")},
+    {"id": "914440", "parent_id": "909704", "path": ("601739", "909704", "914440"), "level": "L3", "zh": "电子书阅读器", "vi": "Máy đọc sách (E-Reader)", "icon": "📖", "industry_key": "cong_nghe", "featured": False, "aliases": ("máy đọc sách", "ereader", "xteink", "914440")},
     {"id": "600942", "level": "L1", "zh": "家电", "vi": "Điện gia dụng", "icon": "🔌", "industry_key": "gia_dung", "featured": True, "aliases": ("điện gia dụng", "appliances")},
     {"id": "604968", "level": "L1", "zh": "家装建材", "vi": "Nhà cửa, Sửa chữa & Vật liệu (L1)", "icon": "🏡", "industry_key": "nha_cua", "featured": False, "aliases": ("nhà cửa", "sửa chữa nhà", "home improvement")},
     {"id": "604579", "level": "L1", "zh": "五金工具", "vi": "Dụng cụ cơ khí & Kim khí", "icon": "🔧", "industry_key": "oto_xemay", "featured": False, "aliases": ("dụng cụ", "cơ khí", "kim khí", "tools")},
     {"id": "601152", "level": "L1", "zh": "女装与女士内衣", "vi": "Thời trang Nữ & Đồ lót", "icon": "👗", "industry_key": "thoi_trang", "featured": False, "aliases": ("thoi_trang", "thời trang nữ", "quần áo nữ")},
     {"id": "824328", "level": "L1", "zh": "男装与男士内衣", "vi": "Thời trang Nam & Đồ lót", "icon": "👔", "industry_key": "thoi_trang", "featured": False, "aliases": ("thời trang nam", "quần áo nam")},
     {"id": "605248", "level": "L1", "zh": "时尚配件", "vi": "Phụ kiện Thời trang", "icon": "🕶️", "industry_key": "thoi_trang", "featured": False, "aliases": ("phụ kiện thời trang",)},
+    {"id": "905480", "parent_id": "605248", "path": ("605248", "905480"), "level": "L2", "zh": "手表与配件", "vi": "Đồng hồ & Phụ kiện đồng hồ (L2)", "icon": "⏱️", "industry_key": "thoi_trang", "featured": False, "aliases": ("đồng hồ và phụ kiện", "905480")},
+    {"id": "700795", "parent_id": "905480", "path": ("605248", "905480", "700795"), "level": "L3", "zh": "手表配件", "vi": "Dây đeo, Pin & Phụ kiện đồng hồ (L3)", "icon": "⌚", "industry_key": "thoi_trang", "featured": False, "aliases": ("dây đeo đồng hồ", "pin đồng hồ", "phụ kiện đồng hồ", "700795")},
     {"id": "601352", "level": "L1", "zh": "鞋靴", "vi": "Giày dép", "icon": "👟", "industry_key": "thoi_trang", "featured": False, "aliases": ("giày dép", "shoes")},
     {"id": "824584", "level": "L1", "zh": "箱包", "vi": "Túi xách, Balo & Vali", "icon": "👜", "industry_key": "thoi_trang", "featured": False, "aliases": ("túi xách", "balo", "vali")},
     {"id": "602284", "level": "L1", "zh": "母婴用品", "vi": "Mẹ & Bé", "icon": "🍼", "industry_key": "me_be", "featured": False, "aliases": ("me_be", "mẹ và bé", "mẹ & bé", "baby")},
@@ -153,6 +161,11 @@ def resolve_kalodata_category(raw_cat: str | None) -> dict | None:
 def build_kalodata_cate_value_query(cat_meta: dict | None) -> str:
     if not cat_meta or not cat_meta.get("id"):
         return ""
+    raw_path = cat_meta.get("path")
+    if raw_path and isinstance(raw_path, (list, tuple)):
+        p = [str(x).strip() for x in raw_path if str(x).strip()]
+        if p:
+            return quote(json.dumps({p[0]: [p]}, separators=(",", ":")))
     cid = str(cat_meta["id"]).strip()
     pid = str(cat_meta.get("parent_id") or "").strip()
     if pid and pid != cid:
@@ -440,6 +453,32 @@ class KalodataVnHunterService:
         tid = tab.get("id")
         ws = tab["webSocketDebuggerUrl"]
 
+        # If previous pagination hit a gated page locked in tab sessionStorage, open a clean tab
+        stuck_chk = cdp_ws_eval(
+            port,
+            ws,
+            r"""(() => {
+              const dlg = document.querySelector("[role='dialog']");
+              const hasPaywall = Boolean(dlg && /需要会员|升级到|Upgrade/i.test(dlg.innerText || ""));
+              return JSON.stringify({stuck: hasPaywall});
+            })()""",
+        )
+        if stuck_chk.get("stuck"):
+            try:
+                req = urllib.request.Request(f"http://127.0.0.1:{port}/json/new?about:blank", method="PUT")
+                nt = json.loads(urllib.request.urlopen(req, timeout=4).read())
+                urllib.request.urlopen(f"http://127.0.0.1:{port}/json/activate/{nt['id']}", timeout=4).read()
+                if tid:
+                    try:
+                        urllib.request.urlopen(f"http://127.0.0.1:{port}/json/close/{tid}", timeout=4).read()
+                    except Exception:
+                        pass
+                tid = nt["id"]
+                ws = nt["webSocketDebuggerUrl"]
+                tab = nt
+            except Exception:
+                pass
+
         cur_sp = urlsplit(str(tab.get("url") or ""))
         want_sp = urlsplit(target_url)
         want_id = (parse_qs(want_sp.query).get("id") or [""])[0]
@@ -448,7 +487,7 @@ class KalodataVnHunterService:
         cur_cv = (parse_qs(cur_sp.query).get("cateValue") or [""])[0]
         if cur_sp.path.rstrip("/") != want_sp.path.rstrip("/") or want_id != cur_id or want_cv != cur_cv:
             cdp_ws_eval(port, ws, f"location.href = {json.dumps(target_url)}; JSON.stringify({{ok:true}})")
-            time.sleep(3.6)
+            time.sleep(3.8)
             tabs2 = hub.list_tabs(port)
             tab = next((t for t in tabs2 if t.get("id") == tid), None) or next(
                 (t for t in tabs2 if "kalodata.com" in str(t.get("url") or "")),
@@ -636,24 +675,37 @@ class KalodataVnHunterService:
             time.sleep(0.5)
 
     @staticmethod
-    def _clear_search_box(port: int, ws: str) -> None:
+    def _clear_search_box(port: int, ws: str, *, submit_reload: bool = False) -> bool:
         try:
-            cdp_ws_eval(
+            res = cdp_ws_eval(
                 port,
                 ws,
-                r"""(() => {
+                f"""(() => {{
                   const inp = document.querySelector("input[placeholder*='输入'], input[placeholder*='搜索'], input[placeholder*='Search'], input[placeholder*='Enter'], .ant-input-affix-wrapper input.ant-input");
-                  if (inp && inp.value) {
+                  if (!inp || !inp.value) return JSON.stringify({{cleared: false}});
+                  const wrap = inp.parentElement?.parentElement || inp.parentElement;
+                  const clr = wrap ? Array.from(wrap.querySelectorAll("span")).find(s => (s.className || "").includes("cursor-pointer")) : null;
+                  if (clr) {{
+                    clr.click();
+                  }} else {{
                     const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
                     setter.call(inp, "");
+                    inp.dispatchEvent(new Event("input", {{bubbles: true}}));
                     const rpKey = Object.keys(inp).find(k => k.startsWith("__reactProps"));
-                    if (rpKey && inp[rpKey]?.onChange) inp[rpKey].onChange({target: inp, currentTarget: inp});
-                  }
-                  return "{}";
-                })()""",
+                    if (rpKey && inp[rpKey]?.onChange) inp[rpKey].onChange({{target: inp, currentTarget: inp}});
+                  }}
+                  if ({json.dumps(bool(submit_reload))}) {{
+                    const sbtn = wrap ? Array.from(wrap.querySelectorAll("button")).find(b => !b.disabled) : null;
+                    if (sbtn) sbtn.click();
+                  }}
+                  return JSON.stringify({{cleared: true}});
+                }})()""",
             )
+            if res.get("cleared") and submit_reload:
+                time.sleep(3.6)
+            return bool(res.get("cleared"))
         except Exception:
-            pass
+            return False
 
     @staticmethod
     def _set_page_size_if_needed(port: int, ws: str, target_limit: int) -> int:
@@ -742,30 +794,56 @@ class KalodataVnHunterService:
             )
             time.sleep(2.4)
 
+    @staticmethod
+    def _dismiss_paywall_dialog_if_any(port: int, ws: str) -> bool:
+        res = cdp_ws_eval(
+            port,
+            ws,
+            r"""(() => {
+              const dlg = document.querySelector("[role='dialog']");
+              if (!dlg || !/需要会员|升级到|Upgrade/i.test(dlg.innerText || "")) {
+                return JSON.stringify({closed: false});
+              }
+              const btn = dlg.querySelector("button[data-icon-only='true'], [data-slot='dialog-close'], [aria-label='Close']");
+              if (btn) btn.click();
+              dlg.dispatchEvent(new KeyboardEvent("keydown", {key: "Escape", bubbles: true}));
+              return JSON.stringify({closed: true});
+            })()""",
+        )
+        if res.get("closed"):
+            time.sleep(0.45)
+            return True
+        return False
+
     @classmethod
     def _collect_paginated_table_rows(cls, port: int, ws: str, limit: int) -> dict:
-        target_limit = max(1, min(1000, int(limit)))
-        wait_deadline = time.time() + 7.5
+        target_limit = max(1, min(2000, int(limit)))
+        wait_deadline = time.time() + 16.0
         while time.time() < wait_deadline:
+            cls._dismiss_paywall_dialog_if_any(port, ws)
             ready = cdp_ws_eval(
                 port,
                 ws,
                 r"""(() => {
+                  const p1 = Array.from(document.querySelectorAll("button[data-slot='pagination-link']")).find(b => (b.innerText || "").trim() === "1");
+                  const onHigherPage = Boolean(p1 && p1.getAttribute("data-active") !== "true" && p1.getAttribute("aria-current") !== "page");
                   const bodyTxt = document.querySelector("table")?.innerText || "";
-                  const isEmpty = /暂无数据|暂无查询结果|No data|未找到/i.test(document.body?.innerText || bodyTxt);
+                  const isEmpty = !onHigherPage && /暂无数据|暂无查询结果|No data|未找到/i.test(document.body?.innerText || bodyTxt);
                   const rc = Array.from(document.querySelectorAll("table tbody tr:not(.ant-table-measure-row)"))
                     .filter(r => r.querySelectorAll("td").length >= 5).length;
-                  return JSON.stringify({rc, isEmpty});
+                  return JSON.stringify({rc, isEmpty, onHigherPage});
                 })()""",
             )
-            if int(ready.get("rc") or 0) >= 1 or ready.get("isEmpty"):
+            if int(ready.get("rc") or 0) >= 1 or ready.get("isEmpty") or ready.get("onHigherPage"):
                 break
-            time.sleep(0.45)
+            time.sleep(0.5)
 
+        cls._dismiss_paywall_dialog_if_any(port, ws)
         eff_ps = cls._set_page_size_if_needed(port, ws, target_limit)
-        max_pages = max(1, min(25, (target_limit + eff_ps - 1) // max(1, eff_ps)))
+        max_pages = max(1, min(60, (target_limit + eff_ps - 1) // max(1, eff_ps)))
 
-        # Reset pagination to Page 1 if Kalodata persisted a higher page (e.g. rank 51 or 151)
+        # Reset pagination to Page 1 if Kalodata persisted a higher page (e.g. rank 51 or page 10)
+        cls._dismiss_paywall_dialog_if_any(port, ws)
         reset_p1 = cdp_ws_eval(
             port,
             ws,
@@ -779,24 +857,27 @@ class KalodataVnHunterService:
               if (!p1) return JSON.stringify({clicked: false, sig});
               const isAct = p1.getAttribute("data-active") === "true" || p1.getAttribute("aria-current") === "page";
               if (isAct && !rankGt1) return JSON.stringify({clicked: false, sig});
+              try { p1.scrollIntoView({block: "center"}); } catch {}
               p1.click();
               return JSON.stringify({clicked: true, sig});
             })()""",
         )
         if reset_p1.get("clicked"):
             old_sig = str(reset_p1.get("sig") or "")
-            p1_dl = time.time() + 12.0
+            p1_dl = time.time() + 14.0
             while time.time() < p1_dl:
-                time.sleep(0.45)
+                time.sleep(0.5)
+                cls._dismiss_paywall_dialog_if_any(port, ws)
                 c1 = cdp_ws_eval(
                     port,
                     ws,
                     r"""(() => {
-                      const tr = document.querySelector("table tbody tr:not(.ant-table-measure-row)");
-                      return JSON.stringify({sig: (tr?.innerText || "").replace(/\s+/g, " ").trim().slice(0, 120)});
+                      const trs = Array.from(document.querySelectorAll("table tbody tr:not(.ant-table-measure-row)"))
+                        .filter(r => r.querySelectorAll("td").length >= 5);
+                      return JSON.stringify({rc: trs.length, sig: (trs[0]?.innerText || "").replace(/\s+/g, " ").trim().slice(0, 120)});
                     })()""",
                 )
-                if c1.get("sig") and c1.get("sig") != old_sig:
+                if int(c1.get("rc") or 0) >= 1 and (not old_sig or c1.get("sig") != old_sig):
                     break
 
         ths: list[str] = []
@@ -865,8 +946,8 @@ class KalodataVnHunterService:
 
             next_p = page_num + 1
             # Wait briefly if pagination bar is still mounting on full page
-            if len(page_rows) >= eff_ps:
-                for _ in range(4):
+            if len(page_rows) >= min(10, eff_ps):
+                for _ in range(12):
                     has_pb = cdp_ws_eval(
                         port,
                         ws,
@@ -874,7 +955,7 @@ class KalodataVnHunterService:
                     )
                     if int(has_pb.get("n") or 0) > 0:
                         break
-                    time.sleep(0.45)
+                    time.sleep(0.5)
 
             moved = cdp_ws_eval(
                 port,
@@ -897,8 +978,12 @@ class KalodataVnHunterService:
             if not moved.get("moved"):
                 break
             dl = time.time() + 16.0
+            hit_paywall = False
             while time.time() < dl:
                 time.sleep(0.55)
+                if cls._dismiss_paywall_dialog_if_any(port, ws):
+                    hit_paywall = True
+                    break
                 chk = cdp_ws_eval(
                     port,
                     ws,
@@ -911,6 +996,17 @@ class KalodataVnHunterService:
                 )
                 if not chk.get("loading") and chk.get("sig") and chk.get("sig") != first_sig_before:
                     break
+            if hit_paywall:
+                cdp_ws_eval(
+                    port,
+                    ws,
+                    r"""(() => {
+                      const p1 = Array.from(document.querySelectorAll("button[data-slot='pagination-link']")).find(b => (b.innerText || "").trim() === "1");
+                      if (p1) p1.click();
+                      return "{}";
+                    })()""",
+                )
+                break
 
         return {"ths": ths, "rows": collected[:target_limit]}
 
@@ -932,7 +1028,9 @@ class KalodataVnHunterService:
             self._select_window_if_needed(port, ws, window_spec)
             if clean_kw:
                 self._run_ime_safe_search(port, ws, clean_kw)
-            raw = self._collect_paginated_table_rows(port, ws, limit=max(1, min(1000, int(limit))))
+            else:
+                self._clear_search_box(port, ws, submit_reload=True)
+            raw = self._collect_paginated_table_rows(port, ws, limit=max(1, min(2000, int(limit))))
         finally:
             if clean_kw:
                 self._clear_search_box(port, ws)
@@ -1056,7 +1154,9 @@ class KalodataVnHunterService:
             self._select_window_if_needed(port, ws, window_spec)
             if clean_kw:
                 self._run_ime_safe_search(port, ws, clean_kw)
-            raw = self._collect_paginated_table_rows(port, ws, limit=max(1, min(1000, int(limit))))
+            else:
+                self._clear_search_box(port, ws, submit_reload=True)
+            raw = self._collect_paginated_table_rows(port, ws, limit=max(1, min(2000, int(limit))))
         finally:
             if clean_kw:
                 self._clear_search_box(port, ws)
@@ -1493,6 +1593,7 @@ class KalodataVnHunterService:
         *,
         keywords: list[str] | None = None,
         category_id: str = "",
+        category_ids: list[str] | None = None,
         window_spec: str = "7d",
         limit_products: int = 20,
         limit_videos: int = 15,
@@ -1505,12 +1606,20 @@ class KalodataVnHunterService:
         jev_limit: int = 12,
     ) -> dict:
         if fetch_all or int(limit_products or 0) >= 500:
-            limit_products = 1000 if fetch_all else max(500, int(limit_products or 1000))
+            limit_products = 2000 if fetch_all else max(500, int(limit_products or 2000))
             limit_videos = 1000 if fetch_all else max(500, int(limit_videos or 500))
             ingest_all = True
         clean_kws = [str(k).strip() for k in (keywords or []) if str(k).strip()][:8]
-        cat_meta = resolve_kalodata_category(category_id) if str(category_id or "").strip() else None
-        if not clean_kws and not cat_meta:
+        raw_cids = [str(c).strip() for c in ([category_id] if str(category_id or "").strip() else []) + list(category_ids or []) if str(c).strip()]
+        cat_metas: list[dict] = []
+        seen_cids: set[str] = set()
+        for rc in raw_cids:
+            cm = resolve_kalodata_category(rc)
+            if cm and cm["id"] not in seen_cids:
+                seen_cids.add(cm["id"])
+                cat_metas.append(cm)
+        cat_meta = cat_metas[0] if cat_metas else None
+        if not clean_kws and not cat_metas:
             raise ApiError("400 Bad Request", "Vui lòng chọn ít nhất 1 Ngành hàng Kalodata VN hoặc nhập Từ khoá cần quét.")
 
         win = window_spec if window_spec in ("7d", "30d", "90d") else "7d"
@@ -1542,37 +1651,41 @@ class KalodataVnHunterService:
                     v["classification"] = classify_kalodata_hunted_video(v)
         else:
             with self._lock_ref():
+                cat_targets: list[dict | None] = cat_metas if cat_metas else [None]
                 search_targets = clean_kws if clean_kws else [""]
-                for kw in search_targets:
-                    prods, rng = self.scrape_kalodata_products(
-                        kw,
-                        category_meta=cat_meta,
-                        window_spec=win,
-                        limit=limit_products,
-                    )
-                    range_label = rng or range_label
-                    seen_p = {x["native_product_id"] for x in all_products}
-                    for pr in prods:
-                        if pr["native_product_id"] not in seen_p:
-                            seen_p.add(pr["native_product_id"])
-                            all_products.append(pr)
-                    if include_videos:
-                        vids, crs = self.scrape_kalodata_videos(
+                for cm in cat_targets:
+                    for kw in search_targets:
+                        prods, rng = self.scrape_kalodata_products(
                             kw,
-                            category_meta=cat_meta,
+                            category_meta=cm,
                             window_spec=win,
-                            limit=limit_videos,
+                            limit=limit_products,
                         )
-                        seen_v = {x["native_video_id"] for x in all_videos}
-                        for vd in vids:
-                            if vd["native_video_id"] not in seen_v:
-                                seen_v.add(vd["native_video_id"])
-                                all_videos.append(vd)
-                        seen_c = {x["handle"].lower() for x in all_creators}
-                        for cr in crs:
-                            if cr["handle"].lower() not in seen_c:
-                                seen_c.add(cr["handle"].lower())
-                                all_creators.append(cr)
+                        range_label = rng or range_label
+                        seen_p = {x["native_product_id"] for x in all_products}
+                        for pr in prods:
+                            if pr["native_product_id"] not in seen_p:
+                                pr["rank"] = len(all_products) + 1
+                                seen_p.add(pr["native_product_id"])
+                                all_products.append(pr)
+                        if include_videos:
+                            vids, crs = self.scrape_kalodata_videos(
+                                kw,
+                                category_meta=cm,
+                                window_spec=win,
+                                limit=limit_videos,
+                            )
+                            seen_v = {x["native_video_id"] for x in all_videos}
+                            for vd in vids:
+                                if vd["native_video_id"] not in seen_v:
+                                    vd["rank"] = len(all_videos) + 1
+                                    seen_v.add(vd["native_video_id"])
+                                    all_videos.append(vd)
+                            seen_c = {x["handle"].lower() for x in all_creators}
+                            for cr in crs:
+                                if cr["handle"].lower() not in seen_c:
+                                    seen_c.add(cr["handle"].lower())
+                                    all_creators.append(cr)
 
         persisted = self.persist_kalodata_to_vault(
             all_products,
@@ -1594,15 +1707,16 @@ class KalodataVnHunterService:
 
         run_id = f"klh_{uuid.uuid4().hex[:12]}"
         ts = now()
-        hunt_mode = "category_and_keyword" if (cat_meta and clean_kws) else ("category_only" if cat_meta else "keyword_only")
+        hunt_mode = "category_and_keyword" if (cat_metas and clean_kws) else ("category_only" if cat_metas else "keyword_only")
         payload = {
             "ok": True,
             "run_id": run_id,
             "hunt_mode": hunt_mode,
-            "category_id": cat_meta["id"] if cat_meta else "",
-            "category_label_vi": cat_meta["vi"] if cat_meta else "",
+            "category_id": ",".join(c["id"] for c in cat_metas) if cat_metas else "",
+            "category_ids": [c["id"] for c in cat_metas],
+            "category_label_vi": " + ".join(c["vi"] for c in cat_metas) if cat_metas else "",
             "keywords": clean_kws,
-            "display_targets": ([f"{cat_meta['icon']} {cat_meta['vi']}"] if cat_meta else []) + clean_kws,
+            "display_targets": [f"{c['icon']} {c['vi']}" for c in cat_metas] + clean_kws,
             "market": "VN",
             "window_spec": win,
             "window_range_label": range_label,
@@ -1695,8 +1809,9 @@ class KalodataVnHunterService:
         buf = io.StringIO()
         w = csv.writer(buf)
         w.writerow([
-            "rank", "native_product_id", "product_title", "price_vnd", "gmv_total_vnd", "gmv_total_display",
-            "gmv_growth_pct", "units_sold_window", "video_gmv_vnd", "live_gmv_vnd", "mall_card_gmv_vnd",
+            "rank", "native_product_id", "category_id", "category_label_vi", "product_title", "price_vnd",
+            "gmv_total_vnd", "gmv_total_display", "gmv_growth_pct", "units_sold_window",
+            "video_gmv_vnd", "live_gmv_vnd", "mall_card_gmv_vnd",
             "commission_pct", "active_creators_count", "creator_conversion_rate_pct", "rating", "launch_date",
             "suitability_label", "canonical_url", "kalodata_detail_url",
         ])
@@ -1704,6 +1819,8 @@ class KalodataVnHunterService:
             w.writerow([
                 p.get("rank"),
                 safe_csv_cell(p.get("native_product_id")),
+                safe_csv_cell(p.get("category_id")),
+                safe_csv_cell(p.get("category_label_vi")),
                 safe_csv_cell(p.get("product_title")),
                 p.get("price_vnd"),
                 p.get("gmv_total_vnd"),
@@ -1749,11 +1866,19 @@ class KalodataVnHunterService:
                 kws = [str(s).strip() for s in raw_kws if str(s).strip()]
             else:
                 kws = []
+            raw_cids = b.get("category_ids")
+            if isinstance(raw_cids, str):
+                cids = [s.strip() for s in re.split(r"[\n,;]+", raw_cids) if s.strip()]
+            elif isinstance(raw_cids, list):
+                cids = [str(s).strip() for s in raw_cids if str(s).strip()]
+            else:
+                cids = []
             lim_p = int(b.get("limit_products") or 20)
             lim_v = int(b.get("limit_videos") or (lim_p if lim_p >= 100 else 15))
             return "200 OK", self.run_kalodata_vn_hunt(
                 keywords=kws,
                 category_id=str(b.get("category_id") or ""),
+                category_ids=cids,
                 window_spec=str(b.get("window_spec") or "7d"),
                 limit_products=lim_p,
                 limit_videos=lim_v,
